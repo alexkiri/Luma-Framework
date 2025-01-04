@@ -2404,7 +2404,7 @@ namespace
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
       if (LDR_textures_upgrade_requested_format != LDR_textures_upgrade_confirmed_format)
       {
-         desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+         desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
          if (LDR_textures_upgrade_requested_format == RE::ETEX_Format::eTF_R8G8B8A8)
          {
             desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm;
