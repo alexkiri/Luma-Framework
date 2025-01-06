@@ -3371,10 +3371,7 @@ namespace
                   custom_const_buffer_data_1 = 1;
                }
                SetLumaConstantBuffers(native_device_context, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaSettings);
-               if (device_data.cb_luma_instance_data.CustomData1 != custom_const_buffer_data_1 || device_data.cb_luma_instance_data.CustomData2 != custom_const_buffer_data_2) // Optional optimization
-               {
-                  SetLumaConstantBuffers(native_device_context, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData, custom_const_buffer_data_1, custom_const_buffer_data_2);
-               }
+               SetLumaConstantBuffers(native_device_context, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData, custom_const_buffer_data_1, custom_const_buffer_data_2);
             }
 
             // Set UI texture
