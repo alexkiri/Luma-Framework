@@ -80,7 +80,7 @@ void main(
   totalWeight += psWeights[7].x;
 
   // See shader 0xB969DC27 to explanation
-  if (LumaData.CustomData != 0 && validWeight != 0.0)
+  if (LumaData.CustomData1 != 0 && validWeight != 0.0)
   {
     sum.rgb *= totalWeight / validWeight; // Leave the alpha as it was, we want that
   }

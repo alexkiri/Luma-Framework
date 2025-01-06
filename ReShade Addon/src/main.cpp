@@ -2634,7 +2634,7 @@ namespace
 #if DEVELOPMENT
          if (LDR_textures_upgrade_requested_format != LDR_textures_upgrade_confirmed_format)
          {
-            UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+            UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
             DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
             if (LDR_textures_upgrade_requested_format == RE::ETEX_Format::eTF_R8G8B8A8)
             {
@@ -3126,7 +3126,6 @@ namespace
       device_context->OMSetRenderTargets(1, &target_resource_texture_view, nullptr);
       device_context->VSSetShader(vs, nullptr, 0);
       device_context->PSSetShader(ps, nullptr, 0);
-      device_context->PSSetSamplers(0, 1, ps_sampler_state);
       device_context->IASetInputLayout(nullptr);
       device_context->RSSetState(nullptr);
 

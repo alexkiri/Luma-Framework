@@ -60,7 +60,7 @@ void main(
   // Generally this looks better, though in some cases this can make it look worse, as color+alpha gradients fade out next to gradients that already went to black earlier because of this change (and thus their meeting point has a step).
   // This also kinda makes the assumption that there isn't anything pure black in the scene, but it's a good assumption, there never is, if necessary, we could encode the alpha to -1 for these texels (the ones that had no SSR calculated at all), and exclusively skip these.
   // Note that this can make reflections RGB color flicker a bit (due to TAA jitters), but once multiplied by the alpha, the flicker won't be visible anymore.
-  if (LumaData.CustomData != 0 && validColorCount != 0.0)
+  if (LumaData.CustomData1 != 0 && validColorCount != 0.0)
   {
     colorSum.rgb /= validColorCount;
     colorSum.a /= 5.0;

@@ -1,12 +1,13 @@
 #include "include/ColorGradingLUT.hlsl" // Use this as it has some gamma correction helpers
 
-Texture2D<float4> sourceTexture : register(t0);
-Texture2D<float4> debugTexture : register(t1);
+Texture2D<float4> sourceTexture : register(t0); //TODOFT: rename to scene and call this final shader?
+Texture2D<float4> uiTexture : register(t1); // Pre-multiplied UI
+Texture2D<float4> debugTexture : register(t2);
 
 // Custom Luma shader to apply the display (or output) transfer function from a linear input (or apply custom gamma correction)
 float4 main(float4 pos : SV_Position0) : SV_Target0
 {
-	// We can't account for the UI paper white at this point
+	// Generic paper white for when we can't account for the UI paper white
 	const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
 
 #if DEVELOPMENT
@@ -17,13 +18,13 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 	if (debugWidth != 0 && debugHeight != 0)
     {
 		float2 resolutionScale = 1.0;
-		bool fullscreen = (LumaData.CustomData & (1 << 0)) != 0;
-        bool renderResolutionScale = (LumaData.CustomData & (1 << 1)) != 0;
-        bool showAlpha = (LumaData.CustomData & (1 << 2)) != 0;
-        bool premultiplyAlpha = (LumaData.CustomData & (1 << 3)) != 0;
-		bool invertColors = (LumaData.CustomData & (1 << 4)) != 0;
-        bool gammaToLinear = (LumaData.CustomData & (1 << 5)) != 0;
-        bool linearToGamma = (LumaData.CustomData & (1 << 6)) != 0;
+		bool fullscreen = (LumaData.CustomData2 & (1 << 0)) != 0;
+        bool renderResolutionScale = (LumaData.CustomData2 & (1 << 1)) != 0;
+        bool showAlpha = (LumaData.CustomData2 & (1 << 2)) != 0;
+        bool premultiplyAlpha = (LumaData.CustomData2 & (1 << 3)) != 0;
+		bool invertColors = (LumaData.CustomData2 & (1 << 4)) != 0;
+        bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
+        bool linearToGamma = (LumaData.CustomData2 & (1 << 6)) != 0;
 		bool backgroundPassthrough = false;
 
 		if (fullscreen) // Stretch to fullscreen
@@ -78,8 +79,58 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 
 	float4 color = sourceTexture.Load((int3)pos.xyz);
 
+	// This case means the game currently doesn't have Luma custom shaders built in (fallback in case of problems), or manually unloaded, so the value of most macro defines doesn't matter (we don't want it to)
+	if (LumaData.CustomData1 != 0)
+	{
+		// SDR (on SDR)
+		if (LumaSettings.DisplayMode <= 0)
+		{
+			color.rgb = gamma_sRGB_to_linear(color.rgb, GCT_SATURATE);
+		}
+		// HDR (we assume this is the default case for Luma users/devs, this isn't an officially supported case anyway)
+		else
+		{
+			// Forcefully linearize with gamma 2.2 outside of a dev environment (gamma correction) (the default setting)
+#if GAMMA_CORRECTION_TYPE <= 0 && DEVELOPMENT
+			color.rgb = gamma_sRGB_to_linear(color.rgb, GCT_MIRROR);
+#else // GAMMA_CORRECTION_TYPE >= 1
+			color.rgb = gamma_to_linear(color.rgb, GCT_MIRROR);
+#endif // GAMMA_CORRECTION_TYPE <= 0
+			if (LumaSettings.DisplayMode >= 2)
+				color.rgb = saturate(color.rgb);
+			color.rgb *= paperWhite;
+		}
+		return float4(color.rgb, color.a);
+	}
+	
+#if 0
+	// Blend in UI
+    const float gamePaperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
+    const float UIPaperWhite = LumaSettings.UIPaperWhiteNits / sRGB_WhiteLevelNits;
+	float3 sceneColorGamma = linear_to_gamma(color.rgb, GCT_MIRROR);
+	float3 uiRelativeColor = color.rgb * (gamePaperWhite / UIPaperWhite);
+    float3 sceneColorGammaTonemapped = linear_to_gamma((uiRelativeColor / (uiRelativeColor + 1.f)) / (gamePaperWhite / UIPaperWhite), GCT_MIRROR); // Tonemap the UI background based on the UI intensity to avoid bright backgrounds (e.g. sun) burning through the UI
+	float3 UIInverseInfluence = 1.0;
+	float4 UIColor = uiTexture.Load((int3)pos.xyz);
+    float UIIntensity = saturate(UIColor.a);
+	sceneColorGamma *= pow(gamePaperWhite, 1.0 / 2.2);
+	sceneColorGammaTonemapped *= pow(gamePaperWhite, 1.0 / 2.2);
+	UIColor.rgb *= pow(UIPaperWhite, 1.0 / 2.2);
+	// Darken the scene background based on the UI intensity
+	float3 composedColor = lerp(sceneColorGamma, sceneColorGammaTonemapped, UIIntensity) * (1.0 - UIIntensity);
+    // Calculate how much the additive UI influenced the darkened scene color, so we can determine the intensity to blend the composed color with the scene paper white (it's better to calculate this in gamma space)
+	UIInverseInfluence = safeDivision(composedColor, composedColor + UIColor.rgb, 1); //TODO: handle negative colors?
+	// Add pre-multiplied UI
+	composedColor += UIColor.rgb;
+	
+	float3 compositionPaperWhite = lerp(pow(UIPaperWhite, 1.0 / 2.2), pow(gamePaperWhite, 1.0 / 2.2), UIInverseInfluence);
+	composedColor /= compositionPaperWhite;
+
+  	color.rgb = gamma_to_linear(composedColor, GCT_MIRROR) * pow(compositionPaperWhite, 2.2);
+#endif
+
 	// SDR: In this case, paper white (game and UI) would have been 80 nits (neutral for SDR, thus having a value of 1)
-	if (LumaSettings.DisplayMode == 0)
+	if (LumaSettings.DisplayMode <= 0)
 	{
 		color.rgb = saturate(color.rgb); // Optional, but saves performance on the gamma pows below (the vanilla SDR tonemapper might have retained some values beyond 1 so we want to clip them anyway, for a "reliable" SDR look)
 
@@ -96,7 +147,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		color.rgb = gamma_sRGB_to_linear(color.rgb, GCT_NONE);
 	}
 	// HDR and SDR in HDR: in this case the UI paper white would have already been mutliplied in, relatively to the game paper white, so we only apply the game paper white.
-	else if (LumaSettings.DisplayMode == 1 || LumaSettings.DisplayMode == 2)
+	else if (LumaSettings.DisplayMode == 1 || LumaSettings.DisplayMode >= 2)
 	{
 #if POST_PROCESS_SPACE_TYPE != 1 // Gamma->Linear space
 
@@ -147,27 +198,8 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #endif // POST_PROCESS_SPACE_TYPE != 1
 
 #if 0 // Optionally clip in SDR to properly emulate SDR
-		if (LumaSettings.DisplayMode == 1)
-			color.rgb = saturate(color.rgb);
-#endif
-	}
-	// This case means the game currently doesn't have Luma custom shaders built in (fallback in case of problems), so the value of most macro defines doesn't matter (we don't want it to)
-	else
-	{
-#if 1 // HDR (we assume this is the default case for Luma users/devs, this isn't an officially supported case anyway) (if we wanted we could still check Luma defines or cbuffer settings)
-
-		// Forcefully linearize with gamma 2.2 outside of a dev environment (gamma correction) (the default setting)
-#if GAMMA_CORRECTION_TYPE <= 0 && DEVELOPMENT
-		color.rgb = gamma_sRGB_to_linear(color.rgb, GCT_MIRROR);
-#else // GAMMA_CORRECTION_TYPE >= 1
-  		color.rgb = gamma_to_linear(color.rgb, GCT_MIRROR);
-#endif // GAMMA_CORRECTION_TYPE <= 0
-		color.rgb *= paperWhite;
-
-#else // SDR (on SDR) //TODOFT: set the dispay mode to -1 and -2 to branch on this live, for better quick SDR/HDR Luma comparisons
-
-		color.rgb = gamma_sRGB_to_linear(color.rgb, GCT_SATURATE);
-
+		if (LumaSettings.DisplayMode == 2)
+			color.rgb = saturate(color.rgb / paperWhite) * paperWhite;
 #endif
 	}
 
