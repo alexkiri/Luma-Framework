@@ -9,12 +9,37 @@ namespace
 
    struct uint2
    {
-      uint32_t x;
-      uint32_t y;
+      uint x;
+      uint y;
 
       friend bool operator==(const uint2& lhs, const uint2& rhs)
       {
          return lhs.x == rhs.x && lhs.y == rhs.y;
+      }
+   };
+
+   struct uint3
+   {
+      uint x;
+      uint y;
+      uint z;
+
+      friend bool operator==(const uint3& lhs, const uint3& rhs)
+      {
+         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+      }
+   };
+
+   struct uint4
+   {
+      uint x;
+      uint y;
+      uint z;
+      uint w;
+
+      friend bool operator==(const uint4& lhs, const uint4& rhs)
+      {
+         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
       }
    };
 
@@ -138,12 +163,11 @@ namespace
    static_assert(sizeof(LumaFrameSettings) % (sizeof(uint32_t) * 4) == 0); // Needed by DX?
    static_assert(sizeof(LumaFrameSettings) >= 16); // Needed by DX (there's a minimum size of 16 byte)
 
-   //TODOFT: rename to PassData or something
-   struct LumaFrameData
+   struct LumaInstanceData
    {
       uint32_t PostEarlyUpscaling;
-      uint32_t CustomData; // Per call data
-      uint32_t Padding;
+      uint32_t CustomData1; // Per call/instance data
+      uint32_t CustomData2; // Per call/instance data
       uint32_t FrameIndex;
       float2 CameraJitters;
       float2 PreviousCameraJitters;
@@ -155,9 +179,9 @@ namespace
 #endif
       Matrix44A ReprojectionMatrix;
    };
-   static_assert(sizeof(LumaFrameData) % sizeof(uint32_t) == 0);
-   static_assert(sizeof(LumaFrameData) % (sizeof(uint32_t) * 4) == 0);
-   static_assert(sizeof(LumaFrameData) >= 16);
+   static_assert(sizeof(LumaInstanceData) % sizeof(uint32_t) == 0);
+   static_assert(sizeof(LumaInstanceData) % (sizeof(uint32_t) * 4) == 0);
+   static_assert(sizeof(LumaInstanceData) >= 16);
 
    struct LumaUIData
    {

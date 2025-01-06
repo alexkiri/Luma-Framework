@@ -201,7 +201,7 @@ namespace utils::shader::compiler
                }
                if (SUCCEEDED(result) && preprocessed_blob != nullptr)
                {
-                  std::string prepocessed_blob_string;  // TODO: there's probably a more optimized way of finding the blob's hash
+                  std::string prepocessed_blob_string; // TODO: there's probably a more optimized way of finding the blob's hash
                   prepocessed_blob_string.assign(reinterpret_cast<char*>(preprocessed_blob->GetBufferPointer()));
                   std::size_t new_preprocessed_hash = std::hash<std::string>{}(prepocessed_blob_string);
                   if (preprocessed_hash == new_preprocessed_hash)
