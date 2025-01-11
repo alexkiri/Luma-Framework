@@ -542,6 +542,18 @@ namespace
 
    struct TraceDrawCallData
    {
+      enum TraceDrawCallType
+      {
+         // Any type of shader
+         Shader,
+         // Copy resource and similar function
+         CopyResource,
+         ClearResource,
+         CPUWrite,
+      };
+
+      TraceDrawCallType type = TraceDrawCallType::Shader;
+
 #if 1 // For now add a new "TraceDrawCallData" per shader (e.g. one for vertex and one for pixel, instead of doing it per draw call), this is due to legacy code that would require too much refactor
       uint64_t pipeline_handle = 0;
 #else
@@ -549,21 +561,31 @@ namespace
       ShaderHashesList shader_hashes;
 #endif
 
-      com_ptr<ID3D11DeviceContext> command_list;
-      std::thread::id thread_id;
+      // The original command list (can be useful to have later)
+      com_ptr<ID3D11DeviceContext> command_list = nullptr;
+      // The thread this call was made on (usually 1:1 with deferred (async) command lists)
+      std::thread::id thread_id = {};
 
+      // Depth/Stencil
+      bool depth_enabled = false;
+      bool stencil_enabled = false;
+      bool scissors = false;
+      float4 viewport_0 = {};
       // Render Target
       D3D11_BLEND_DESC blend_desc = {};
-      DXGI_FORMAT rtv_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-      DXGI_FORMAT rt_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+      DXGI_FORMAT rtv_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the view
+      DXGI_FORMAT rt_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the resource
       uint3 rt_size[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+      std::string rt_hash[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
       bool rt_is_swapchain[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
       // Shader Resource Views
-      DXGI_FORMAT srv_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-      uint3 srv_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-      // Unordered Access Views
-      DXGI_FORMAT uav_format[D3D11_1_UAV_SLOT_COUNT] = {};
-      uint3 uav_size[D3D11_1_UAV_SLOT_COUNT] = {};
+      DXGI_FORMAT sr_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+      uint3 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the resource, not the view
+      std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+      // Unordered Access (Resource) Views
+      DXGI_FORMAT uar_format[D3D11_1_UAV_SLOT_COUNT] = {};
+      uint3 uar_size[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource, not the view
+      std::string uar_hash[D3D11_1_UAV_SLOT_COUNT] = {};
    };
 
    struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
@@ -574,11 +596,15 @@ namespace
       std::thread thread_auto_loading;
       std::atomic<bool> thread_auto_loading_running = false;
 
-      std::unordered_set<uint64_t> upgraded_resources;
+      std::unordered_set<uint64_t> upgraded_resources; // All the upgraded resources, excluding the swapchains backbuffers, as they are created internally by DX
 
       std::unordered_set<reshade::api::swapchain*> swapchains;
       std::unordered_set<uint64_t> back_buffers;
-      ID3D11Device* native_device; // Doesn't need mutex, always valid given it's a ptr to itself
+      ID3D11Device* native_device = nullptr; // Doesn't need mutex, always valid given it's a ptr to itself
+#if DEVELOPMENT
+      ID3D11DeviceContext* primary_command_list = nullptr; // The immediate/primary command list is always valid
+      struct CommandListData* primary_command_list_data = nullptr; // The immediate/primary command list is always valid // Forward declared
+#endif // DEVELOPMENT
 
       com_ptr<IDXGISwapChain3> GetMainNativeSwapchain() const
       {
@@ -928,7 +954,8 @@ namespace
       PreMultiplyAlpha = 1 << 3,
       InvertColors = 1 << 4,
       LinearToGamma = 1 << 5,
-      GammaToLinear = 1 << 6
+      GammaToLinear = 1 << 6,
+      FlipY = 1 << 7,
    };
    uint32_t debug_draw_shader_hash = 0;
    char debug_draw_shader_hash_string[HASH_CHARACTERS_LENGTH + 1] = {};
@@ -1095,8 +1122,8 @@ namespace
    void DumpShader(uint32_t shader_hash, bool auto_detect_type);
    void AutoDumpShaders();
    void AutoLoadShaders(DeviceData* device_data);
-   void GetResourceSizeAndFormat(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format);
-   void GetResourceSizeAndFormat(ID3D11View* view, uint3& size, DXGI_FORMAT& format);
+   void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format, std::string* hash);
+   void GetResourceInfo(ID3D11View* view, uint3& size, DXGI_FORMAT& format, std::string* hash);
    com_ptr<ID3D11Texture2D> CloneTexture2D(ID3D11Device* native_device, ID3D11Resource* texture_2d_resource, DXGI_FORMAT overridden_format, bool black_initial_data, bool copy_data, ID3D11DeviceContext* native_device_context);
 
    // Quick and unsafe. Passing in the hash instead of the string is the only way make sure strings hashes are calculate them at compile time.
@@ -1682,14 +1709,15 @@ namespace
                size_t first_hash_pos = file_path_cso.find(L"0x");
                if (first_hash_pos != std::string::npos)
                {
-                  // Remove all the non first shader hashes in the file (and anything in between them)
+                  // Remove all the non first shader hashes in the file (and anything in between them),
+                  // we then replace the first hash with our target one
                   size_t prev_hash_pos = first_hash_pos;
                   size_t next_hash_pos = file_path_cso.find(L"0x", prev_hash_pos + 1);
                   while (next_hash_pos != std::string::npos && (file_path_cso.length() - next_hash_pos) >= 10)
                   {
                      file_path_cso = file_path_cso.substr(0, prev_hash_pos + 10) + file_path_cso.substr(next_hash_pos + 10);
-                     next_hash_pos = file_path_cso.find(L"0x", next_hash_pos + 1);
-                     prev_hash_pos = next_hash_pos;
+                     prev_hash_pos = first_hash_pos;
+                     next_hash_pos = file_path_cso.find(L"0x", prev_hash_pos + 1);
                   }
                   file_path_cso.replace(first_hash_pos + 2 /*0x*/, HASH_CHARACTERS_LENGTH, hash_wstring.c_str());
                }
@@ -2139,8 +2167,39 @@ namespace
       if (is_valid)
       {
          const auto pipeline = pipeline_pair->second;
+         if (pipeline->HasPixelShader() || pipeline->HasComputeShader())
+         {
+            UINT scissor_viewport_num;
+            native_device_context->RSGetScissorRects(&scissor_viewport_num, nullptr); // This will get the number of scissor rects used
+            UINT scissor_viewport_num_max = min(scissor_viewport_num, 1);
+            D3D11_RECT scissor_rects;
+            native_device_context->RSGetScissorRects(&scissor_viewport_num_max, &scissor_rects);
+            if (scissor_viewport_num_max >= 1)
+            {
+               trace_draw_call_data.scissors = true;
+            }
+
+            native_device_context->RSGetViewports(&scissor_viewport_num, nullptr); // This will get the number of viewports used
+            scissor_viewport_num_max = min(scissor_viewport_num, 1);
+            D3D11_VIEWPORT viewport;
+            native_device_context->RSGetViewports(&scissor_viewport_num_max, &viewport);
+            if (scissor_viewport_num_max >= 1)
+            {
+               trace_draw_call_data.viewport_0 = { viewport.TopLeftX, viewport.TopLeftY, viewport.Width, viewport.Height };
+            }
+         }
          if (pipeline->HasPixelShader())
          {
+            com_ptr<ID3D11DepthStencilState> depth_stencil_state;
+            native_device_context->OMGetDepthStencilState(&depth_stencil_state, nullptr);
+            if (depth_stencil_state)
+            {
+               D3D11_DEPTH_STENCIL_DESC depth_stencil_desc;
+               depth_stencil_state->GetDesc(&depth_stencil_desc);
+               trace_draw_call_data.depth_enabled = depth_stencil_desc.DepthEnable;
+               trace_draw_call_data.stencil_enabled = depth_stencil_desc.StencilEnable;
+            }
+
             com_ptr<ID3D11BlendState> blend_state;
             native_device_context->OMGetBlendState(&blend_state, nullptr, nullptr);
             if (blend_state)
@@ -2154,7 +2213,8 @@ namespace
 
             com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
             com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_PS_CS_UAV_REGISTER_COUNT];
-            native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], nullptr, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &uavs[0]);
+            com_ptr<ID3D11DepthStencilView> dsv;
+            native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &uavs[0]);
             for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
             {
                if (rtvs[i] != nullptr)
@@ -2166,21 +2226,28 @@ namespace
                   rtvs[i]->GetResource(&rt_resource);
                   if (rt_resource)
                   {
-                     trace_draw_call_data.rt_is_swapchain[i] = device_data.back_buffers.contains((uint64_t)rt_resource.get());
-                     GetResourceSizeAndFormat(rt_resource.get(), trace_draw_call_data.rt_size[i], trace_draw_call_data.rt_format[i]);
-                     }
+                     // If any of the set RTs are the swapchain, set it to true
+                     trace_draw_call_data.rt_is_swapchain[i] |= device_data.back_buffers.contains((uint64_t)rt_resource.get());
+                     GetResourceInfo(rt_resource.get(), trace_draw_call_data.rt_size[i], trace_draw_call_data.rt_format[i], &trace_draw_call_data.rt_hash[i]);
                   }
                }
+            }
+            // These would likely get ignored if they weren't set, so clear them
+            if (!dsv)
+            {
+               trace_draw_call_data.depth_enabled = false;
+               trace_draw_call_data.stencil_enabled = false;
+            }
             for (UINT i = 0; i < D3D11_PS_CS_UAV_REGISTER_COUNT; i++)
             {
-               GetResourceSizeAndFormat(uavs[i].get(), trace_draw_call_data.uav_size[i], trace_draw_call_data.uav_format[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.uar_size[i], trace_draw_call_data.uar_format[i], &trace_draw_call_data.uar_hash[i]);
             }
 
             com_ptr<ID3D11ShaderResourceView> srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT];
             native_device_context->PSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
             for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
             {
-               GetResourceSizeAndFormat(srvs[i].get(), trace_draw_call_data.srv_size[i], trace_draw_call_data.srv_format[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
             }
          }
          else if (pipeline->HasVertexShader())
@@ -2189,7 +2256,7 @@ namespace
             native_device_context->VSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
             for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
             {
-               GetResourceSizeAndFormat(srvs[i].get(), trace_draw_call_data.srv_size[i], trace_draw_call_data.srv_format[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
             }
          }
          else if (pipeline->HasComputeShader())
@@ -2198,14 +2265,14 @@ namespace
             native_device_context->CSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
             for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
             {
-               GetResourceSizeAndFormat(srvs[i].get(), trace_draw_call_data.srv_size[i], trace_draw_call_data.srv_format[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
             }
 
             com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_1_UAV_SLOT_COUNT];
             native_device_context->CSGetUnorderedAccessViews(0, D3D11_1_UAV_SLOT_COUNT, &uavs[0]);
             for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
             {
-               GetResourceSizeAndFormat(uavs[i].get(), trace_draw_call_data.uav_size[i], trace_draw_call_data.uav_format[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.uar_size[i], trace_draw_call_data.uar_format[i], &trace_draw_call_data.uar_hash[i]);
             }
          }
       }
@@ -2213,10 +2280,14 @@ namespace
       trace_draw_calls_data.push_back(trace_draw_call_data);
    }
 
-   void GetResourceSizeAndFormat(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format)
+   void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr)
    {
       size = { };
       format = DXGI_FORMAT_UNKNOWN;
+      if (hash)
+      {
+         *hash = "";
+      }
       if (!resource) return;
       // Go in order of popularity
       com_ptr<ID3D11Texture2D> texture_2d;
@@ -2227,6 +2298,10 @@ namespace
          texture_2d->GetDesc(&texture_2d_desc);
          size = uint3{ texture_2d_desc.Width, texture_2d_desc.Height, 0 };
          format = texture_2d_desc.Format;
+         if (hash)
+         {
+            *hash = std::to_string(std::hash<void*>{}(resource));
+         }
          return;
       }
       com_ptr<ID3D11Texture3D> texture_3d;
@@ -2237,6 +2312,10 @@ namespace
          texture_3d->GetDesc(&texture_3d_desc);
          size = uint3{ texture_3d_desc.Width, texture_3d_desc.Height, texture_3d_desc.Depth };
          format = texture_3d_desc.Format;
+         if (hash)
+         {
+            *hash = std::to_string(std::hash<void*>{}(resource));
+         }
          return;
       }
       com_ptr<ID3D11Texture1D> texture_1d;
@@ -2247,19 +2326,23 @@ namespace
          texture_1d->GetDesc(&texture_1d_desc);
          size = uint3{ texture_1d_desc.Width, 0, 0 };
          format = texture_1d_desc.Format;
+         if (hash)
+         {
+            *hash = std::to_string(std::hash<void*>{}(resource));
+         }
          return;
       }
    }
-   void GetResourceSizeAndFormat(ID3D11View* view, uint3& size, DXGI_FORMAT& format)
+   void GetResourceInfo(ID3D11View* view, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr)
    {
       if (!view)
       {
-         GetResourceSizeAndFormat((ID3D11Resource*)nullptr, size, format);
+         GetResourceInfo((ID3D11Resource*)nullptr, size, format, hash);
          return;
       }
       com_ptr<ID3D11Resource> srv_resource;
       view->GetResource(&srv_resource);
-      return GetResourceSizeAndFormat(srv_resource.get(), size, format);
+      return GetResourceInfo(srv_resource.get(), size, format, hash);
    }
 
    com_ptr<ID3D11Texture2D> CloneTexture2D(ID3D11Device* native_device, ID3D11Resource* texture_2d_resource, DXGI_FORMAT overridden_format = DXGI_FORMAT_UNKNOWN, bool black_initial_data = false, bool copy_data = true, ID3D11DeviceContext* native_device_context = nullptr)
@@ -2363,6 +2446,12 @@ namespace
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       auto& device_data = device->create_private_data<DeviceData>();
       device_data.native_device = native_device;
+
+#if DEVELOPMENT
+      native_device->GetImmediateContext(&device_data.primary_command_list);
+      device_data.primary_command_list->Release(); // No need keep a strong reference in memory, this object will be kept alive anyway
+#endif // DEVELOPMENT
+
       {
          const std::unique_lock lock(s_mutex_device);
          // Inherit a minimal set of states from the possible previous device. Any other state wouldn't be relevant or could be outdated, so we might as well reset all to default.
@@ -2422,7 +2511,7 @@ namespace
       depth_stencil_desc.StencilEnable = false;
       hr = native_device->CreateDepthStencilState(&depth_stencil_desc, &device_data.default_depth_stencil_state);
       assert(SUCCEEDED(hr));
-      
+
       D3D11_SAMPLER_DESC sampler_desc = {};
       // The original "Perspect Perspective" implementation uses this
       sampler_desc.Filter = D3D11_FILTER_ANISOTROPIC;
@@ -2529,7 +2618,6 @@ namespace
       device->destroy_private_data<DeviceData>();
    }
 
-#if DEVELOPMENT
    bool OnCreateSwapchain(reshade::api::swapchain_desc& desc, void* hwnd)
    {
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
@@ -2554,8 +2642,20 @@ namespace
          return true;
       }
       return false;
+      bool changed = false;
+#if 1
+      desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+      desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+      changed = true;
+#endif
+      // TODO: add force borderless? And full refresh rate?
+#if UPGRADE_RESOURCES
+      ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb);
+      desc.back_buffer.texture.format = reshade::api::format::r16g16b16a16_float;
+      changed = true;
+#endif
+      return changed;
    }
-#endif // DEVELOPMENT
 
    void OnInitSwapchain(reshade::api::swapchain* swapchain)
    {
@@ -2577,15 +2677,15 @@ namespace
       }
 
       {
-      const std::unique_lock lock(device_data.mutex);
-      device_data.swapchains.emplace(swapchain);
-      ASSERT_ONCE(SUCCEEDED(device_data.swapchains.size() == 1)); // Having more than one swapchain per device is probably supported but unexpected
+         const std::unique_lock lock(device_data.mutex);
+         device_data.swapchains.emplace(swapchain);
+         ASSERT_ONCE(SUCCEEDED(device_data.swapchains.size() == 1)); // Having more than one swapchain per device is probably supported but unexpected
 
-      for (uint32_t index = 0; index < back_buffer_count; index++)
-      {
-         auto buffer = swapchain->get_back_buffer(index);
-         device_data.back_buffers.emplace(buffer.handle);
-      }
+         for (uint32_t index = 0; index < back_buffer_count; index++)
+         {
+            auto buffer = swapchain->get_back_buffer(index);
+            device_data.back_buffers.emplace(buffer.handle);
+         }
       }
 
       // We assume there's only one swapchain (there is!), given that the resolution would theoretically be by swapchain and not device
@@ -2706,6 +2806,21 @@ namespace
    void OnInitCommandList(reshade::api::command_list* cmd_list)
    {
       auto& cmd_list_data = cmd_list->create_private_data<CommandListData>();
+
+#if DEVELOPMENT
+      com_ptr<ID3D11DeviceContext> native_device_context;
+      ID3D11DeviceChild* device_child = (ID3D11DeviceChild*)(cmd_list->get_native());
+      HRESULT hr = device_child->QueryInterface(&native_device_context);
+      if (SUCCEEDED(hr) && native_device_context)
+      {
+         if (native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
+         {
+            auto& device_data = cmd_list->get_device()->get_private_data<DeviceData>();
+            ASSERT_ONCE(!device_data.primary_command_list_data); // There should never be more than one of these?
+            device_data.primary_command_list_data = &cmd_list_data;
+         }
+      }
+#endif
    }
 
    void OnDestroyCommandList(reshade::api::command_list* cmd_list)
@@ -3366,7 +3481,7 @@ namespace
             // Push our settings cbuffer in case where no other custom shader run this frame
             {
                auto& device_data = queue->get_device()->get_private_data<DeviceData>();
-               const std::shared_lock lock(device_data.mutex);
+               const std::shared_lock lock(device_data.mutex); //TODOFT: is this right here?
                const auto cb_luma_frame_settings_copy = cb_luma_frame_settings;
                // Force a custom display mode in case we have no game custom shaders loaded, so the custom linearization shader can linearize anyway, independently of "POST_PROCESS_SPACE_TYPE"
                bool force_linearize = device_data.cloned_pipeline_count == 0; // We ignore "s_mutex_generic", it doesn't matter
@@ -4946,7 +5061,7 @@ namespace
          if (render_target_view)
          {
             render_target_view->GetResource(&texture_resource);
-            GetResourceSizeAndFormat(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format); // Note: this isn't synchronized with the conditions that update "debug_draw_texture" below but it should work anyway
+            GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format); // Note: this isn't synchronized with the conditions that update "debug_draw_texture" below but it should work anyway
             D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
             render_target_view->GetDesc(&rtv_desc);
             device_data.debug_draw_texture_format = rtv_desc.Format; 
@@ -4980,7 +5095,7 @@ namespace
          if (unordered_access_view)
          {
             unordered_access_view->GetResource(&texture_resource);
-            GetResourceSizeAndFormat(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format);
+            GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format);
             D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
             unordered_access_view->GetDesc(&uav_desc);
             device_data.debug_draw_texture_format = uav_desc.Format; // Note: this isn't synchronized with the conditions that update "debug_draw_texture" below but it should work anyway
@@ -5001,7 +5116,7 @@ namespace
          if (shader_resource_view)
          {
             shader_resource_view->GetResource(&texture_resource);
-            GetResourceSizeAndFormat(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format);
+            GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format);
             D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
             shader_resource_view->GetDesc(&srv_desc);
             device_data.debug_draw_texture_format = srv_desc.Format;
@@ -5268,8 +5383,15 @@ namespace
 
    void OnInitSampler(reshade::api::device* device, const reshade::api::sampler_desc& desc, reshade::api::sampler sampler)
    {
+#if !UPGRADE_SAMPLERS
+      return;
+#endif
       if (sampler == 0)
          return;
+#if DEVELOPMENT
+      if (samplers_upgrade_mode == 0)
+         return;
+#endif
 
       auto& device_data = device->get_private_data<DeviceData>();
 
@@ -5365,6 +5487,7 @@ namespace
       }
    }
 
+   // Note that swapchain textures (backbuffer) don't pass through here!
    bool OnCreateResource(
       reshade::api::device* device,
       reshade::api::resource_desc& desc,
@@ -5373,6 +5496,7 @@ namespace
    {
       waiting_on_upgraded_resource_init = false; // If the same thread called another "OnCreateResource()" before we got a "OnInitResource()", it implies the resource creation has failed and we didn't get that event (we have to do it by thread as device objects creation is thread safe and can be done by multiple threads concurrently)
 
+      // Note: we can't fully exclude texture 2D arrays here, because they might still have 1 layer
       if (desc.type == reshade::api::resource_type::texture_2d && desc.texture.depth_or_layers == 1)
       {
          if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0)
@@ -5390,7 +5514,7 @@ namespace
             }
             if (desc.texture.format == reshade::api::format::r11g11b10_float)
             {
-               ASSERT_ONCE(!initial_data);
+               ASSERT_ONCE(!initial_data); // We'd need to convert it
                ASSERT_ONCE((desc.flags & reshade::api::resource_flags::shared) == 0); // Would need more special handling
                desc.texture.format = reshade::api::format::r16g16b16a16_float;
                waiting_on_upgraded_resource_init = true;
@@ -5416,67 +5540,71 @@ namespace
    {
       auto& device_data = device->get_private_data<DeviceData>();
       // In DX11 apps can not pass a "DESC" when creating resource views, and DX11 will automatically generate the default one from it, we handle it through "reshade::api::resource_view_type::unknown".
-      if (resource.handle != 0 && (desc.type == reshade::api::resource_view_type::unknown || desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::texture_2d_multisample))
+      if (resource.handle != 0 && (desc.type == reshade::api::resource_view_type::unknown || desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::texture_2d_array || desc.type == reshade::api::resource_view_type::texture_2d_multisample || desc.type == reshade::api::resource_view_type::texture_2d_multisample_array))
       {
          const reshade::api::resource_desc resource_desc = device->get_resource_desc(resource);
 
-#if 0 // TODO: delete? Unnecessary probably
-      const std::unique_lock lock(device_data.mutex);
+         // Needed because these were not in the upgraded resources list, but we upgraded the swapchain's textures,
+         // some games randomly pick a view format when they can't pick a proper one (due to the format upgrades).
+         const std::shared_lock lock(device_data.mutex);
          if (device_data.back_buffers.contains(resource.handle))
          {
-            desc.type = resource_desc.texture.samples <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_multisample;
+            if (desc.type == reshade::api::resource_view_type::unknown)
+            {
+               desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array);
+            }
             desc.format = reshade::api::format::r16g16b16a16_float;
             return true;
          }
-#endif
 
          bool needs_upgrade = usage_type == reshade::api::resource_usage::render_target || usage_type == reshade::api::resource_usage::unordered_access || usage_type == reshade::api::resource_usage::shader_resource; // This is all of the possible types anyway...
          needs_upgrade &= (resource_desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0; // Filter with the same conditions we upgraded textures, to make sure we only upgrade the same ones
          if (needs_upgrade && resource_desc.type == reshade::api::resource_type::texture_2d && resource_desc.texture.depth_or_layers == 1 && resource_desc.texture.format == reshade::api::format::r16g16b16a16_float)
-      {
+         {
             bool upgrade = false;
             if (desc.format == reshade::api::format::unknown) // Happens when the call didn't provide a "DESC"
-         {
+            {
                ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
                upgrade = true;
-         }
+            }
             if (desc.format == reshade::api::format::r8g8b8a8_unorm || desc.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.format == reshade::api::format::r8g8b8a8_typeless
                || desc.format == reshade::api::format::r8g8b8x8_unorm || desc.format == reshade::api::format::r8g8b8x8_unorm_srgb
                || desc.format == reshade::api::format::b8g8r8a8_unorm || desc.format == reshade::api::format::b8g8r8a8_unorm_srgb || desc.format == reshade::api::format::b8g8r8a8_typeless
                || desc.format == reshade::api::format::b8g8r8x8_unorm || desc.format == reshade::api::format::b8g8r8x8_unorm_srgb || desc.format == reshade::api::format::b8g8r8x8_typeless)
             {
-               ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle)); //TODO: this happens... why? Maybe this happened natively?
-               upgrade = true;
-      }
-            if (desc.format == reshade::api::format::r11g11b10_float)
-      {
                ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
                upgrade = true;
-      }
+            }
+            if (desc.format == reshade::api::format::r11g11b10_float)
+            {
+               ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
+               upgrade = true;
+            }
             if (desc.format == reshade::api::format::r16g16b16a16_typeless)
             {
                ASSERT_ONCE(false);
                upgrade = true;
-   }
+            }
 
             if (upgrade)
-   {
-               desc.type = resource_desc.texture.samples <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_multisample; // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
+            {
+               if (desc.type == reshade::api::resource_view_type::unknown)
+               {
+                  desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array); // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
+               }
                desc.format = reshade::api::format::r16g16b16a16_float;
                return true;
             }
          }
       }
 #if DEVELOPMENT
-      const std::unique_lock lock(device_data.mutex);
+      const std::shared_lock lock(device_data.mutex);
       ASSERT_ONCE(!device_data.upgraded_resources.contains(resource.handle)); // Why did we get here in this case?
       D3D11_TEXTURE2D_DESC texture_2d_desc;
       if (device_data.upgraded_resources.contains(resource.handle))
       {
          ID3D11Texture2D* texture_2d = reinterpret_cast<ID3D11Texture2D*>(resource.handle);
          texture_2d->GetDesc(&texture_2d_desc);
-         //desc.format = reshade::api::format::r16g16b16a16_float;
-         //return true;
       }
 #endif // DEVELOPMENT
       return false;
@@ -5926,7 +6054,7 @@ namespace
                      recursive_or_null |= custom_sampler_handle.second.get() == native_sampler;
                   }
                }
-               ASSERT_ONCE(recursive_or_null); // Shouldn't happen! (if we know the sampler set is "recursive", then we are good and don't need to replace this sampler again)
+               ASSERT_ONCE(recursive_or_null || samplers_upgrade_mode == 0); // Shouldn't happen! (if we know the sampler set is "recursive", then we are good and don't need to replace this sampler again)
 #if 0 // TODO: delete or restore in case the "recursive_or_null" assert above ever triggered (seems like it won't)
                if (sampler.handle != 0)
                {
@@ -6032,6 +6160,48 @@ namespace
    }
 
 #if DEVELOPMENT
+   void OnMapTextureRegion(reshade::api::device* device, reshade::api::resource resource, uint32_t subresource, const reshade::api::subresource_box* box, reshade::api::map_access access, reshade::api::subresource_data* data)
+   {
+      auto& device_data = device->get_private_data<DeviceData>();
+
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = *device_data.primary_command_list_data;
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CPUWrite;
+            trace_draw_call_data.command_list = device_data.primary_command_list;
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(resource.handle);
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+
+      {
+         const std::shared_lock lock(device_data.mutex);
+         ASSERT_ONCE(!device_data.upgraded_resources.contains(resource.handle)); // This would probably fail!
+      }
+
+      // For Prey only (given we manually upgrade resources through native hooks)
+      ID3D11Resource* native_resource = reinterpret_cast<ID3D11Resource*>(resource.handle);
+      com_ptr<ID3D11Texture2D> resource_texture;
+      HRESULT hr = native_resource->QueryInterface(&resource_texture);
+      if (SUCCEEDED(hr))
+      {
+         D3D11_TEXTURE2D_DESC texture_2d_desc;
+         resource_texture->GetDesc(&texture_2d_desc);
+         if ((texture_2d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0)
+         {
+            // Probably not supported, at least if it's an RT and we upgraded the format
+            ASSERT_ONCE(texture_2d_desc.Format != DXGI_FORMAT_R16G16B16A16_TYPELESS && texture_2d_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT);
+         }
+      }
+   }
+
    bool OnUpdateBufferRegion(reshade::api::device* device, const void* data, reshade::api::resource resource, uint64_t offset, uint64_t size)
    {
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
@@ -6044,8 +6214,32 @@ namespace
 
    bool OnUpdateTextureRegion(reshade::api::device* device, const reshade::api::subresource_data& data, reshade::api::resource resource, uint32_t subresource, const reshade::api::subresource_box* box)
    {
-      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-      ID3D11Resource* native_resource = reinterpret_cast<ID3D11Buffer*>(resource.handle);
+      auto& device_data = device->get_private_data<DeviceData>();
+
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = *device_data.primary_command_list_data;
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CPUWrite;
+            trace_draw_call_data.command_list = device_data.primary_command_list;
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(resource.handle);
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+
+      {
+         const std::shared_lock lock(device_data.mutex);
+         ASSERT_ONCE(!device_data.upgraded_resources.contains(resource.handle)); // This would probably fail!
+      }
+
+      // For Prey only (given we manually upgrade resources through native hooks)
+      ID3D11Resource* native_resource = reinterpret_cast<ID3D11Resource*>(resource.handle);
       com_ptr<ID3D11Texture2D> resource_texture;
       HRESULT hr = native_resource->QueryInterface(&resource_texture);
       if (SUCCEEDED(hr))
