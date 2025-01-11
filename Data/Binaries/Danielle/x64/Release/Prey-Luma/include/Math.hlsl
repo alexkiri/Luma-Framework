@@ -52,9 +52,15 @@ float safePow(float base, float exponent)
 {
     return pow(abs(base), exponent) * sign(base);
 }
+float3 safePow(float3 base, float exponent)
+{
+    return pow(abs(base), exponent) * sign(base);
+}
 
-float3 sqr(float3 x) { return x * x; }
 float sqr(float x) { return x * x; }
+float2 sqr(float2 x) { return x * x; }
+float3 sqr(float3 x) { return x * x; }
+float4 sqr(float4 x) { return x * x; }
 
 float min3(float _a, float _b, float _c) { return min(_a, min(_b, _c)); }
 float3 min3(float3 _a, float3 _b, float3 _c) { return min(_a, min(_b, _c)); }

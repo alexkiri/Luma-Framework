@@ -26,6 +26,10 @@
 
 #define _USE_MATH_DEFINES
 
+#ifdef _WIN32
+#define ImTextureID ImU64
+#endif
+
 #include <d3d11.h>
 #include <dxgi.h>
 #include <dxgi1_6.h>
@@ -85,6 +89,7 @@
 #define FORCE_KEEP_CUSTOM_SHADERS_LOADED 1
 #define ALLOW_LOADING_DEV_SHADERS 1
 #define UPGRADE_RESOURCES 0
+#define UPGRADE_SAMPLERS 1
 #define GEOMETRY_SHADER_SUPPORT 0
 
 // This might not disable all shaders dumping related code, but it disables enough to remove any performance cost
@@ -103,7 +108,7 @@ extern "C" __declspec(dllexport) const char* WEBSITE = "https://www.nexusmods.co
 #undef assert
 #define assert(expression) ((void)(                                                       \
             (!!(expression)) ||                                                               \
-            (MessageBoxA(NULL, #expression, NAME, MB_SETFOREGROUND | MB_OKCANCEL))) \
+            (MessageBoxA(NULL, #expression, NAME, MB_SETFOREGROUND | MB_OK))) \
         )
 #endif
 
@@ -494,7 +499,7 @@ namespace
    constexpr bool force_motion_vectors_jittered = true;
 #if DEVELOPMENT
    //TODOFT3: clean up the following vars
-   int samplers_upgrade_mode = 5;
+   int samplers_upgrade_mode = UPGRADE_SAMPLERS ? 5 : 0; // Vertigo
    int samplers_upgrade_mode_2 = 0;
    bool custom_texture_mip_lod_bias_offset = false; // Live edit
    float dlss_custom_exposure = 0.f; // Ignored at 0
@@ -6053,12 +6058,97 @@ namespace
             ASSERT_ONCE(texture_2d_desc.Format != DXGI_FORMAT_R16G16B16A16_TYPELESS && texture_2d_desc.Format != DXGI_FORMAT_R16G16B16A16_FLOAT);
          }
       }
+
+      return false;
+   }
+
+   bool OnClearRenderTargetView(reshade::api::command_list* cmd_list, reshade::api::resource_view rtv, const float color[4], uint32_t rect_count, const reshade::api::rect* rects)
+   {
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::ClearResource;
+            trace_draw_call_data.command_list = (ID3D11DeviceContext*)(cmd_list->get_native());
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(cmd_list->get_device()->get_resource_from_view(rtv).handle);
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+      return false;
+   }
+
+   bool OnClearUnorderedAccessViewUInt(reshade::api::command_list* cmd_list, reshade::api::resource_view uav, const uint32_t values[4], uint32_t rect_count, const reshade::api::rect* rects)
+   {
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::ClearResource;
+            trace_draw_call_data.command_list = (ID3D11DeviceContext*)(cmd_list->get_native());
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(cmd_list->get_device()->get_resource_from_view(uav).handle);
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+      return false;
+   }
+
+   bool OnClearUnorderedAccessViewFloat(reshade::api::command_list* cmd_list, reshade::api::resource_view uav, const float values[4], uint32_t rect_count, const reshade::api::rect* rects)
+   {
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::ClearResource;
+            trace_draw_call_data.command_list = (ID3D11DeviceContext*)(cmd_list->get_native());
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(cmd_list->get_device()->get_resource_from_view(uav).handle);
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
       return false;
    }
 #endif // DEVELOPMENT
 
    bool OnCopyResource(reshade::api::command_list* cmd_list, reshade::api::resource source, reshade::api::resource dest)
    {
+#if DEVELOPMENT
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CopyResource;
+            trace_draw_call_data.command_list = (ID3D11DeviceContext*)(cmd_list->get_native());
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* source_resource = reinterpret_cast<ID3D11Resource*>(source.handle);
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
+            // Re-use the SRV and RTV data for simplicity
+            GetResourceInfo(source_resource, trace_draw_call_data.sr_size[0], trace_draw_call_data.sr_format[0], &trace_draw_call_data.sr_hash[0]);
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+#endif
+
       ID3D11Resource* source_resource = reinterpret_cast<ID3D11Resource*>(source.handle);
       com_ptr<ID3D11Texture2D> source_resource_texture;
       HRESULT hr = source_resource->QueryInterface(&source_resource_texture);
@@ -6255,12 +6345,52 @@ namespace
       {
          return OnCopyResource(cmd_list, source, dest);
       }
+#if DEVELOPMENT
+      else
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CopyResource;
+            trace_draw_call_data.command_list = (ID3D11DeviceContext*)(cmd_list->get_native());
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* source_resource = reinterpret_cast<ID3D11Resource*>(source.handle);
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
+            // Re-use the SRV and RTV data for simplicity
+            GetResourceInfo(source_resource, trace_draw_call_data.sr_size[0], trace_draw_call_data.sr_format[0], &trace_draw_call_data.sr_hash[0]);
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+#endif
       return false;
    }
 
 #if DEVELOPMENT
    bool OnResolveTextureRegion(reshade::api::command_list* cmd_list, reshade::api::resource source, uint32_t source_subresource, const reshade::api::subresource_box* source_box, reshade::api::resource dest, uint32_t dest_subresource, int32_t dest_x, int32_t dest_y, int32_t dest_z, reshade::api::format format)
    {
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data = {};
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CopyResource;
+            trace_draw_call_data.command_list = (ID3D11DeviceContext*)(cmd_list->get_native());
+            trace_draw_call_data.thread_id = std::this_thread::get_id();
+            ID3D11Resource* source_resource = reinterpret_cast<ID3D11Resource*>(source.handle);
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
+            // Re-use the SRV and RTV data for simplicity
+            GetResourceInfo(source_resource, trace_draw_call_data.sr_size[0], trace_draw_call_data.sr_format[0], &trace_draw_call_data.sr_hash[0]);
+            GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+         }
+      }
+
       ASSERT_ONCE(false);
       return false;
    }
@@ -6773,12 +6903,13 @@ namespace
                         std::stringstream name;
                         auto text_color = IM_COL32(255, 255, 255, 255);
 
-                        if (is_valid)
+                        if (is_valid && cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Shader)
                         {
                            const auto pipeline = pipeline_pair->second;
 
                            // Index - Thread ID (command list) - Shader Hash(es) - Shader Name
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0); // Fill up 3 slots for the index so the text is aligned
+
                            // Deferred
                            if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
                            {
@@ -6789,6 +6920,7 @@ namespace
                            {
                               name << " - " << thread_id;
                            }
+
                            for (auto shader_hash : pipeline->shader_hashes)
                            {
                               name << " - " << PRINT_CRC32(shader_hash);
@@ -6855,6 +6987,54 @@ namespace
                               text_color = custom_shader->compilation_error ? IM_COL32(255, 0, 0, 255) : IM_COL32(255, 165, 0, 255); // Red for Error, Orange for Warning
                            }
                         }
+                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CopyResource)
+                        {
+                           // Index - Thread ID (command list) - Name
+                           name << std::setfill('0') << std::setw(3) << index << std::setw(0); // Fill up 3 slots for the index so the text is aligned
+
+                           // Deferred
+                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
+                           {
+                              name << " - " << thread_id << "*";
+                           }
+                           // Immediate
+                           else
+                           {
+                              name << " - " << thread_id;
+                           }
+
+                           name << " - Cop yResource";
+                           
+                           text_color = IM_COL32(255, 105, 0, 255); // Orange
+                        }
+                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CPUWrite)
+                        {
+                           // Index - Thread ID (command list) - Name
+                           name << std::setfill('0') << std::setw(3) << index << std::setw(0); // Fill up 3 slots for the index so the text is aligned
+
+                           // Immediate context
+                           {
+                              name << " - " << thread_id;
+                           }
+
+                           name << " - Resource CPU Write";
+
+                           text_color = IM_COL32(255, 105, 0, 255); // Orange
+                        }
+                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::ClearResource)
+                        {
+                           // Index - Thread ID (command list) - Name
+                           name << std::setfill('0') << std::setw(3) << index << std::setw(0); // Fill up 3 slots for the index so the text is aligned
+
+                           // Immediate context
+                           {
+                              name << " - " << thread_id;
+                           }
+
+                           name << " - Clear Resource";
+
+                           text_color = IM_COL32(255, 105, 0, 255); // Orange
+                        }
                         else
                         {
                            text_color = IM_COL32(255, 0, 0, 255);
@@ -6869,6 +7049,7 @@ namespace
                         }
                         ImGui::PopStyleColor();
 
+                        // TODO: add a button to automatically select all trace calls with the same resources
                         if (is_selected)
                         {
                            ImGui::SetItemDefaultFocus();
@@ -7026,7 +7207,7 @@ namespace
                            if (auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle); pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
                            {
                               bool skip_pipeline = pipeline_pair->second->skip;
-                              if (ImGui::BeginChild("Settings"))
+                              if (ImGui::BeginChild("Settings and Info"))
                               {
                                  if (!pipeline_pair->second->HasVertexShader())
                                  {
@@ -7039,13 +7220,16 @@ namespace
                                  if (ImGui::Button(pipeline_pair->second->cloned ? "Recompile" : "Load"))
                                  {
                                     reload = true;
-                                    recompile = pipeline_pair->second->cloned;
+                                    recompile = pipeline_pair->second->cloned; //TODOFT4: doesn't always work?
                                  }
+
                                  if (pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasComputeShader())
                                  {
                                     bool debug_draw_shader_enabled = debug_draw_shader_hash == pipeline_pair->second->shader_hashes[0];
                                     if (debug_draw_shader_enabled ? ImGui::Button("Disable Debug Draw Shader") : ImGui::Button("Debug Draw Shader"))
                                     {
+                                       ASSERT_ONCE(GetShaderDefineCompiledNumericalValue(DEVELOPMENT_HASH) >= 1); // Development flag is needed in shaders for this to output correctly
+
                                        if (debug_draw_shader_enabled)
                                        {
                                           debug_draw_pipeline = 0;
@@ -7053,14 +7237,14 @@ namespace
                                           debug_draw_shader_hash_string[0] = 0;
                                        }
                                        else
-                                    {
-                                       debug_draw_pipeline = pipeline_pair->first; // Note: this is probably completely useless at the moment as we don't store the index of the pipeline instance the user had selected (e.g. "debug_draw_pipeline_target_instance")
-                                       debug_draw_shader_hash = pipeline_pair->second->shader_hashes[0];
-                                       std::string new_debug_draw_shader_hash_string = std::format("{:x}", debug_draw_shader_hash);
-                                       if (new_debug_draw_shader_hash_string.size() <= HASH_CHARACTERS_LENGTH)
-                                          strcpy(&debug_draw_shader_hash_string[0], new_debug_draw_shader_hash_string.c_str());
-                                       else
-                                          debug_draw_shader_hash_string[0] = 0;
+                                       {
+                                          debug_draw_pipeline = pipeline_pair->first; // Note: this is probably completely useless at the moment as we don't store the index of the pipeline instance the user had selected (e.g. "debug_draw_pipeline_target_instance")
+                                          debug_draw_shader_hash = pipeline_pair->second->shader_hashes[0];
+                                          std::string new_debug_draw_shader_hash_string = std::format("{:x}", debug_draw_shader_hash);
+                                          if (new_debug_draw_shader_hash_string.size() <= HASH_CHARACTERS_LENGTH)
+                                             strcpy(&debug_draw_shader_hash_string[0], new_debug_draw_shader_hash_string.c_str());
+                                          else
+                                             debug_draw_shader_hash_string[0] = 0;
                                        }
                                        device_data.debug_draw_texture = nullptr;
                                        device_data.debug_draw_texture_format = DXGI_FORMAT_UNKNOWN;
@@ -7078,19 +7262,21 @@ namespace
                                  {
                                     for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
                                     {
-                                       auto srv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).srv_format[i];
-                                       auto srv_size = cmd_list_data.trace_draw_calls_data.at(selected_index).srv_size[i];
-                                       if (srv_format == DXGI_FORMAT_UNKNOWN)
+                                       auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[i];
+                                       if (sr_format == DXGI_FORMAT_UNKNOWN)
                                        {
                                           continue;
                                        }
+                                       auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[i];
+                                       auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[i];
                                        ImGui::Text("");
                                        ImGui::Text("SRV Index: %u", i);
-                                       if (GetFormatName(srv_format) != nullptr)
+                                       ImGui::Text("R Hash: %s", sr_hash.c_str());
+                                       if (GetFormatName(sr_format) != nullptr)
                                        {
-                                          ImGui::Text("SRV Format: %s", GetFormatName(srv_format));
+                                          ImGui::Text("R Format: %s", GetFormatName(sr_format));
                                        }
-                                       ImGui::Text("SRV Size: %ux%ux%u", srv_size.x, srv_size.y, srv_size.z);
+                                       ImGui::Text("R Size: %ux%ux%u", sr_size.x, sr_size.y, sr_size.z);
                                     }
                                  }
 
@@ -7098,19 +7284,21 @@ namespace
                                  {
                                     for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
                                     {
-                                       auto uav_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uav_format[i];
-                                       auto uav_size = cmd_list_data.trace_draw_calls_data.at(selected_index).uav_size[i];
-                                       if (uav_format == DXGI_FORMAT_UNKNOWN)
+                                       auto uar_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_format[i];
+                                       if (uar_format == DXGI_FORMAT_UNKNOWN)
                                        {
                                           continue;
                                        }
+                                       auto uar_size = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_size[i];
+                                       auto uar_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_hash[i];
                                        ImGui::Text("");
                                        ImGui::Text("UAV Index: %u", i);
-                                       if (GetFormatName(uav_format) != nullptr)
+                                       ImGui::Text("R Hash: %s", uar_hash.c_str());
+                                       if (GetFormatName(uar_format) != nullptr)
                                        {
-                                          ImGui::Text("UAV Format: %s", GetFormatName(uav_format));
+                                          ImGui::Text("R Format: %s", GetFormatName(uar_format));
                                        }
-                                       ImGui::Text("UAV Size: %ux%ux%u", uav_size.x, uav_size.y, uav_size.z);
+                                       ImGui::Text("R Size: %ux%ux%u", uar_size.x, uar_size.y, uar_size.z);
                                     }
                                  }
 
@@ -7127,32 +7315,31 @@ namespace
                                        }
                                        auto rt_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_format[i];
                                        auto rt_size = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_size[i];
+                                       auto rt_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_hash[i];
 
                                        ImGui::Text("");
                                        ImGui::Text("RT Index: %u", i);
-                                       ImGui::Text("");
-                                       ImGui::Text("RT Format: %s", GetFormatName(rt_format));
-
-                                       ImGui::Text("RT Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
+                                       ImGui::Text("R Hash: %s", rt_hash.c_str());
+                                       ImGui::Text("R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
 
                                        if (GetFormatName(rt_format) != nullptr)
                                        {
-                                          ImGui::Text("RT Format: %s", GetFormatName(rt_format));
+                                          ImGui::Text("R Format: %s", GetFormatName(rt_format));
                                        }
                                        else
                                        {
-                                          ImGui::Text("RT Format: %u", rt_format);
+                                          ImGui::Text("R Format: %u", rt_format);
                                        }
                                        if (GetFormatName(rtv_format) != nullptr)
                                        {
-                                          ImGui::Text("RTV Format: %s", GetFormatName(rtv_format));
+                                          ImGui::Text("RV Format: %s", GetFormatName(rtv_format));
                                        }
                                        else
                                        {
-                                          ImGui::Text("RTV Format: %u", rtv_format);
+                                          ImGui::Text("RV Format: %u", rtv_format);
                                        }
 
-                                       ImGui::Text("RT Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[i] ? "True" : "False");
+                                       ImGui::Text("R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[i] ? "True" : "False");
 
                                        // 0 No alpha blend (or other unknown blend types that we can ignore)
                                        // 1 Straight alpha blend: "result = (source.RGB * source.A) + (dest.RGB * (1 - source.A))" or "result = lerp(dest.RGB, source.RGB, source.A)"
@@ -7197,14 +7384,74 @@ namespace
                                           ImGui::Text("Blend Mode: Disabled");
                                        }
                                     }
+
+                                    ImGui::Text("");
+                                    ImGui::Text("Depth Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).depth_enabled ? "True" : "False");
+                                    ImGui::Text("Strencil Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).stencil_enabled ? "True" : "False");
+                                 }
+
+                                 if (pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasVertexShader())
+                                 {
+                                    ImGui::Text("");
+                                    ImGui::Text("Scissors Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).scissors ? "True" : "False");
+                                    //TODOFT: do it with float print
+                                    ImGui::Text("Viewport 0: x: %s y:%s w: %s h: %s",
+                                       std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.x).c_str(),
+                                       std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.y).c_str(),
+                                       std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.z).c_str(),
+                                       std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.w).c_str());
+                                    
                                  }
                               }
-                              ImGui::EndChild(); // Settings
+                              ImGui::EndChild(); // Settings and Info
                               pipeline_pair->second->skip = skip_pipeline;
                            }
                         }
+                        if (cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CopyResource
+                           || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CPUWrite
+                           || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::ClearResource)
+                        {
+                           if (ImGui::BeginChild("Settings and Info"))
+                           {
+                              if (cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CopyResource)
+                              {
+                                 auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[0];
+                                 auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[0];
+                                 auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[0];
+                                 ImGui::Text("Source R Hash: %s", sr_hash.c_str());
+                                 if (GetFormatName(sr_format) != nullptr)
+                                 {
+                                    ImGui::Text("Source R Format: %s", GetFormatName(sr_format));
+                                 }
+                                 ImGui::Text("Source R Size: %ux%ux%u", sr_size.x, sr_size.y, sr_size.z);
+
+                                 ImGui::Text("");
+                              }
+
+                              auto rt_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_format[0];
+                              auto rt_size = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_size[0];
+                              auto rt_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_hash[0];
+
+                              ImGui::Text("Target R Hash: %s", rt_hash.c_str());
+                              ImGui::Text("Target R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
+
+                              if (GetFormatName(rt_format) != nullptr)
+                              {
+                                 ImGui::Text("Target R Format: %s", GetFormatName(rt_format));
+                              }
+                              else
+                              {
+                                 ImGui::Text("Target R Format: %u", rt_format);
+                              }
+
+#if 0 // TODO: implement for this case
+                              ImGui::Text("Target R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[0] ? "True" : "False");
+#endif
+                           }
+                           ImGui::EndChild(); // Settings and Info
+                        }
                         // We need to do this here or it'd deadlock due to "s_mutex_generic" trying to be locked in shared mod again
-                        if (reload)
+                        if (reload && pipeline_handle != 0)
                         {
                            LoadCustomShaders(device_data, { pipeline_handle }, recompile);
                         }
@@ -7442,7 +7689,7 @@ namespace
                   // This is not safe to do, so let's rely on users manually setting this instead.
                   // Also note that this is a test implementation, it doesn't react to all places that change "cb_luma_frame_settings.UIPaperWhite", and does not restore the user original value on exit.
 #if 0
-            // This makes the game cursor have the same brightness as the game's UI
+                  // This makes the game cursor have the same brightness as the game's UI
                   SetSDRWhiteLevel(game_window, std::clamp(cb_luma_frame_settings.UIPaperWhite, 80.f, 480.f));
 #endif
                }
@@ -7664,6 +7911,7 @@ namespace
                bool debug_draw_invert_colors = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::InvertColors) != 0;
                bool debug_draw_linear_to_gamma = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::LinearToGamma) != 0;
                bool debug_draw_gamma_to_linear = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::GammaToLinear) != 0;
+               bool debug_draw_flip_y = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::FlipY) != 0;
                if (ImGui::Checkbox("Debug Draw Options: Fullscreen", &debug_draw_fullscreen))
                {
                   if (debug_draw_fullscreen)
@@ -7739,6 +7987,17 @@ namespace
                   else
                   {
                      debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::GammaToLinear;
+                  }
+               }
+               if (ImGui::Checkbox("Debug Draw Options: Flip Y", &debug_draw_flip_y))
+               {
+                  if (debug_draw_flip_y)
+                  {
+                     debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::FlipY;
+                  }
+                  else
+                  {
+                     debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::FlipY;
                   }
                }
                if (device_data.debug_draw_texture || debug_draw_auto_clear_texture) // Expected to be 2D
@@ -8655,9 +8914,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
 
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::register_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
-#if DEVELOPMENT
       reshade::register_event<reshade::addon_event::create_swapchain>(OnCreateSwapchain);
-#endif // DEVELOPMENT
       reshade::register_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
       reshade::register_event<reshade::addon_event::destroy_swapchain>(OnDestroySwapchain);
 
@@ -8681,8 +8938,12 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::map_buffer_region>(OnMapBufferRegion);
       reshade::register_event<reshade::addon_event::unmap_buffer_region>(OnUnmapBufferRegion);
 #if DEVELOPMENT
+      reshade::register_event<reshade::addon_event::map_texture_region>(OnMapTextureRegion);
       reshade::register_event<reshade::addon_event::update_buffer_region>(OnUpdateBufferRegion);
       reshade::register_event<reshade::addon_event::update_texture_region>(OnUpdateTextureRegion);
+      reshade::register_event<reshade::addon_event::clear_render_target_view>(OnClearRenderTargetView);
+      reshade::register_event<reshade::addon_event::clear_unordered_access_view_uint>(OnClearUnorderedAccessViewUInt);
+      reshade::register_event<reshade::addon_event::clear_unordered_access_view_float>(OnClearUnorderedAccessViewFloat);
 #endif // DEVELOPMENT
       reshade::register_event<reshade::addon_event::copy_resource>(OnCopyResource);
       reshade::register_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
@@ -8698,9 +8959,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::init_sampler>(OnInitSampler);
       reshade::register_event<reshade::addon_event::destroy_sampler>(OnDestroySampler);
 
-#if DEVELOPMENT
       reshade::register_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
-#endif // DEVELOPMENT
 
       reshade::register_event<reshade::addon_event::present>(OnPresent);
 
@@ -8726,9 +8985,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
 
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::unregister_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
-#if DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::create_swapchain>(OnCreateSwapchain);
-#endif // DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::init_swapchain>(OnInitSwapchain);
       reshade::unregister_event<reshade::addon_event::destroy_swapchain>(OnDestroySwapchain);
 
@@ -8752,8 +9009,12 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::map_buffer_region>(OnMapBufferRegion);
       reshade::unregister_event<reshade::addon_event::unmap_buffer_region>(OnUnmapBufferRegion);
 #if DEVELOPMENT
+      reshade::unregister_event<reshade::addon_event::map_texture_region>(OnMapTextureRegion);
       reshade::unregister_event<reshade::addon_event::update_buffer_region>(OnUpdateBufferRegion);
       reshade::unregister_event<reshade::addon_event::update_texture_region>(OnUpdateTextureRegion);
+      reshade::unregister_event<reshade::addon_event::clear_render_target_view>(OnClearRenderTargetView);
+      reshade::unregister_event<reshade::addon_event::clear_unordered_access_view_uint>(OnClearUnorderedAccessViewUInt);
+      reshade::unregister_event<reshade::addon_event::clear_unordered_access_view_float>(OnClearUnorderedAccessViewFloat);
 #endif // DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::copy_resource>(OnCopyResource);
       reshade::unregister_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
@@ -8769,9 +9030,7 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::init_sampler>(OnInitSampler);
       reshade::unregister_event<reshade::addon_event::destroy_sampler>(OnDestroySampler);
 
-#if DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
-#endif // DEVELOPMENT
 
       reshade::unregister_event<reshade::addon_event::present>(OnPresent);
 

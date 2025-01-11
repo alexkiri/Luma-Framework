@@ -25,6 +25,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool invertColors = (LumaData.CustomData2 & (1 << 4)) != 0;
         bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
         bool linearToGamma = (LumaData.CustomData2 & (1 << 6)) != 0;
+        bool flipY = (LumaData.CustomData2 & (1 << 7)) != 0;
 		bool backgroundPassthrough = false;
 
 		if (fullscreen) // Stretch to fullscreen
@@ -37,6 +38,11 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		if (renderResolutionScale) // Scale by rendering resolution
 		{
 			resolutionScale *= LumaData.RenderResolutionScale;
+		}
+		
+		if (flipY)
+		{
+			pos.y = debugHeight - pos.y;
 		}
 
 		pos.xy = round((pos.xy - 0.5) * resolutionScale) + 0.5;

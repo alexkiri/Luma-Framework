@@ -327,6 +327,10 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
 	const float chartDimSqr	= chartDim * chartDim;
 	const float chartMax	= chartDim - 1.0;
 	const uint chartMaxUint = chartDimUint - 1u;
+  
+#if LUT_3D
+  tetrahedralInterpolation = false; //TODO LUMA: add support
+#endif
 
   if (!tetrahedralInterpolation)
   {
@@ -359,6 +363,7 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
     return lerp(col0, col1, sliceFrac); // LUMA FT: changed to be a lerp (easier to read)
 #endif // LUT_3D
   }
+#if !LUT_3D
   else // LUMA FT: added tetrahedral LUT interpolation (from Lilium) (note that this ignores the texture sampler)
   {
     // We need to clip the input coordinates as LUT texture samples below are not clamped.
@@ -468,6 +473,7 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
 
     return (f1 * v1) + (f2 * v2) + (f3 * v3) + (f4 * v4);
   }
+#endif // !LUT_3D
 }
 
 struct LUTExtrapolationData
