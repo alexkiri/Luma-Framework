@@ -10,6 +10,7 @@
 #endif
 #define CRY_ALIGN(bytes) __declspec(align(bytes))
 
+//TODOFT: clean
 template<typename F> struct Matrix44_tpl
 {
 	F m00, m01, m02, m03;

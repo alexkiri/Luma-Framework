@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2023 Carlos Lopez
- * SPDX-License-Identifier: MIT
- */
-
 #pragma once
 
 #include "dxgiformat.h"

@@ -1,8 +1,3 @@
-/*
- * Copyright (C) 2024 Carlos Lopez
- * SPDX-License-Identifier: MIT
- */
-
 #pragma once
 
 #include <include/reshade.hpp>

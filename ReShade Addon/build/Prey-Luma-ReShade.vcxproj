@@ -113,7 +113,6 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ImportLibrary>
       </ImportLibrary>
-      <SubSystem>Console</SubSystem>
       <IgnoreSpecificDefaultLibraries>
       </IgnoreSpecificDefaultLibraries>
     </Link>
@@ -158,7 +157,6 @@
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <ImportLibrary>
       </ImportLibrary>
-      <SubSystem>Console</SubSystem>
     </Link>
     <ProjectReference>
       <LinkLibraryDependencies>

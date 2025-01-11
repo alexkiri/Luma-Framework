@@ -1,10 +1,5 @@
-/*
- * Copyright (C) 2024 Carlos Lopez and Filippo Tarpini
- * SPDX-License-Identifier: MIT
- */
-
- // Enable when you are developing shaders or code (not debugging, there's "NDEBUG" for that)
-#define DEVELOPMENT 1
+// Enable when you are developing shaders or code (not debugging, there's "NDEBUG" for that)
+#define DEVELOPMENT 0
 // Enable when you are testing shaders or code (e.g. to dump the shaders etc etc)
 // This is not mutually exclusive with "DEVELOPMENT", but it should be a sub-set of it
 // If neither of these are true, then we are in "shipping" mode, with code meant to be used by the final user
@@ -81,6 +76,7 @@
 #define ICON_FK_WARNING reinterpret_cast<const char*>(u8"\uf071")
 #define ICON_FK_FILE_CODE reinterpret_cast<const char*>(u8"\uf1c9")
 
+//TODOFT: undef on 64x?
 #define ImTextureID ImU64
 
 // Depends on "DEVELOPMENT"
