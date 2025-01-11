@@ -2618,6 +2618,7 @@ namespace
    {
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
+#if DEVELOPMENT
       if (LDR_textures_upgrade_requested_format != LDR_textures_upgrade_confirmed_format)
       {
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
@@ -2638,6 +2639,7 @@ namespace
          return true;
       }
       return false;
+#endif
       bool changed = false;
 #if 1
       desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
@@ -9011,9 +9013,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
 {
    switch (fdw_reason)
    {
-      // Note: this dll doesn't support being loaded more than once (or unloaded in the middle of execution)
-      // as it doesn't fully restore the original state on uninit (there's no need to really).
-      // ReShade loads addons when the game creates a DirectX device, and this seems to only ever happen once in Prey's case.
+   // Note: this dll doesn't support being loaded more than once (or unloaded in the middle of execution)
+   // as it doesn't fully restore the original state on uninit (there's no need to really).
+   // ReShade loads addons when the game creates a DirectX device, and this seems to only ever happen once in Prey's case.
    case DLL_PROCESS_ATTACH:
    {
 #if DEVELOPMENT || _DEBUG
@@ -9149,7 +9151,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::init_sampler>(OnInitSampler);
       reshade::register_event<reshade::addon_event::destroy_sampler>(OnDestroySampler);
 
+#if DEVELOPMENT
       reshade::register_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
+#endif // DEVELOPMENT
 
       reshade::register_event<reshade::addon_event::present>(OnPresent);
 
@@ -9220,7 +9224,9 @@ BOOL APIENTRY DllMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::init_sampler>(OnInitSampler);
       reshade::unregister_event<reshade::addon_event::destroy_sampler>(OnDestroySampler);
 
+#if DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
+#endif // DEVELOPMENT
 
       reshade::unregister_event<reshade::addon_event::present>(OnPresent);
 

@@ -1,0 +1,44 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.11.35201.85
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Core", "ReShade Addon\build\Prey-Luma-ReShade.vcxproj", "{E0947F3A-8107-3BB4-83BE-9A22D419719E}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Prey (2017)", "Games\Prey-2017\Prey-2017.vcxproj", "{3DA928FD-9A18-473E-8D05-F22B96A30197}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Games", "Games", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug-Development|x64 = Debug-Development|x64
+		Debug-Development|x86 = Debug-Development|x86
+		Release-Shipping|x64 = Release-Shipping|x64
+		Release-Shipping|x86 = Release-Shipping|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Debug-Development|x64.ActiveCfg = Debug|x64
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Debug-Development|x64.Build.0 = Debug|x64
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Debug-Development|x86.ActiveCfg = Debug-Testing|Win32
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Debug-Development|x86.Build.0 = Debug-Testing|Win32
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Release-Shipping|x64.ActiveCfg = Release|x64
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Release-Shipping|x64.Build.0 = Release|x64
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Release-Shipping|x86.ActiveCfg = Release|Win32
+		{E0947F3A-8107-3BB4-83BE-9A22D419719E}.Release-Shipping|x86.Build.0 = Release|Win32
+		{3DA928FD-9A18-473E-8D05-F22B96A30197}.Debug-Development|x64.ActiveCfg = Debug|x64
+		{3DA928FD-9A18-473E-8D05-F22B96A30197}.Debug-Development|x64.Build.0 = Debug|x64
+		{3DA928FD-9A18-473E-8D05-F22B96A30197}.Debug-Development|x86.ActiveCfg = Debug|x64
+		{3DA928FD-9A18-473E-8D05-F22B96A30197}.Release-Shipping|x64.ActiveCfg = Release|x64
+		{3DA928FD-9A18-473E-8D05-F22B96A30197}.Release-Shipping|x64.Build.0 = Release|x64
+		{3DA928FD-9A18-473E-8D05-F22B96A30197}.Release-Shipping|x86.ActiveCfg = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{3DA928FD-9A18-473E-8D05-F22B96A30197} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {8B799422-BA66-3174-B21F-B9FA07C4B2E3}
+	EndGlobalSection
+EndGlobal
