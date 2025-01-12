@@ -38,7 +38,7 @@
 
 # Compiled and Dumped Shaders
 *.cso
-Data/Binaries/Danielle/x64/Release/Prey-Luma/dump
+*/dump/*
 
 # Misc
 [Bb]uild/
@@ -47,4 +47,4 @@ Data/Binaries/Danielle/x64/Release/Prey-Luma/dump
 deploy-*.ps1
 
 # Forced not ignored
-!./ReShade Addon/build/Prey-Luma-ReShade.vcxproj
+!./Source/Core/Luma.vcxproj
