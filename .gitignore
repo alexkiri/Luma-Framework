@@ -35,16 +35,19 @@
 .vs/
 .vscode/
 **/.vshistory/
+*.pdb
+*.exp
+*.vcxproj.user
 
 # Compiled and Dumped Shaders
 *.cso
-**/dump/
+**/Dump/
 
 # Misc
 [Bb]uild/
 *.zip
 *.timestamp
 deploy-*.ps1
+*.log
 
-# Forced not ignored
-!./Source/Core/Luma.vcxproj
+# Forced not ignored (e.g. !./Source/Core/Luma.vcxproj)
