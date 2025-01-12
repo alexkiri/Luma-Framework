@@ -1,6 +1,6 @@
 [submodule "ReShade Addon/external/reshade"]
-	path = Source/external2/reshade
+	path = Source/External/reshade
 	url = https://github.com/crosire/reshade
 [submodule "ReShade Addon/external/DKUtil"]
-	path = Source/external2/DKUtil
+	path = Source/External/DKUtil
 url=https://github.com/Filoppi/DKUtil.git
