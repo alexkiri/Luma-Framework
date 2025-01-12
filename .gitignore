@@ -38,7 +38,7 @@
 
 # Compiled and Dumped Shaders
 *.cso
-*/dump/*
+**/dump/
 
 # Misc
 [Bb]uild/
