@@ -1,8 +1,8 @@
-#include "include/Common.hlsl"
-#include "include/Scaleform.hlsl"
-#include "include/LensDistortion.hlsl"
+#include "Includes/Common.hlsl"
+#include "Includes/Scaleform.hlsl"
+#include "../Includes/LensDistortion.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
@@ -29,7 +29,7 @@ void main(
   
 #if ENABLE_SCREEN_DISTORTION
   // Inverse lens distortion
-  if (LumaUIData.WritingOnSwapchain == 1 && LumaSettings.LensDistortion && isLinearProjectionMatrix(cCompositeMat))
+  if (LumaUIData.TargetingSwapchain && !LumaUIData.FullscreenMenu && LumaSettings.LensDistortion && isLinearProjectionMatrix(cCompositeMat))
   {
     o0.xyz /= o0.w; // From clip to NDC space
     o0.w = 1; // no need to convert it back to clip space, the GPU would do it again anyway

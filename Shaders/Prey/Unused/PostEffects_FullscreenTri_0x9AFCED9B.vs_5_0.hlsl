@@ -1,6 +1,6 @@
-#include "include/Common.hlsl"
+#include "../../Includes/Common.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "../Includes/CBuffer_PerViewGlobal.hlsl"
 
 float4 GetHPos_FromTriVertexID(uint vertexID)
 {

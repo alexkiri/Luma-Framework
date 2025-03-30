@@ -9,7 +9,7 @@ cbuffer PER_BATCH : register(b0)
   float4 meshCenterAndBrt : packoffset(c6);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 // commonMeshVS
 void main(

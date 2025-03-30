@@ -8,15 +8,129 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <map>
 
 #include <include/reshade.hpp>
 
-namespace utils::shader::compiler
+namespace Shader
 {
-
    static std::mutex s_mutex_shader_compiler;
 
    bool dummy_bool;
+   
+   // TODO: optimize
+   std::optional<std::string> ReadTextFile(const std::filesystem::path& path, bool force_value = false)
+   {
+      std::vector<uint8_t> data;
+      std::optional<std::string> result = std::nullopt;
+      if (force_value) result = "";
+      std::ifstream file(path, std::ios::binary);
+      if (!file) return result;
+      file.seekg(0, std::ios::end);
+      const size_t file_size = file.tellg();
+      if (file_size == 0) return result;
+
+      data.resize(file_size);
+      file.seekg(0, std::ios::beg).read(reinterpret_cast<char*>(data.data()), file_size);
+      result = std::string(reinterpret_cast<const char*>(data.data()), file_size);
+      return result;
+   }
+
+   constexpr bool custom_include_handler = true;
+
+   // Custom D3DInclude that supports nested relative imports
+   // From ShortFuse
+   class FxcD3DInclude : public ID3DInclude
+   {
+   public:
+      LPCWSTR initial_file;
+      explicit FxcD3DInclude(LPCWSTR initial_file)
+      {
+         this->initial_file = initial_file;
+      };
+
+      // Don't use map in case file contents are identical
+      std::vector<std::pair<std::string, std::filesystem::path>> file_paths;
+      std::map<std::filesystem::path, std::string> file_contents;
+
+      HRESULT __stdcall Open(D3D_INCLUDE_TYPE IncludeType, LPCSTR pFileName, LPCVOID pParentData, LPCVOID* ppData, UINT* pBytes) override
+      {
+         std::filesystem::path new_path;
+         if (pParentData != nullptr)
+         {
+            std::string parent_data = static_cast<const char*>(pParentData);
+            for (auto pair = file_paths.rbegin(); pair != file_paths.rend(); ++pair)
+            {
+               if (pair->first == parent_data)
+               {
+                  new_path = pair->second.parent_path();
+                  break;
+               }
+            }
+         }
+         if (new_path.empty())
+         {
+            new_path = initial_file;
+            new_path = new_path.parent_path();
+         }
+
+         new_path /= pFileName;
+         new_path = new_path.lexically_normal();
+
+         *ppData = nullptr;
+         *pBytes = 0;
+
+         try
+         {
+            std::string output;
+            if (auto pair = file_contents.find(new_path); pair != file_contents.end())
+            {
+               output = pair->second;
+            }
+            else
+            {
+               output = ReadTextFile(new_path, true).value();
+            }
+            file_paths.emplace_back(output, new_path);
+
+            *ppData = _strdup(output.c_str());
+            *pBytes = static_cast<UINT>(output.size());
+         }
+         catch (...)
+         {
+            {
+               std::stringstream s;
+               s << "FxcD3DInclude::Open(Failed to open";
+               s << pFileName;
+               s << ", type: " << IncludeType;
+               s << ", parent: " << pParentData;
+               s << ")";
+            }
+            return -1; // Error
+         }
+
+         return S_OK;
+      }
+
+      HRESULT __stdcall Close(LPCVOID pData) override
+      {
+         if (pData != nullptr)
+         {
+            std::string data = static_cast<const char*>(pData);
+            for (auto pair = file_paths.rbegin(); pair != file_paths.rend(); ++pair)
+            {
+               if (pair->first == data)
+               {
+                  file_paths.erase(std::next(pair).base());
+                  break;
+               }
+            }
+         }
+
+         free(const_cast<void*>(pData));
+         return S_OK;
+      }
+   };
 
    std::optional<std::string> DisassembleShaderFXC(void* data, size_t size, LPCWSTR library = L"D3DCompiler_47.dll")
    {
@@ -33,7 +147,6 @@ namespace utils::shader::compiler
          }
          if (d3d_compiler[library] != nullptr && d3d_disassemble[library] == nullptr)
          {
-            // NOLINTNEXTLINE(google-readability-casting)
             d3d_disassemble[library] = pD3DDisassemble(GetProcAddress(d3d_compiler[library], "D3DDisassemble"));
          }
       }
@@ -69,7 +182,6 @@ namespace utils::shader::compiler
          reshade::log::message(reshade::log::level::error, "dxcompiler.dll not loaded");
          return -1;
       }
-      // NOLINTNEXTLINE(google-readability-casting)
       auto dxc_create_instance = DxcCreateInstanceProc(GetProcAddress(dx_compiler, "DxcCreateInstance"));
       if (dxc_create_instance == nullptr) return -1;
       return dxc_create_instance(CLSID_DxcLibrary, __uuidof(IDxcLibrary), reinterpret_cast<void**>(dxc_library));
@@ -85,7 +197,6 @@ namespace utils::shader::compiler
          reshade::log::message(reshade::log::level::error, "dxcompiler.dll not loaded");
          return -1;
       }
-      // NOLINTNEXTLINE(google-readability-casting)
       auto dxc_create_instance = DxcCreateInstanceProc(GetProcAddress(dx_compiler, "DxcCreateInstance"));
       if (dxc_create_instance == nullptr) return -1;
       return dxc_create_instance(CLSID_DxcCompiler, __uuidof(IDxcCompiler), reinterpret_cast<void**>(dxc_compiler));
@@ -142,7 +253,7 @@ namespace utils::shader::compiler
 
    // Returns true if the shader changed (or if we can't compare it).
    // Pass in "shader_name_w" as the full path to avoid needing to set the current directory.
-   bool PreprocessShaderFromFile(LPCWSTR file_path, LPCWSTR shader_name_w, LPCSTR shader_target, std::size_t& preprocessed_hash /*= 0*/, CComPtr<ID3DBlob>& uncompiled_code_blob, const std::vector<std::string>& defines = {}, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR fxc_library = L"D3DCompiler_47.dll")
+   bool PreprocessShaderFromFile(LPCWSTR file_path, LPCWSTR shader_name_w, LPCSTR shader_target, std::string& preprocessed_code, std::size_t& preprocessed_hash /*= 0*/, CComPtr<ID3DBlob>& uncompiled_code_blob, const std::vector<std::string>& defines = {}, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR fxc_library = L"D3DCompiler_47.dll")
    {
       std::vector<D3D_SHADER_MACRO> local_defines;
       FillDefines(defines, local_defines);
@@ -161,7 +272,6 @@ namespace utils::shader::compiler
             }
             if (d3d_compiler[fxc_library] != nullptr && d3d_readFileToBlob[fxc_library] == nullptr)
             {
-               // NOLINTNEXTLINE(google-readability-casting)
                d3d_readFileToBlob[fxc_library] = pD3DReadFileToBlob(GetProcAddress(d3d_compiler[fxc_library], "D3DReadFileToBlob"));
                d3d_preprocess[fxc_library] = pD3DPreprocess(GetProcAddress(d3d_compiler[fxc_library], "D3DPreprocess"));
             }
@@ -169,6 +279,8 @@ namespace utils::shader::compiler
 
          if (d3d_readFileToBlob[fxc_library] != nullptr && d3d_preprocess[fxc_library] != nullptr)
          {
+            auto custom_include = FxcD3DInclude(shader_name_w);
+            
             if (SUCCEEDED(d3d_readFileToBlob[fxc_library](file_path, &uncompiled_code_blob)))
             {
 #pragma warning(push)
@@ -185,7 +297,7 @@ namespace utils::shader::compiler
                   uncompiled_code_blob->GetBufferSize(),
                   shader_name,
                   local_defines.data(),
-                  D3D_COMPILE_STANDARD_FILE_INCLUDE,
+                  custom_include_handler ? &custom_include : D3D_COMPILE_STANDARD_FILE_INCLUDE,
                   &preprocessed_blob,
                   &error_blob);
                error = FAILED(result);
@@ -195,9 +307,9 @@ namespace utils::shader::compiler
                }
                if (SUCCEEDED(result) && preprocessed_blob != nullptr)
                {
-                  std::string prepocessed_blob_string; // TODO: there's probably a more optimized way of finding the blob's hash
-                  prepocessed_blob_string.assign(reinterpret_cast<char*>(preprocessed_blob->GetBufferPointer()));
-                  std::size_t new_preprocessed_hash = std::hash<std::string>{}(prepocessed_blob_string);
+                  preprocessed_code.assign(reinterpret_cast<char*>(preprocessed_blob->GetBufferPointer()));
+                  // TODO: there's possibly a more optimized way of finding the blob's hash
+                  std::size_t new_preprocessed_hash = std::hash<std::string>{}(preprocessed_code);
                   if (preprocessed_hash == new_preprocessed_hash)
                   {
                      return false;
@@ -223,7 +335,6 @@ namespace utils::shader::compiler
          }
          if (d3d_compiler[library] != nullptr && d3d_readFileToBlob[library] == nullptr)
          {
-            // NOLINTNEXTLINE(google-readability-casting)
             d3d_readFileToBlob[library] = pD3DReadFileToBlob(GetProcAddress(d3d_compiler[library], "D3DReadFileToBlob"));
          }
       }
@@ -278,12 +389,13 @@ namespace utils::shader::compiler
          }
          if (d3d_compiler[library] != nullptr && d3d_compilefromfile[library] == nullptr)
          {
-            // NOLINTNEXTLINE(google-readability-casting)
             d3d_compilefromfile[library] = pD3DCompileFromFile(GetProcAddress(d3d_compiler[library], "D3DCompileFromFile"));
             d3d_compile[library] = pD3DCompile(GetProcAddress(d3d_compiler[library], "D3DCompile"));
             d3d_writeBlobToFile[library] = pD3DWriteBlobToFile(GetProcAddress(d3d_compiler[library], "D3DWriteBlobToFile"));
          }
       }
+
+      auto custom_include = FxcD3DInclude(file_read_path);
 
       CComPtr<ID3DBlob> out_blob;
       CComPtr<ID3DBlob> error_blob;
@@ -302,7 +414,7 @@ namespace utils::shader::compiler
             optional_uncompiled_code_input->GetBufferSize(),
             shader_name,
             defines,
-            D3D_COMPILE_STANDARD_FILE_INCLUDE,
+            custom_include_handler ? &custom_include : D3D_COMPILE_STANDARD_FILE_INCLUDE,
             func_name,
             shader_target,
             D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY,
@@ -315,7 +427,7 @@ namespace utils::shader::compiler
          result = d3d_compilefromfile[library](
             file_read_path,
             defines,
-            D3D_COMPILE_STANDARD_FILE_INCLUDE,
+            custom_include_handler ? &custom_include : D3D_COMPILE_STANDARD_FILE_INCLUDE,
             func_name,
             shader_target,
             D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY,
@@ -644,5 +756,4 @@ namespace utils::shader::compiler
       }
       CompileShaderFromFileDXC(output, file_path, shader_target, local_defines.data(), error, func_name, out_error);
    }
-
-}  // namespace utils::shader::compiler
+}

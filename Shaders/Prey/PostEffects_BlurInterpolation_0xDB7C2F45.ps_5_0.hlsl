@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {

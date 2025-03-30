@@ -6,5 +6,4 @@ void main(
   out float4 o0 : SV_Target0)
 {
   o0.xyzw = float4(0,0,0,0);
-  return;
 }

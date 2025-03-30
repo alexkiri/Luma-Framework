@@ -1,7 +1,7 @@
-#include "include/Common.hlsl"
+#include "../../Includes/Common.hlsl"
 
 // This cbuffer is not actually set by lens optics shaders, but it should be still readable from the previous passes that set it (nobody else uses register b13)
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "CBuffer_PerViewGlobal.hlsl"
 
 #ifndef HDRParams
 #define HDRParams float3(24.8, 0.5, 0.06)

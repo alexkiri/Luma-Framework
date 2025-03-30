@@ -1,4 +1,4 @@
-#include "include/Scaleform.hlsl"
+#include "Includes/Scaleform.hlsl"
 
 SamplerState texMapY_s : register(s0);
 SamplerState texMapU_s : register(s1);

@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #if _65CDC30B
 // 1 LUT (no blend)

@@ -1,11 +1,11 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
   float4 HDRParams0 : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 // This means it's the second pass (on an already bloomed texture)
 #if _0A210C5D

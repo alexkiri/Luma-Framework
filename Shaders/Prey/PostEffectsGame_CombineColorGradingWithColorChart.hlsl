@@ -1,4 +1,5 @@
-#include "include/ColorGradingLUT.hlsl"
+#include "Includes/Common.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {

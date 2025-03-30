@@ -1,6 +1,6 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0);
 Texture2D<float4> _tex0 : register(t0);

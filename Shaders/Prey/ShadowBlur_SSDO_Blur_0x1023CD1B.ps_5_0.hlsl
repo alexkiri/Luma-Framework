@@ -1,11 +1,11 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define PREMULTIPLY_BENT_NORMALS 1
 #define XE_GTAO_ENABLE_DENOISE ENABLE_SSAO_DENOISE
 #define XE_GTAO_ENCODE_BENT_NORMALS 0
-#include "include/XeGTAO.hlsl"
+#include "Includes/XeGTAO.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {

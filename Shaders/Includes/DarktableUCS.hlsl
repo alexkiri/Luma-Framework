@@ -1,3 +1,6 @@
+#ifndef SRC_DARKTABLE_UCS_HLSL
+#define SRC_DARKTABLE_UCS_HLSL
+
 // Copyright 2022 - Aurélien PIERRE - darktable project
 // Darktable Uniform Color Space (UCS)
 // https://eng.aurelienpierre.com/2022/02/color-saturation-control-for-the-21th-century/
@@ -382,3 +385,5 @@ namespace DarktableUcs
     return rgb;
   }
 } //DarktableUcs
+
+#endif // SRC_DARKTABLE_UCS_HLSL

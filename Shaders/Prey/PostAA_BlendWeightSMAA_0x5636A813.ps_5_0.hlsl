@@ -1,4 +1,4 @@
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 // tex0 = edgesTex (HDR, generated based on the rendering)
 // tex1 = areaTex (SDR/8bit, unclear who generates this, is it fixed in value?)

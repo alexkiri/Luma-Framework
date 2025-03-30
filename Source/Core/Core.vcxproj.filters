@@ -1,0 +1,77 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="core.hpp" />
+    <ClCompile Include="dlss\DLSS.cpp">
+      <Filter>DLSS</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="DLSS">
+      <UniqueIdentifier>{7ec0fec7-1c94-4182-87e0-653e1c01082e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Includes">
+      <UniqueIdentifier>{b448b214-cbb5-4ee4-a88f-4dae17079dfc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Utils">
+      <UniqueIdentifier>{b8e435d6-17be-4021-a8aa-c11c6ceb044c}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="dlss\DLSS.h">
+      <Filter>DLSS</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\pipeline.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\shader_compiler.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\display.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\format.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\cbuffers.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\math.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\matrix.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\shader_define.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\globals.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\recursive_shared_mutex.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\shaders.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\instance_data.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\resource.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\draw.hpp">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\debug.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\game.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="global_defines.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="configuration_defines.props" />
+  </ItemGroup>
+</Project>

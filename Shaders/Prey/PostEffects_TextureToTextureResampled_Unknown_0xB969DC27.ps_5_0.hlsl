@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define _RT_SAMPLE0 0
 #define _RT_SAMPLE1 0
@@ -13,7 +13,7 @@ cbuffer PER_BATCH : register(b0)
   float4 texToTexParams1 : packoffset(c1); // Often set to the inverse of the output resolution (pixel size)
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0);
 Texture2D<float4> _tex0 : register(t0);

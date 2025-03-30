@@ -1,4 +1,4 @@
-#include "include/Scaleform.hlsl"
+#include "Includes/Scaleform.hlsl"
 
 SamplerState texMap0_s : register(s0);
 Texture2D<float4> texMap0 : register(t0);

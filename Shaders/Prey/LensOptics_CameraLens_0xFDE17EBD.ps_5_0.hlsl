@@ -8,7 +8,7 @@ cbuffer PER_BATCH : register(b0)
   float4 HDRParams : packoffset(c1);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 SamplerState lensMap_s : register(s2);
 Texture2D<float4> lensMap : register(t2);

@@ -3,7 +3,7 @@ cbuffer PER_INSTANCE : register(b1)
   float4 PI_psOffsets[16] : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 // This blurs the image. It's run after upscaling (and usually after TexToTexSampledPS), so it supports DLSS fine and doesn't need any "CV_HPosScale"/"MapViewportToRaster()" adjustments.
 // It seems like it generally handles different aspect ratios correctly, but might not scale perfectly with DRS.

@@ -1,6 +1,6 @@
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
-#include "include/CBuffer_PerFrame.hlsl"
+#include "Includes/CBuffer_PerFrame.hlsl"
 
 cbuffer CBShadowMask : register(b0)
 {

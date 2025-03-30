@@ -11,7 +11,7 @@ cbuffer PER_BATCH : register(b0)
   float4 dynamics : packoffset(c7);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 // lensGhostVS
 // This one was already corrected by aspect ratio.

@@ -1,5 +1,5 @@
-#include "include/Common.hlsl"
-#include "include/Tonemap.hlsl"
+#include "Includes/Common.hlsl"
+#include "../Includes/Tonemap.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {

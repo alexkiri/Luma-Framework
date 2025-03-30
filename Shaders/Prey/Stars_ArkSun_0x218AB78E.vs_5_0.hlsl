@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
@@ -10,7 +10,7 @@ cbuffer PER_INSTANCE : register(b1)
   row_major float3x4 ObjWorldMatrix : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 // ArkSunVS
 void main(

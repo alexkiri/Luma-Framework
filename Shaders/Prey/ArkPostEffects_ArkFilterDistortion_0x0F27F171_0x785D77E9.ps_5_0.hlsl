@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #if _0F27F171
 #define _RT_SAMPLE0 0
@@ -20,7 +20,7 @@ cbuffer PER_BATCH : register(b0)
   float4 psParams[16] : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState ssScreenTex_s : register(s0);
 Texture2D<float4> screenTex : register(t0);

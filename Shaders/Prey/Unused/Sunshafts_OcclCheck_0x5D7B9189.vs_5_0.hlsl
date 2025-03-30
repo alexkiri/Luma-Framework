@@ -13,5 +13,4 @@ void main(
   o0.z = Position.z;
   o0.w = 1;
   // LUMA FT: I tried to return vertices positions forced to be near the center of the screen, with near zero depth, but I wasn't able to force sun shafts to be visible
-  return;
 }

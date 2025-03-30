@@ -31,5 +31,4 @@ void main(
   r0.xy = min(r0.xy, r0.zw);
   r0.x = min(r0.x, r0.y);
   o0.xyzw = max(r0.xxxx, r1.xxxx);
-  return;
 }

@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "../../Includes/Common.hlsl"
 
 struct a2v_cch
 {
@@ -26,5 +26,4 @@ void main(
   output.HPosition.zw = float2(0.f, 1.f);
   
   output.Color = 0;
-  return;
 }

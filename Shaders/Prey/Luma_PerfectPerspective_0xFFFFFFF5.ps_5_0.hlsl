@@ -1,7 +1,7 @@
-#include "include/Common.hlsl"
-#include "include/LensDistortion.hlsl"
+#include "Includes/Common.hlsl"
+#include "../Includes/LensDistortion.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState sourceTextureSampler : register(s10); // Anisotropic + Black Border/Edges
 Texture2D<float4> sourceTexture : register(t0);

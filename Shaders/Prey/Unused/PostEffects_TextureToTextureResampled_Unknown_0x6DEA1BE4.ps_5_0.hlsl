@@ -22,5 +22,4 @@ void main(
   r0.w = _tex0.Sample(_tex0_s, r1.zw).x;
   r0.xy = min(r0.xy, r0.zw);
   o0.xyzw = min(r0.xxxx, r0.yyyy);
-  return;
 }

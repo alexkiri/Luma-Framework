@@ -4,7 +4,7 @@ cbuffer PER_BATCH : register(b0)
   float4 lumaParams : packoffset(c1);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 #define focusFactor lumaParams.x
 #define gamma lumaParams.y

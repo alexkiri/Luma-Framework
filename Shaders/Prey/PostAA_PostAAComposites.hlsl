@@ -1,9 +1,9 @@
-#include "include/Common.hlsl"
-#include "include/Tonemap.hlsl"
-#include "include/RCAS.hlsl"
-#include "include/LensDistortion.hlsl"
+#include "Includes/Common.hlsl"
+#include "../Includes/Tonemap.hlsl"
+#include "../Includes/RCAS.hlsl"
+#include "../Includes/LensDistortion.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 cbuffer CBComposites : register(b0)
 {

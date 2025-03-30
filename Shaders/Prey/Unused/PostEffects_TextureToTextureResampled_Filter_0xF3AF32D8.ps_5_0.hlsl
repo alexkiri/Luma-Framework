@@ -8,7 +8,6 @@ cbuffer PER_BATCH : register(b0)
 SamplerState _tex0_s : register(s0);
 Texture2D<float4> _tex0 : register(t0);
 
-// 3Dmigoto declarations
 #define cmp -
 
 // LUMA: Unchanged.
@@ -48,5 +47,4 @@ void main(
     r0.z = texToTexParams2.y + r0.z;
   }
   o0.xyzw = r1.xyzw / r0.wwww;
-  return;
 }

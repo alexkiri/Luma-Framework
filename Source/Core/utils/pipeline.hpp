@@ -3,10 +3,9 @@
 #include <include/reshade.hpp>
 #include "./format.hpp"
 
-namespace utils::pipeline
+namespace Shader
 {
-
-   static reshade::api::pipeline_subobject* ClonePipelineSubObjects(uint32_t subobject_count, const reshade::api::pipeline_subobject* subobjects)
+   reshade::api::pipeline_subobject* ClonePipelineSubobjects(uint32_t subobject_count, const reshade::api::pipeline_subobject* subobjects)
    {
       auto* new_subobjects = new reshade::api::pipeline_subobject[subobject_count];
       memcpy(new_subobjects, subobjects, sizeof(reshade::api::pipeline_subobject) * subobject_count);
@@ -16,7 +15,7 @@ namespace utils::pipeline
 #if _DEBUG && LOG_VERBOSE
          {
             std::stringstream s;
-            s << "utils::pipeline::ClonePipelineSubObjects(cloning " << subobjects[i].type << "[" << i << "]";
+            s << "Shader::ClonePipelineSubobjects(cloning " << subobjects[i].type << "[" << i << "]";
             reshade::log::message(reshade::log::level::debug, s.str().c_str());
          }
 #endif
@@ -50,7 +49,7 @@ namespace utils::pipeline
 
 #if _DEBUG && LOG_VERBOSE
             std::stringstream s;
-            s << "utils::pipeline::ClonePipelineSubObjects(cloning ";
+            s << "Shader::ClonePipelineSubobjects(cloning ";
             s << subobject.type;
             s << " with " << PRINT_CRC32(compute_crc32(static_cast<const uint8_t*>(old_desc->code), old_desc->code_size));
             s << " => " << PRINT_CRC32(compute_crc32(static_cast<const uint8_t*>(new_desc->code), new_desc->code_size));
@@ -128,4 +127,31 @@ namespace utils::pipeline
       return new_subobjects;
    }
 
-}  // namespace utils::pipeline
+   void DestroyPipelineSubojects(reshade::api::pipeline_subobject* subojects, uint32_t subobject_count)
+   {
+      for (uint32_t i = 0; i < subobject_count; ++i)
+      {
+         auto& suboject = subojects[i];
+
+         switch (suboject.type)
+         {
+         case reshade::api::pipeline_subobject_type::geometry_shader:
+         case reshade::api::pipeline_subobject_type::vertex_shader:
+         case reshade::api::pipeline_subobject_type::compute_shader:
+         case reshade::api::pipeline_subobject_type::pixel_shader:
+         {
+            auto* desc = static_cast<reshade::api::shader_desc*>(suboject.data);
+            delete desc->code;
+            desc->code = nullptr;
+            break;
+         }
+         default:
+         break;
+         }
+
+         delete suboject.data;
+         suboject.data = nullptr;
+      }
+      delete[] subojects;
+   }
+}

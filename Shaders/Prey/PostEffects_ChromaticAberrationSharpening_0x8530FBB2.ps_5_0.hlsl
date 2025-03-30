@@ -1,11 +1,11 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
   float4 psParams[16] : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0);
 SamplerState _tex1_s : register(s1);

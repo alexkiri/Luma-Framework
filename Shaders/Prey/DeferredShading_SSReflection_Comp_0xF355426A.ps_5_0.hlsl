@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 SamplerState ssReflectionLinear : register(s1); // Bilinear sampler with clamp
 Texture2D<float4> ssrComposeSpecularTex : register(t0); // G-Buffer
@@ -9,8 +9,8 @@ Texture2D<float4> ssrComposeReflection3Tex : register(t4); // 1/16 resolution + 
 Texture2D<float4> ssrComposeReflectionFullTex : register(t5); // LUMA: Full resolution
 Texture2D<float> ssrComposeDiffuseTex : register(t6); // LUMA: Diffuseness map
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
-#include "include/GBuffer.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/GBuffer.hlsl"
 
 // Disabled as this is slower, there's no noticeable boost in quality (if not in mirrors like surfaces?) and possibly introduces more shimmering
 #define USE_BASE_MIP 0

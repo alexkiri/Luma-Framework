@@ -41,10 +41,11 @@
 
 # Compiled and Dumped Shaders
 *.cso
-**/Dump/
+**/Dump/*.cso
 
 # Misc
 [Bb]uild/
+[Bb]inaries/
 *.zip
 *.timestamp
 deploy-*.ps1

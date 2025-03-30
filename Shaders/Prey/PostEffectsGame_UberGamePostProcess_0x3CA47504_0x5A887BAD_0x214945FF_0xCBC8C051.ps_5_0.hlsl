@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #if _3CA47504
 // Mostly passthrough
@@ -28,7 +28,7 @@ cbuffer PER_BATCH : register(b0)
   float4 UberPostParams0 : packoffset(c5);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0);
 SamplerState _tex1_s : register(s1);

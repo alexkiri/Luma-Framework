@@ -9,7 +9,7 @@ cbuffer PER_BATCH : register(b0)
   row_major float3x4 xform : packoffset(c3);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 // shaftsVS
 // These scale correctly by aspect ratio, but they break if changing the resolution/aspect ratio at runtime, because the engine forgets to update their intermediary texture.

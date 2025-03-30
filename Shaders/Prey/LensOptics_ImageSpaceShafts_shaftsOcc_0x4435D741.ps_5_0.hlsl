@@ -3,7 +3,7 @@ cbuffer PER_BATCH : register(b0)
   float4 HDRParams : packoffset(c0);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 SamplerState baseMap_s : register(s0);
 SamplerState depthMap_s : register(s1);

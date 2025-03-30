@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define _RT_SAMPLE1 1
 
@@ -7,7 +7,7 @@ cbuffer PER_BATCH : register(b0)
   float4 VisionMtlParams : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState PNoiseSampler_s : register(s1);
 Texture2D<float4> PNoiseSampler : register(t1);

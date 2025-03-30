@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
@@ -11,7 +11,7 @@ cbuffer PER_BATCH : register(b0)
   float3 SkyDome_NightSkyColDelta : packoffset(c6);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState skyDomeSamplerMie_s : register(s0);
 SamplerState skyDomeSamplerRayleigh_s : register(s1);

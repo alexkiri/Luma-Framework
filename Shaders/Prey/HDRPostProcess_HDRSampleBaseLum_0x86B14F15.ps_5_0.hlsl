@@ -1,6 +1,6 @@
-#include "include/Common.hlsl"
-#include "include/CBuffer_PerViewGlobal.hlsl"
-#include "include/GBuffer.hlsl"
+#include "Includes/Common.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/GBuffer.hlsl"
 
 cbuffer CBExposure : register(b0)
 {

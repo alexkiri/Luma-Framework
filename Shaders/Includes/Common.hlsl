@@ -7,51 +7,47 @@
 #pragma warning( disable : 3078 )
 
 // These should only ever be included through "Common.hlsl" and never individually
-#include "include/Math.hlsl"
-#include "include/Color.hlsl"
-#include "include/Settings.hlsl"
+#include "Math.hlsl"
+#include "Color.hlsl"
+#include "Settings.hlsl"
 
+#ifndef LUT_SIZE
 #define LUT_SIZE 16u
+#endif
+#ifndef LUT_MAX
 #define LUT_MAX (LUT_SIZE - 1u)
+#endif
 
 // The aspect ratio the game was developed against, in case some effects weren't scaling properly for other aspect ratios.
-// For best results, we should consider the FOV Hor+ beyond 16:9 and Vert- below 16:9
-// (so the 16:9 image is always visible, and the aspect ratio either extends the vertical or horizontal view).
 static const float NativeAspectRatioWidth = 16.0;
 static const float NativeAspectRatioHeight = 9.0;
 static const float NativeAspectRatio = NativeAspectRatioWidth / NativeAspectRatioHeight;
-// Default value used all across the game for gameplay (and possibly during cutscenes too)
-static const float NativeVerticalFOV = radians(55.0);
-// The vertical resolution that most likely was the most used by the game developers,
-// we define this to scale up stuff that did not natively correctly scale by resolution.
-// According to the developers, the game was mostly developed on 1080p displays, and some 1440p ones, so
-// we are going for their middle point, but 1080 or 1440 would also work fine.
-static const float BaseVerticalResolution = 1260.0;
-static const float BaseHorizontalResolution = BaseVerticalResolution * 16.0 / 9.f;
 
-// Exposure multiplier for sunshafts. It's useful to shift them towards a better range for float textures to avoid banding.
-// This comes from vanilla values, it's not really meant to be changed.
-static const float SunShaftsBrightnessMultiplier = 4.0;
-// With "SUNSHAFTS_LOOK_TYPE" > 0 and "ENABLE_LENS_OPTICS_HDR", we apply exposure to sun shafts and lens optics as well.
-// Given that exposure can deviate a lot from a value of 1, to the point where it would make lens optics effects look weird, we diminish its effect on them so it's less jarring, but still applies (which is visually nicer).
-// The value should be between 0 and 1.
-static const float SunShaftsAndLensOpticsExposureAlpha = 0.25; // Anything more than 0.25 can cause sun effects to be blinding if the exposure is too high (it's pretty high in some scenes)
-
-//TODOFT: test increase? Nah! It's not classy
-static const float BinkVideosAutoHDRPeakWhiteNits = 400; // Values beyond 700 will make AutoHDR look bad
-// The higher it is, the "later" highlights start
-static const float BinkVideosAutoHDRShoulderPow = 2.75; // A somewhat conservative value
-
-float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false)
+float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false, uint colorSpace = CS_DEFAULT)
 {
-  float targetColorLuminance = GetLuminance(targetColor);
+  float targetColorLuminance = GetLuminance(targetColor, colorSpace);
   if (safe)
-    return targetColor * safeDivision(max(sourceColorLuminance, 0.0), max(targetColorLuminance, 0.0), 0);
+  {
+#if 0 // Disabled as it doesn't seem to help (we'd need to set the threshold to "0.001" (which is too high) for this to pick up the cases where divisions end up denormalizing the number etc)
+    if (abs(targetColorLuminance - sourceColorLuminance) <= FLT_EPSILON)
+    {
+      return targetColor;
+    }
+#endif
+    targetColorLuminance = max(targetColorLuminance, 0.0);
+    sourceColorLuminance = max(sourceColorLuminance, 0.0);
+#if 1
+    return targetColor * (targetColorLuminance <= (FLT_EPSILON * 10.0) ? 0.0 : (sourceColorLuminance / targetColorLuminance)); // Empyrically found threshold
+#else
+    return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 0);
+#endif
+    
+  }
   return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 1);
 }
-float3 RestoreLuminance(float3 targetColor, float3 sourceColor, bool safe = false)
+float3 RestoreLuminance(float3 targetColor, float3 sourceColor, bool safe = false, uint colorSpace = CS_DEFAULT)
 {
-  return RestoreLuminance(targetColor, GetLuminance(sourceColor), safe);
+  return RestoreLuminance(targetColor, GetLuminance(sourceColor, colorSpace), safe, colorSpace);
 }
 
 // Formulas that either use 2.2 or sRGB gamma depending on a global definition.
@@ -59,17 +55,19 @@ float3 RestoreLuminance(float3 targetColor, float3 sourceColor, bool safe = fals
 // 
 // In the "POST_PROCESS_SPACE_TYPE != 1" cases, we apply the gamma correction in the very final linearization shader, to make the code simpler
 // and make (e.g. UI) gamma blends look like Vanilla.
+// 
+// Note that these partially ignore "VANILLA_ENCODING_TYPE", they ignore "GAMMA_CORRECTION_RANGE_TYPE" (it acts as if it was 0) and ignore "EARLY_DISPLAY_ENCODING" (it acts as if it's true).
 float3 game_gamma_to_linear(float3 Color, bool Mirrored = true)
 {
-#if POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE >= 2 && 0 // Disabled for intermediary conversions (fall back to sRGB). Moved to final linearization shader
+#if POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE >= 2 && 0 // Disabled for intermediary conversions (fall back to sRGB (this assumes "VANILLA_ENCODING_TYPE" 0)). Moved to final linearization shader
 #if 1
   return RestoreLuminance(gamma_sRGB_to_linear(Color, Mirrored ? GCT_MIRROR : GCT_NONE), gamma_to_linear(Color, Mirrored ? GCT_MIRROR : GCT_NONE));
-#else // Alternaitve version (by luminance instead of by channel)
+#else // Alternative version (by luminance instead of by channel)
   return RestoreLuminance(gamma_sRGB_to_linear(Color, Mirrored ? GCT_MIRROR : GCT_NONE), gamma_to_linear1(GetLuminance(Color), Mirrored ? GCT_MIRROR : GCT_NONE));
 #endif
 #endif
 
-#if POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE == 1
+#if (POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE == 1) || VANILLA_ENCODING_TYPE == 1
 	return gamma_to_linear(Color, Mirrored ? GCT_MIRROR : GCT_NONE);
 #endif
 
@@ -79,7 +77,7 @@ float3 game_gamma_to_linear(float3 Color, bool Mirrored = true)
 // This function undoes any gamma correction we had done
 float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
 {
-#if POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE >= 2 && 0 // Disabled for intermediary conversions (fall back to sRGB). Moved to final linearization shader
+#if POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE >= 2 && 0 // Disabled for intermediary conversions (fall back to sRGB (this assumes "VANILLA_ENCODING_TYPE" 0)). Moved to final linearization shader
 #if 1 // This version of this inverse formula is a little more accurate, though none of the two are a perfect mirror, as the original operation is destructive (and if it's not, it's complicated and slow to accurately revert)
     float3 gammaCorrectedColor = gamma_sRGB_to_linear(linear_to_gamma(Color, Mirrored ? GCT_MIRROR : GCT_NONE), Mirrored ? GCT_MIRROR : GCT_NONE);
 #else
@@ -88,7 +86,7 @@ float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
 	  return linear_to_sRGB_gamma(RestoreLuminance(Color, gammaCorrectedColor), Mirrored ? GCT_MIRROR : GCT_NONE);
 #endif
 
-#if POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE == 1
+#if (POST_PROCESS_SPACE_TYPE == 1 && GAMMA_CORRECTION_TYPE == 1) || VANILLA_ENCODING_TYPE == 1
 	return linear_to_gamma(Color, Mirrored ? GCT_MIRROR : GCT_NONE);
 #endif
 
@@ -97,32 +95,36 @@ float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
 }
 
 // Luma per pass or per frame data
-cbuffer LumaData : register(b8)
+cbuffer LumaData : register(LUMA_DATA_CB_INDEX)
 {
   // GPU has "32 32 32 32 | break" bits alignment on memory, so to not break any "float2", we need all the float/uint/int before them to be in groups of 2 (because we are using a unified struct).
   struct
   {
-    // If true, DLSS SR or other upscalers have already run before the game's original upscaling pass,
-    // and thus we need to work in full resolution space and not rendering resolution space.
-    uint PostEarlyUpscaling;
-    uint CustomData1; // This can be used as non generic (pass specific) data.
+    // These can be used as non generic (pass specific) data (even a float through asfloat())
+    uint CustomData1;
     uint CustomData2;
+    uint CustomData3;
+    
     uint FrameIndex;
+    
+    float2 RenderResolutionScale;
+    // This can be used instead of "CV_ScreenSize" in passes where "CV_ScreenSize" would have been
+    // replaced with 1 because DLSS SR upscaled the image earlier in the rendering.
+    float2 PreviousRenderResolutionScale;
+    
+#if GAME_PREY
     // Camera jitters in NCD space (based on the rendering resolution, but relative to the output resolution full range UVs, so apply these before "CV_HPosScale.xy")
     // (not in projection matrix space, so they don't need to be divided by the rendering resolution). You might need to multiply this by 0.5 and invert the horizontal axis before using it, if it's targeting UV space.
     float2 CameraJitters;
     // Previous frame's camera jitters in NCD space (relative to its own resolution).
     float2 PreviousCameraJitters;
-    float2 RenderResolutionScale;
-    // This can be used instead of "CV_ScreenSize" in passes where "CV_ScreenSize" would have been
-    // replaced with 1 because DLSS SR upscaled the image earlier in the rendering.
-    float2 PreviousRenderResolutionScale;
 #if 0 // Disabled in code too
     row_major float4x4 ViewProjectionMatrix;
     row_major float4x4 PreviousViewProjectionMatrix;
 #endif
     // Same as the one on "PostAA" "AA" but fixed to include jitters as well
     row_major float4x4 ReprojectionMatrix;
+#endif
   } LumaData : packoffset(c0);
 }
 

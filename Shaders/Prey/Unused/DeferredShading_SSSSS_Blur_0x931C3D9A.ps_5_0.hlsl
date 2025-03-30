@@ -4,7 +4,7 @@ cbuffer PER_BATCH : register(b0)
   float4 ViewSpaceParams : packoffset(c1);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "../Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0);
 SamplerState _tex1_s : register(s1);

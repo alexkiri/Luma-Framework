@@ -1,6 +1,9 @@
-#include "include/Common.hlsl"
-#include "include/Oklab.hlsl"
-#include "include/DarktableUCS.hlsl"
+#ifndef SRC_COLOR_GRADING_LUT_HLSL
+#define SRC_COLOR_GRADING_LUT_HLSL
+
+#include "Common.hlsl"
+#include "Oklab.hlsl"
+#include "DarktableUCS.hlsl"
 
 // Make sure to define these to your value, or set it to 0, so it retrieves the size from the LUT (in some functions)
 #ifndef LUT_SIZE
@@ -29,15 +32,21 @@
 #endif
 
 // NOTE: it's possible to add more of these, like PQ or Log3.
+// Note that these match "GAMMA_CORRECTION_TYPE" and "VANILLA_ENCODING_TYPE" for now.
 #define LUT_EXTRAPOLATION_TRANSFER_FUNCTION_SRGB 0
 #define LUT_EXTRAPOLATION_TRANSFER_FUNCTION_GAMMA_2_2 1
 #define LUT_EXTRAPOLATION_TRANSFER_FUNCTION_SRGB_WITH_GAMMA_2_2_LUMINANCE 2
 #define DEFAULT_LUT_EXTRAPOLATION_TRANSFER_FUNCTION LUT_EXTRAPOLATION_TRANSFER_FUNCTION_GAMMA_2_2
 
-uint3 ConditionalConvert3DTo2DLUTCoordinates(uint3 Coordinates3D, uint lutSize = LUT_SIZE)
+#if LUT_3D
+uint4
+#else
+uint3
+#endif
+ConditionalConvert3DTo2DLUTCoordinates(uint3 Coordinates3D, uint lutSize = LUT_SIZE)
 {
 #if LUT_3D
-  return Coordinates3D;
+  return uint4(Coordinates3D, 0);
 #else
   return uint3(Coordinates3D.x + (Coordinates3D.z * lutSize), Coordinates3D.y, 0);
 #endif
@@ -49,7 +58,8 @@ uint3 ConditionalConvert3DTo2DLUTCoordinates(uint3 Coordinates3D, uint lutSize =
 #endif
 
 //TODOFT5: use Log instead of PQ? It's actually not making much difference
-float3 Linear_to_PQ2(float3 LinearColor, int clampType = GCT_NONE)
+//TODOFT5: Do extrapolation in another color space? Does that even make sense?
+float3 Linear_to_PQ2(float3 LinearColor, int clampType = GCT_DEFAULT)
 {
 #if HIGH_QUALITY_ENCODING_TYPE == 0
 	return LinearColor;
@@ -59,7 +69,7 @@ float3 Linear_to_PQ2(float3 LinearColor, int clampType = GCT_NONE)
 	return linearToLog(LinearColor, clampType);
 #endif
 }
-float3 PQ_to_Linear2(float3 ST2084Color, int clampType = GCT_NONE)
+float3 PQ_to_Linear2(float3 ST2084Color, int clampType = GCT_DEFAULT)
 {
 #if HIGH_QUALITY_ENCODING_TYPE == 0
 	return ST2084Color;
@@ -74,11 +84,11 @@ float3 PQ_to_Linear2(float3 ST2084Color, int clampType = GCT_NONE)
 // 1 Reduce saturation and increase brightness until luminance is >= 0 (~gamut mapping)
 // 2 Clip negative colors (makes luminance >= 0)
 // 3 Snap to black
-void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1)
+void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1, uint colorSpace = CS_DEFAULT)
 {
   if (type <= 0) { return; }
 
-  float luminance = GetLuminance(col.xyz);
+  float luminance = GetLuminance(col.xyz, colorSpace);
   if (luminance < -FLT_MIN)
   {
     if (type == 1)
@@ -88,13 +98,21 @@ void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1)
       // This should work even in case "positiveLuminance" was <= 0, as it will simply make the color black.
       float3 positiveColor = max(col.xyz, 0.0);
       float3 negativeColor = min(col.xyz, 0.0);
-      float positiveLuminance = GetLuminance(positiveColor);
-      float negativeLuminance = GetLuminance(negativeColor);
+      float positiveLuminance = GetLuminance(positiveColor, colorSpace);
+      float negativeLuminance = GetLuminance(negativeColor, colorSpace);
 #pragma warning( disable : 4008 )
       float negativePositiveLuminanceRatio = positiveLuminance / -negativeLuminance;
 #pragma warning( default : 4008 )
       negativeColor.xyz *= negativePositiveLuminanceRatio;
       col.xyz = positiveColor + negativeColor;
+      
+#if 0 // Check again for extra safety (not needed until proven otherwise)
+      luminance = GetLuminance(col.xyz, colorSpace);
+      if (luminance < 0.0)
+      {
+        col.xyz = max(col.xyz, 0.0);
+      }
+#endif
     }
     else if (type == 2)
     {
@@ -108,39 +126,165 @@ void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1)
   }
 }
 
-// Restores the source color hue through Oklab (this works on colors beyond SDR in brightness and gamut too)
-float3 RestoreHue(float3 targetColor, float3 sourceColor, float amount = 0.5)
+// Restores the source color hue (and optionally brightness) through Oklab (this works on colors beyond SDR in brightness and gamut too).
+// The strength sweet spot seems to be 0.75.
+float3 RestoreHue(float3 targetColor, float3 sourceColor, float strength = 0.5, bool restoreBrightness = false, uint colorSpace = CS_DEFAULT)
 {
+	if (strength == 0.f) // Static optimization (useful if the param is const)
+		return targetColor;
+
   // Invalid or black colors fail oklab conversions or ab blending so early out
-  if (GetLuminance(targetColor) <= FLT_MIN)
+  if (GetLuminance(targetColor, colorSpace) <= FLT_MIN)
   {
     // Optionally we could blend the target towards the source, or towards black, but there's no need until proven otherwise
     return targetColor;
   }
 
-  const float3 targetOklab = linear_srgb_to_oklab(targetColor);
+#if 1 // Newer, faster (and safer?) implementation
+	float3 sourceOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(sourceColor);
+	float3 targetOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(targetColor) : linear_srgb_to_oklab(targetColor);
+   
+	if (restoreBrightness) //TODOFT5: the alt method was used by Bioshock 2, did it make sense? Should it be here?
+   {
+	  targetOklab.x = lerp(sourceOklab.x, targetOklab.x, strength);
+	  //targetOklab.x = lerp(sourceOklab.x, targetOklab.x, saturate(pow(sourceOklab.x, 3.0) * 2.0));
+   }
+   
+	float chrominancePre = length(targetOklab.yz);
+	targetOklab.yz = lerp(targetOklab.yz, sourceOklab.yz, strength);
+	float chrominancePost = length(targetOklab.yz);
+	targetOklab.yz *= safeDivision(chrominancePre, chrominancePost, 1);
+
+	return colorSpace == CS_BT2020 ? oklab_to_linear_bt2020(targetOklab) : oklab_to_linear_srgb(targetOklab);
+#else
+  const float3 targetOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_okab(targetColor) : linear_srgb_to_oklab(targetColor);
   const float3 targetOklch = oklab_to_oklch(targetOklab);
-  const float3 sourceOklab = linear_srgb_to_oklab(sourceColor);
+  const float3 sourceOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(sourceColor);
 
   // First correct both hue and chrominance at the same time (oklab a and b determine both, they are the color xy coordinates basically).
   // As long as we don't restore the hue to a 100% (which should be avoided), this will always work perfectly even if the source color is pure white (or black, any "hueless" and "chromaless" color).
   // This method also works on white source colors because the center of the oklab ab diagram is a "white hue", thus we'd simply blend towards white (but never flipping beyond it (e.g. from positive to negative coordinates)),
   // and then restore the original chrominance later (white still conserving the original hue direction, so likely spitting out the same color as the original, or one very close to it).
-  float3 correctedTargetOklab = float3(targetOklab.x, lerp(targetOklab.yz, sourceOklab.yz, amount));
+  float3 correctedTargetOklab = float3(targetOklab.x, lerp(targetOklab.yz, sourceOklab.yz, strength));
 
   // Then restore chrominance
   float3 correctedTargetOklch = oklab_to_oklch(correctedTargetOklab);
   correctedTargetOklch.y = targetOklch.y;
 
-  return oklch_to_linear_srgb(correctedTargetOklch);
+  return colorSpace == CS_BT2020 ? oklch_to_linear_bt2020(correctedTargetOklch) : oklch_to_linear_srgb(correctedTargetOklch);
+#endif
+}
+
+// Not 100% hue conservering but better than just max(color, 0.f), this maps the color on the closest humanly visible xy location on th CIE graph.
+// This doesn't break gradients. The color luminance is not considered, so invalid luminances still get gamut mapped through the same math.
+// Supports either BT.2020 or BT.709 (sRGB/scRGB) clamping (input and output need to be in the same color space). Hardcoded for D65 white point.
+// Mostly from Lilium.
+float3 SimpleGamutClip(float3 Color, bool BT2020, bool ClampToSDRRange = false)
+{
+	const bool3 isNegative = Color < 0.f;
+	const bool allArePositive = !any(isNegative);
+	const bool allAreNegative = all(isNegative);
+
+	if (allArePositive)
+	{
+	}
+	// Clip to black as the hue of an all negative color is invalid
+	else if (allAreNegative)
+	{
+		return 0.f;
+	}
+	else
+	{
+		float3 XYZ = mul(BT2020 ? BT2020_To_XYZ : BT709_To_XYZ, Color);
+		float3 xyY = XYZToxyY(XYZ);
+		float m = GetM(xyY.xy, D65xy);
+		const float2 Rxy = BT2020 ? R2020xy : R709xy;
+		const float2 Gxy = BT2020 ? G2020xy : G709xy;
+		const float2 Bxy = BT2020 ? B2020xy : B709xy;
+
+		float2 gamutClippedXY;
+		// we can determine on which side we need to do the intercept based on where the negative number/s is/are
+		// the intercept needs to happen on the opposite side of where the primary of the smallest negative number is
+		// with 2 negative numbers the smaller one determines the side to check
+		if (all(isNegative.rg))
+		{
+			if (Color.r <= Color.g)
+				gamutClippedXY = LineIntercept(m, Gxy, Bxy); // GB
+			else
+				gamutClippedXY = LineIntercept(m, Bxy, Rxy); // BR
+		}
+		else if (all(isNegative.rb))
+		{
+			if (Color.r <= Color.b)
+				gamutClippedXY = LineIntercept(m, Gxy, Bxy); // GB
+			else
+				gamutClippedXY = LineIntercept(m, Rxy, Gxy); // RG
+		}
+		else if (all(isNegative.gb))
+		{
+			if (Color.g <= Color.b)
+				gamutClippedXY = LineIntercept(m, Bxy, Rxy); // BR
+			else
+				gamutClippedXY = LineIntercept(m, Rxy, Gxy); // RG
+		}
+		else if (isNegative.r)
+			gamutClippedXY = LineIntercept(m, Gxy, Bxy); // GB
+		else if (isNegative.g)
+			gamutClippedXY = LineIntercept(m, Bxy, Rxy); // BR
+		else //if (isNegative.b)
+			gamutClippedXY = LineIntercept(m, Rxy, Gxy); // RG
+
+		float3 gamutClippedXYZ = xyYToXYZ(float3(gamutClippedXY, xyY.z)); // Maintains the old luminance
+		Color = mul(BT2020 ? XYZ_To_BT2020 : XYZ_To_BT709, gamutClippedXYZ);
+	}
+	// Reduce brightness instead of reducing saturation
+	if (ClampToSDRRange)
+	{
+		const float maxChannel = max(1.f, max(Color.r, max(Color.g, Color.b)));
+		Color /= maxChannel;
+	}
+	return Color;
+}
+
+// This expands the LUT min/max range to avoid raised blacks and clipped highlights, while still being able to keep the shadow color tint,
+// it helps a lot with HDR/OLED for LUTs that were made on displays that didn't have deep blacks.
+float3 NormalizeLUT(float3 vOriginalGamma, float3 vBlackGamma, float3 vMidGrayGamma, float3 vWhiteGamma, float3 vNeutralGamma)
+{
+	const float3 vAddedGamma = max(vBlackGamma, 0.f);
+	const float3 vRemovedGamma = 1.f - min(1.f, vWhiteGamma);
+
+	const float fMidGrayAverage = (vMidGrayGamma.r + vMidGrayGamma.g + vMidGrayGamma.b) / 3.f;
+
+   // Remove from 0 to mid gray
+	const float fShadowLength = fMidGrayAverage;
+	const float fShadowStop = max(vNeutralGamma.r, max(vNeutralGamma.g, vNeutralGamma.b));
+	const float3 vFloorRemove = vAddedGamma * max(0, fShadowLength - fShadowStop) / (fShadowLength != 0.f ? fShadowLength : 1.f);
+
+   // Add back from mid gray to 1
+	const float fHighlightsLength = 1.f - fMidGrayAverage;
+	const float fHighlightsStop = 1.f - min(vNeutralGamma.r, min(vNeutralGamma.g, vNeutralGamma.b));
+	const float3 vCeilingAdd = vRemovedGamma * max(0, fHighlightsLength - fHighlightsStop) / (fHighlightsLength != 0.f ? fHighlightsLength : 1.f);
+
+	const float3 vUnclampedGamma = max(min(vOriginalGamma, 0.f), vOriginalGamma - vFloorRemove) + vCeilingAdd;
+	return vUnclampedGamma;
 }
 
 // Takes any original color (before some post process is applied to it) and re-applies the same transformation the post process had applied to it on a different (but similar) color.
 // The images are expected to have roughly the same mid gray.
 // It can be used for example to apply any SDR LUT or SDR color correction on an HDR color.
-float3 RestorePostProcess(const float3 nonPostProcessedTargetColor, const float3 nonPostProcessedSourceColor, const float3 postProcessedSourceColor, float hueRestoration = 0)
+float3 RestorePostProcess(float3 nonPostProcessedTargetColor, float3 nonPostProcessedSourceColor, float3 postProcessedSourceColor, float hueRestoration = 0.0, bool BT2020 = true)
 {
-  static const float MaxShadowsColor = pow(1.f / 3.f, 2.2f); // The lower this value, the more "accurate" is the restoration (math wise), but also more error prone (e.g. division by zero)
+  static const float MaxShadowsColor = pow(1.f / 3.f, 2.2f); // The lower this value, the more "accurate" is the restoration (math wise), but also more error prone (e.g. division by zero). If the color range is wider than the original one, the higher this value is, the further it will extend, due to working by offset near black (and thus generating negative rgb values).
+
+	// Optionally convert to BT.2020 to allow more saturated shadow to be generated (BT.709 will reach the edges of the gamut and clip on shadow).
+  // We could do this in AP0 gamut but that'd probably generated too many unsupported colors.
+  // This should actually distort colors less.
+	if (BT2020)
+	{
+		nonPostProcessedTargetColor = BT709_To_BT2020(nonPostProcessedTargetColor);
+		nonPostProcessedSourceColor = BT709_To_BT2020(nonPostProcessedSourceColor);
+		postProcessedSourceColor = BT709_To_BT2020(postProcessedSourceColor);
+	}
 
 	const float3 postProcessColorRatio = safeDivision(postProcessedSourceColor, nonPostProcessedSourceColor, 1);
 	const float3 postProcessColorOffset = postProcessedSourceColor - nonPostProcessedSourceColor;
@@ -154,10 +298,35 @@ float3 RestorePostProcess(const float3 nonPostProcessedTargetColor, const float3
   // This often ends up shifting the hue too much, either looking too desaturated or too saturated, mostly because in SDR highlights are all burned to white by LUTs, and by the Vanilla SDR tonemappers.
 	if (hueRestoration > 0)
 	{
-		newPostProcessedColor = RestoreHue(newPostProcessedColor, postProcessedSourceColor, hueRestoration);
+		newPostProcessedColor = RestoreHue(newPostProcessedColor, postProcessedSourceColor, hueRestoration, false, BT2020 ? CS_BT2020 : CS_DEFAULT);
+	}
+  
+	if (BT2020)
+	{
+		newPostProcessedColor = BT2020_To_BT709(newPostProcessedColor);
 	}
 
 	return newPostProcessedColor;
+}
+
+// This fixes the luminance of linear lerps not being perceptual (but it leaves the original hue, which are a bit randomly shifted if you look at it perceptually)
+float4 PerceptualLerp(float4 colorA, float4 colorB, float alpha)
+{
+	float luminanceA = GetLuminance(colorA.rgb);
+	float luminanceB = GetLuminance(colorB.rgb);
+   // We use gamma 2.2 just because it's standard, though it's likely not the best here
+	float gammaLuminanceA = pow(max(luminanceA, 0.f), 1.0 / 2.2); // Linear->Gamma
+	float gammaLuminanceB = pow(max(luminanceB, 0.f), 1.0 / 2.2); // Linear->Gamma
+	float targetLuminance = pow(lerp(gammaLuminanceA, gammaLuminanceB, alpha), 2.2); // Blend in gamma space
+
+	float4 colorLerped = lerp(colorA, colorB, alpha);
+	float sourceLuminance = GetLuminance(colorLerped.rgb);
+	// Restore the target luminance without hue shifts
+	if (sourceLuminance != 0.f)
+	{
+		colorLerped.rgb *= max(targetLuminance / sourceLuminance, 0.f); // If any of the two luminance is negative, clip to black
+	}
+	return colorLerped;
 }
 
 // Encode.
@@ -328,10 +497,6 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
 	const float chartMax	= chartDim - 1.0;
 	const uint chartMaxUint = chartDimUint - 1u;
   
-#if LUT_3D
-  tetrahedralInterpolation = false; //TODO LUMA: add support
-#endif
-
   if (!tetrahedralInterpolation)
   {
 #if LUT_3D
@@ -363,7 +528,6 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
     return lerp(col0, col1, sliceFrac); // LUMA FT: changed to be a lerp (easier to read)
 #endif // LUT_3D
   }
-#if !LUT_3D
   else // LUMA FT: added tetrahedral LUT interpolation (from Lilium) (note that this ignores the texture sampler)
   {
     // We need to clip the input coordinates as LUT texture samples below are not clamped.
@@ -473,7 +637,6 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
 
     return (f1 * v1) + (f2 * v2) + (f3 * v3) + (f4 * v4);
   }
-#endif // !LUT_3D
 }
 
 struct LUTExtrapolationData
@@ -618,6 +781,7 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 encoded
 }
 
 //TODOFT: store the acceleration around the lut's last texel in the alpha channel?
+//TODOFT: lower lut extrapolation intensity on brighter colors?
 
 // LUT sample that allows to go beyond the 0-1 coordinates range through extrapolation.
 // It finds the rate of change (acceleration) of the LUT color around the requested clamped coordinates, and guesses what color the sampling would have with the out of range coordinates.
@@ -778,9 +942,9 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 			extrapolatedSample = PQ_to_Linear2(lerp(centeredSample_PQ, clampedSample_PQ, 1.0 + extrapolationRatio), GCT_MIRROR) * PQNormalizationFactor;
 
 #if DEVELOPMENT && 0
-    bool oklab = LumaSettings.DevSetting06 >= 0.5;
+      bool oklab = LumaSettings.DevSetting06 >= 0.5;
 #else
-    bool oklab = false;
+      bool oklab = false;
 #endif
       if (oklab) //TODOFT4: try oklab again? (update the starfield code ok extrapolation and oklab) And fix up oklab+PQ description above. Also try per channel (quality 1+) and try UCS.
       {
@@ -857,6 +1021,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
         unclampedUVOklch = oklab_to_oklch(unclampedUVOklch);
         clampedUVOklch = oklab_to_oklch(clampedUVOklch);
         centeredUVOklch = oklab_to_oklch(centeredUVOklch);
+        //TODOFT3: oklch's H can't be subracted like that given that they are circular
         const float3 distanceFromUnclampedToClampedOklch3 = unclampedUVOklch - clampedUVOklch;
         const float3 distanceFromClampedToCenteredOklch3 = clampedUVOklch - centeredUVOklch;
         const float3 extrapolationRatioOklch3 = safeDivision(distanceFromUnclampedToClampedOklch3, distanceFromClampedToCenteredOklch3, 0);
@@ -1066,9 +1231,9 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 			extrapolatedSample = PQ_to_Linear2(clampedSample_PQ + extrapolatedOffset, GCT_MIRROR) * PQNormalizationFactor;
       
 #if DEVELOPMENT && 0
-    bool oklab = LumaSettings.DevSetting06 >= 0.5;
+      bool oklab = LumaSettings.DevSetting06 >= 0.5;
 #else
-    bool oklab = false;
+      bool oklab = false;
 #endif
       if (oklab)
       {
@@ -1129,6 +1294,41 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 		}
 #pragma warning( disable : 4000 )
 
+#if 0 // This is bad, ultimately each channel needs to work individually and if we prevent hue from flipping, we end up generating broke gradients. There's possibly a lighter version of this idea that might work and help prevent hue shifts in strong highlights, but let's see...
+    // Prevent hue rgb values flipping when extrapolating too much (like if green grows bigger than blue, we want to stop at white, e.g. from 0.9 0.9 1 to 1 1 1 shouldn't then go to 1.1 1.1 1 when we further extrapolate).
+    bool rMax = clampedSample.r > clampedSample.g && clampedSample.r > clampedSample.b;
+    bool gMax = clampedSample.g > clampedSample.r && clampedSample.g > clampedSample.b;
+    bool bMax = clampedSample.b > clampedSample.r && clampedSample.b > clampedSample.g;
+    if (rMax || gMax || bMax)
+    {
+      float3 preHueClampingExtrapolatedSample = extrapolatedSample;
+      
+      // Clamp to the max color
+      int maxChannel = (int)rMax * 0 + (int)gMax * 1 + (int)bMax * 2;
+      extrapolatedSample[0] = min(extrapolatedSample[0], max(extrapolatedSample[maxChannel], clampedSample[maxChannel]));
+      extrapolatedSample[1] = min(extrapolatedSample[1], max(extrapolatedSample[maxChannel], clampedSample[maxChannel]));
+      extrapolatedSample[2] = min(extrapolatedSample[2], max(extrapolatedSample[maxChannel], clampedSample[maxChannel]));
+      
+      // Clamp to the second max color
+      bool rMid = (clampedSample.r > clampedSample.g && clampedSample.r < clampedSample.b) || (clampedSample.r < clampedSample.g && clampedSample.r > clampedSample.b);
+      bool gMid = (clampedSample.g > clampedSample.r && clampedSample.g < clampedSample.b) || (clampedSample.g < clampedSample.r && clampedSample.g > clampedSample.b);
+      bool bMid = (clampedSample.b > clampedSample.r && clampedSample.b < clampedSample.g) || (clampedSample.b < clampedSample.r && clampedSample.b > clampedSample.g);
+      if (rMid || gMid || bMid)
+      {
+        int minChannel = (int)rMid * 0 + (int)gMid * 1 + (int)bMid * 2;
+        if (0 != minChannel && 0 != maxChannel)
+          extrapolatedSample[0] = min(extrapolatedSample[0], max(extrapolatedSample[minChannel], clampedSample[minChannel]));
+        if (1 != minChannel && 1 != maxChannel)
+          extrapolatedSample[1] = min(extrapolatedSample[1], max(extrapolatedSample[minChannel], clampedSample[minChannel]));
+        if (2 != minChannel && 2 != maxChannel)
+          extrapolatedSample[2] = min(extrapolatedSample[2], max(extrapolatedSample[minChannel], clampedSample[minChannel]));
+      }
+
+      // Restore the pre-clamp brightness
+      extrapolatedSample = RestoreLuminance(extrapolatedSample, preHueClampingExtrapolatedSample);
+    }
+#endif
+
     // Apply the inverse of the original tonemap ratio on the new out of range values (this time they are not necessary out the values beyond 0-1, but the values beyond the clamped/vanilla sample).
     // We don't directly apply the inverse tonemapper formula here as that would make no sense.
 		if (settings.inputTonemapToPeakWhiteNits > 0) // Optional optimization in case "inputTonemapToPeakWhiteNits" was static (or not...)
@@ -1163,7 +1363,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 		{
 #if 1
       // Restore the extrapolated sample luminance onto the clamped sample, so we keep the clamped hue and saturation while maintaining the extrapolated luminance.
-      float3 extrapolatedClampedSample = RestoreLuminance(clampedSample, extrapolatedSample);
+      float3 extrapolatedClampedSample = RestoreLuminance(clampedSample, extrapolatedSample, true);
 #else // Disabled as this can have random results
       float3 unclampedUV_PQ = Linear_to_PQ2(neutralLUTColorLinear / PQNormalizationFactor, GCT_MIRROR); // "neutralLUTColorLinear" is equal to "ColorGradingLUTTransferFunctionOut(unclampedUV, settings.transferFunctionIn, true)"
 			float3 extrapolationRatio = unclampedUV_PQ - clampedUV_PQ;
@@ -1176,7 +1376,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 			extrapolatedSample = lerp(extrapolatedSample, extrapolatedClampedSample, settings.clampedLUTRestorationAmount);
 		}
 
-		// We can optionally leave or fix negative luminances colors here in case they were generated by the extrapolation, everything works by channel in Prey, not much is done by luminance, so this isn't needed until proven otherwise
+		// We can optionally leave or fix negative luminances colors here in case they were generated by the extrapolation, everything works by channel in most games (e.g. Prey), not much is done by luminance, so this isn't needed until proven otherwise
 		if (settings.fixExtrapolationInvalidColors) //TODOFT4: test more: does this reduce HDR colors!? It seems fine?
 		{
       FixColorGradingLUTNegativeLuminance(extrapolatedSample);
@@ -1257,7 +1457,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 // Note that this function expects "LUT_SIZE" to be divisible by 2. If your LUT is (e.g.) 15x instead of 16x, move some math to be floating point and round to the closest pixel.
 // "PixelPosition" is expected to be centered around texles center, so the first pixel would be 0.5 0.5, not 0 0.
 // This partially mirrors "ShouldSkipPostProcess()".
-float3 DrawLUTTexture(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float2 PixelPosition, inout bool DrawnLUT)
+float3 DrawLUTTexture(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float2 PixelPosition, inout bool DrawnLUT, bool inLinear = false, bool outLinear = false)
 {
 	const uint LUTMinPixel = 0; // Extra offset from the top left
 	uint LUTMaxPixel = LUT_MAX; // Bottom (right) limit
@@ -1323,8 +1523,8 @@ float3 DrawLUTTexture(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float2 Pi
     //if (extrapolationSettings.extrapolationQuality >= 2) extrapolationSettings.backwardsAmount = 2.0 / 3.0;
 #endif
     extrapolationSettings.inputLinear = false;
-    extrapolationSettings.lutInputLinear = false;
-    extrapolationSettings.lutOutputLinear = bool(ENABLE_LINEAR_COLOR_GRADING_LUT);
+    extrapolationSettings.lutInputLinear = inLinear;
+    extrapolationSettings.lutOutputLinear = outLinear;
     extrapolationSettings.outputLinear = bool(POST_PROCESS_SPACE_TYPE == 1);
     extrapolationSettings.transferFunctionIn = LUT_EXTRAPOLATION_TRANSFER_FUNCTION_SRGB;
 // We might not want gamma correction on the debug LUT, gamma correction comes after extrapolation and isn't directly a part of the LUT, so it shouldn't affect its "raw" visualization
@@ -1340,3 +1540,5 @@ float3 DrawLUTTexture(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float2 Pi
 	}
 	return 0;
 }
+
+#endif // SRC_COLOR_GRADING_LUT_HLSL

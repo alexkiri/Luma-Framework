@@ -1,3 +1,6 @@
+#ifndef SRC_OKLAB_HLSL
+#define SRC_OKLAB_HLSL
+
 //RGB linear BT.709/sRGB -> OKLab's LMS
 static const float3x3 srgb_to_oklms = {
 	0.4122214708f, 0.5363325363f, 0.0514459929f,
@@ -40,34 +43,25 @@ static const float3x3 oklms_to_bt2020 = {
 // L - perceived lightness
 // a - how green/red the color is
 // b - how blue/yellow the color is
-float3 linear_srgb_to_oklab(float3 rgb) {
+float3 linear_srgb_to_oklab(float3 rgb, bool mirrored = true) {
 	//LMS
 	float3 lms = mul(srgb_to_oklms, rgb);
 
 	//L'M'S'
-// Not sure whether the pow(abs())*sign() is technically correct, but if we pass in scRGB negative colors (or better, colors outside the Oklab gamut),
-// this might break, and we think this might work fine
-#if 1
-	float3 lms_ = pow(abs(lms), 1.f/3.f) * sign(lms);
-#else
-	float3 lms_ = pow(lms, 1.f/3.f);
-#endif
+	// If we pass in scRGB negative colors (or better, colors outside the Oklab gamut), this avoids them breaking
+	float3 lms_ = mirrored ? (pow(abs(lms), 1.f/3.f) * sign(lms)) : pow(lms, 1.f/3.f);
 
 	return mul(oklms__to_oklab, lms_);
 }
 
 // (in) linear BT.2020
 // (out) OKLab
-float3 linear_bt2020_to_oklab(float3 rgb) {
+float3 linear_bt2020_to_oklab(float3 rgb, bool mirrored = true) {
 	//LMS
 	float3 lms = mul(bt2020_to_oklms, rgb);
 
 	//L'M'S'
-#if 1
-	float3 lms_ = pow(abs(lms), 1.f/3.f) * sign(lms);
-#else
-	float3 lms_ = pow(lms, 1.f/3.f);
-#endif
+	float3 lms_ = mirrored ? (pow(abs(lms), 1.f/3.f) * sign(lms)) : pow(lms, 1.f/3.f);
 
 	return mul(oklms__to_oklab, lms_);
 }
@@ -152,3 +146,5 @@ float3 oklch_to_linear_bt2020(float3 lch) {
 			oklch_to_oklab(lch)
 	);
 }
+
+#endif // SRC_OKLAB_HLSL

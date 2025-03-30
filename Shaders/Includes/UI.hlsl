@@ -1,11 +1,17 @@
-#include "include/Common.hlsl"
+#ifndef SRC_UI_HLSL
+#define SRC_UI_HLSL
 
-cbuffer LumaUIData : register(b7)
+#include "Common.hlsl"
+
+cbuffer LumaUIData : register(LUMA_UI_DATA_CB_INDEX)
 {
   struct
   {
-	// If true, this pixel shader render target is the swapchain texture
-	uint WritingOnSwapchain;
+	// If true, this pixel shader render target is the swapchain texture (e.g. if false, the UI might be drawing to a separate, pre-multiplied texture)
+	uint TargetingSwapchain;
+	// True if the c++ code detected that we are in a fullscreen (or so) menu (e.g. pause menu, inventory menu, in game computer interface, loading screens, ...)
+	// It can be used to determine how to blend with the background for best results, or to force skip some effects like lens distortion
+	uint FullscreenMenu;
 	// 0 No alpha blend (or other unknown blend types that we can ignore)
 	// 1 Straight alpha blend: "result = (source.RGB * source.A) + (dest.RGB * (1 - source.A))" or "result = lerp(dest.RGB, source.RGB, source.A)"
 	// 2 Pre-multiplied alpha blend (alpha is also pre-multiplied, not just rgb): "result = source.RGB + (dest.RGB * (1 - source.A))"
@@ -19,7 +25,7 @@ cbuffer LumaUIData : register(b7)
   } LumaUIData : packoffset(c0);
 }
 
-// Whether to use the most theoretically mathematically accurate formulas (which are generally correct in the average case), or ones specifically tailored for Prey's use cases:
+// Whether to use the most theoretically mathematically accurate formulas (which are generally correct in the average case), or ones specifically tailored for Prey's test cases (which would probably match many other games):
 #define EMPYRICAL_UI_BLENDING_1 1
 // This is currently disabled as it still doesn't look better.
 #define EMPYRICAL_UI_BLENDING_2 0
@@ -41,6 +47,7 @@ float UIColorIntensity(float3 Color, bool LinearSpace = false)
 #endif
 }
 
+// Meant for "UI_DRAW_TYPE" 1
 float4 ConditionalLinearizeUI(float4 UIColor, bool PreMultipliedAlphaByAlpha = false, bool ForceStraightAlphaBlend = false, bool IsSceneColor = false)
 {
 	// LUMA FT: In this case, the game is likely drawing on scene/world interactive computers that use Scaleform UI
@@ -48,7 +55,7 @@ float4 ConditionalLinearizeUI(float4 UIColor, bool PreMultipliedAlphaByAlpha = f
 	// They'd be drawn in gamma space and then linearized in the scene with an sRGB texture view.
 	// There's a good chance the developers developed these on a gamma 2.2 screen and thus the texture would be meant to be linearized with
 	// gamma 2.2 instead of sRGB. We can't be certain, but if we ever wanted, we could pre-apply a 2.2<->sRGB mismatch here, to visualize these UIs correctly in the world.
-	if (!LumaUIData.WritingOnSwapchain)
+	if (!LumaUIData.TargetingSwapchain)
 	{
 #if 0 // Quick test
 		if (UIColor.a > 0)
@@ -204,3 +211,5 @@ bool isLinearProjectionMatrix(float4x4 mat)
 	&& mat._m32 == 0
 	&& mat._m33 == 1;
 }
+
+#endif // SRC_UI_HLSL

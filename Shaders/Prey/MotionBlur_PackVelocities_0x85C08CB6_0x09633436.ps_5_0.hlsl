@@ -1,6 +1,6 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 #if _85C08CB6
 #define _RT_SAMPLE0 1
@@ -25,7 +25,7 @@ cbuffer PER_BATCH : register(b0)
 Texture2D<float4> _tex0_D3D11 : register(t0);
 Texture2D<float4> _tex2_D3D11 : register(t2);
 
-#include "include/MotionBlur.hlsl"
+#include "Includes/MotionBlur.hlsl"
 
 struct vtxOut
 {

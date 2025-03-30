@@ -1,6 +1,6 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 #if _944B65F0 // Half res depth (you can force this on/off manually if you wished so, but the game directly picks between the two based on a user setting)
 #define _RT_SAMPLE0 1
@@ -10,7 +10,7 @@
 #define PREMULTIPLY_BENT_NORMALS 1
 #define XE_GTAO_ENABLE_DENOISE ENABLE_SSAO_DENOISE
 #define XE_GTAO_ENCODE_BENT_NORMALS 0
-#include "include/XeGTAO.hlsl"
+#include "Includes/XeGTAO.hlsl"
 
 cbuffer CBSSDO : register(b0)
 {

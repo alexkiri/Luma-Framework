@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 // Qualities
 #if _76B51523
@@ -12,7 +12,7 @@ cbuffer PER_BATCH : register(b0)
   float4 vMotionBlurParams : packoffset(c0); // xy are the inverse size of "_tex2", zw are unused and zero
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 Texture2D<float4> _tex0 : register(t0); // Color texture, R11G11B10F without Luma
 Texture2D<float4> _tex1 : register(t1); // (R8G8B8A8UNORM) Motion Blur Motion Vectors X and Y offsets (produced by "PackVelocitiesPS()"), this is fullscreen and the inner size depends on DRS
@@ -21,7 +21,7 @@ SamplerState _tex0_s : register(s0); // Bilinear
 SamplerState _tex1_s : register(s1); // Point
 SamplerState _tex2_s : register(s2); // Point
 
-#include "include/MotionBlur.hlsl"
+#include "Includes/MotionBlur.hlsl"
 
 // MotionBlurPS
 // This shader is run with pre-multiplied alpha blend, so if it alpha zero, it's purely additive, while if it returns alpha 1, it's purely override.

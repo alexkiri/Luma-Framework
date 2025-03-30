@@ -5,7 +5,7 @@ cbuffer PER_BATCH : register(b0)
   float4 HDRParams : packoffset(c0);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 #define _RT_SAMPLE2 0
 

@@ -1,5 +1,5 @@
 
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define _RT_SAMPLE0 1
 #define _RT_ALPHATEST 1
@@ -19,7 +19,7 @@ cbuffer PER_MATERIAL : register(b3)
   float2 __0__1SSSIndex__2__3 : packoffset(c25);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState ssMaterialAnisoHigh_s : register(s0);
 Texture2D<float4> diffuseTex : register(t0);

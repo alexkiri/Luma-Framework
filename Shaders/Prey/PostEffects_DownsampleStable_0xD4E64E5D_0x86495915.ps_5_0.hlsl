@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define _RT_SAMPLE0 1
 #if _86495915 // Always the first pass on the full resolution source texture
@@ -13,7 +13,7 @@
 // 2 Perception based (by channel)
 #define DOWNSAMPLE_TONEMAPPING_TYPE 0
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _samp0_s : register(s0); // MIN_MAG_LINEAR_MIP_POINT (basically normal bilinear as far as we are concerned, nearest neighbor looks bad here for some reason, even if the offsets should always match (probably because we donwscale?))
 Texture2D<float4> _tex0_D3D11 : register(t0);

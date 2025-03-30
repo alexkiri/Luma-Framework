@@ -1,3 +1,6 @@
+#ifndef SRC_RCAS_HLSL
+#define SRC_RCAS_HLSL
+
 // RCAS (Robust Contrast-Adaptive Sharpening) 
 // https://github.com/GPUOpen-Effects/FidelityFX-FSR2?tab=readme-ov-file#robust-contrast-adaptive-sharpening-rcas
 // 
@@ -161,3 +164,5 @@ float4 RCAS(int2 pixelCoord, int2 minPixelCoord, int2 maxPixelCoord, float sharp
   
     return float4(output * paperWhite, e4.a);
 }
+
+#endif // SRC_RCAS_HLSL

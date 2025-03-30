@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer CBSSRRaytrace : register(b0)
 {
@@ -11,8 +11,8 @@ cbuffer CBSSRRaytrace : register(b0)
   } cbRefl : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
-#include "include/GBuffer.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/GBuffer.hlsl"
 
 SamplerState ssReflectionPoint : register(s0);
 SamplerState ssReflectionLinear : register(s1); // Bilinear sampler with clamp

@@ -1,4 +1,5 @@
-#include "include/UI.hlsl"
+#include "../Includes/UI.hlsl"
+#include "Includes/Settings.hlsl"
 
 cbuffer _Globals : register(b0)
 {
@@ -31,7 +32,7 @@ void main(
   r0.xyzw = adj.xyzw + r0.xyzw;
   outColor.xyzw = consta.xyzw * r0.xyzw;
   
-  if (LumaUIData.WritingOnSwapchain)
+  if (LumaUIData.TargetingSwapchain)
   {
 	  const float paperWhite = GamePaperWhiteNits / sRGB_WhiteLevelNits; // Use the game brightness, not the UI one, as these are usually videos that are seamless with gameplay (except the main menu background), or represent 3D graphics anyway
 #if POST_PROCESS_SPACE_TYPE == 1 || AUTO_HDR_VIDEOS

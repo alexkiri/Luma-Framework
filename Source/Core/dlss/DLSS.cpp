@@ -20,8 +20,11 @@
 
 // Our rendering presets are pretty much the default ones mentioned in the DLSS 3.7 SDK, do we want to force them, or do we want to allow NV to change them through updates?
 // If we don't force them, DLSS seems to bug out and keep the old ones after changing between DLSS and DRS the first time.
-// NOTE: as of DLSS 3.8 presets are forced to E and F so none of this matters anymore. We can assume that C and D have no worthy advantages over E and F.
+// NOTE: as of DLSS 3.8 presets are forced to E and F so none of this matters anymore. We can assume that C and D have no worthy advantages over E and F. Leaving the presets at default is the best option.
 #define DLSS_FORCE_RENDER_PRESET 1
+// DLSS 4 might already force this, but we can force it ourselves too (though it'd break old DLSS versions). Newer versions already added a new preset so using the default one just seems like a better choice.
+// Note that this has a lot of ghosting and warping on reflections and volumetrics (anything that doesn't match the depth buffer).
+#define DLSS_FORCE_K_J_RENDER_PRESET 0
 // Theoretically better than F.
 // Better sharpness, less ghosting and more image stability (less shimmering and noise).
 #define DLSS_FORCE_E_RENDER_PRESET 1
@@ -30,7 +33,7 @@
 
 namespace NGX
 {
-	const char* projectID = "d8238c51-1f2f-438d-a309-38c16e33c716"; // This needs to be a GUID. We generated a unique one. This isn't registered by NV. This was was generated for Prey.
+	const char* projectID = "d8238c51-1f2f-438d-a309-38c16e33c716"; // This needs to be a GUID. We generated a unique one. This isn't registered by NV. This was generated for Luma.
 	const char* engineVersion = "1.0";
 
 	// DLSS "instance" per output resolution (and other settings)
@@ -88,7 +91,7 @@ namespace NGX
 			}
 		}
 
-		DLSSInternalInstance CreateSuperSamplingFeature(ID3D11DeviceContext* commandList, unsigned int outputWidth, unsigned int outputHeight, unsigned int renderWidth, unsigned int renderHeight, int qualityValue)
+		DLSSInternalInstance CreateSuperSamplingFeature(ID3D11DeviceContext* commandList, unsigned int outputWidth, unsigned int outputHeight, unsigned int renderWidth, unsigned int renderHeight, int qualityValue, bool _hdr = true)
 		{
 			NVSDK_NGX_Parameter* runtimeParams = nullptr;
 			// Note: this could fail on outdated drivers
@@ -101,9 +104,12 @@ namespace NGX
 
 			NVSDK_NGX_Handle* feature = nullptr;
 
-			int createFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
+			int createFlags = 
+				// Always needed unless MVs are in output (upscaled) resolution
+				NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
 				//| NVSDK_NGX_DLSS_Feature_Flags_Reserved_0 // Matches the old NVSDK_NGX_DLSS_Feature_Flags_DepthJittered, which has been removed (should already be on by default now)
-#if 1 // Needed by Prey when feeding in the "default" (g-buffer) depth
+//TODOFT: expose settings per game (there's more around the file), when the need will come
+#if GAME_PREY // DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality
 				| NVSDK_NGX_DLSS_Feature_Flags_DepthInverted
 #endif
 // We modified Prey to make sure this is the case (see "FORCE_MOTION_VECTORS_JITTERED").
@@ -116,7 +122,7 @@ namespace NGX
 #if 0
 				| NVSDK_NGX_DLSS_Feature_Flags_DoSharpening // Sharpening is currently deprecated (in DLSS 2.5.1 and doesn't do anything), this would re-enable it if it was ever re-allowed by DLSS
 #endif
-#if 0 // We force HDR exposure to 1 in Prey
+#if 0 // We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
 				| NVSDK_NGX_DLSS_Feature_Flags_AutoExposure
 #endif
 				;
@@ -130,6 +136,9 @@ namespace NGX
 
 			NVSDK_NGX_DLSS_Hint_Render_Preset renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
 #if DLSS_FORCE_RENDER_PRESET
+#if DLSS_FORCE_K_J_RENDER_PRESET
+			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset((int)NVSDK_NGX_DLSS_Hint_Render_Preset_K);
+#else
 #if DLSS_FORCE_E_RENDER_PRESET
 			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_E;
 #if DLSS_FORCE_F_RENDER_PRESET
@@ -137,17 +146,18 @@ namespace NGX
 			{
 				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
 			}
-#endif
+#endif // DLSS_FORCE_F_RENDER_PRESET
 #elif DLSS_FORCE_F_RENDER_PRESET
 			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
-#else
+#else // DLSS_FORCE_E_RENDER_PRESET
+#endif // DLSS_FORCE_K_J_RENDER_PRESET
 			switch (perfQualityValue)
 			{
 			case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
 			{
 				// F: The default preset for Ultra Perf and DLAA modes.
 				// 
-				// NOTE: we could actually just use "NVSDK_NGX_DLSS_Hint_Render_Preset_Default" here, as it would interally fall back to "F",
+				// NOTE: we could actually just use "NVSDK_NGX_DLSS_Hint_Render_Preset_Default" here, as it would internally fall back to "F",
 				// but allow for automatic changes from NV in future versions of DLSS?
 				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
 			}
@@ -179,7 +189,7 @@ namespace NGX
 			// With this flag on, DLSS process colors "better",
 			// and it expects them to be in linear space.
 			// If this flag is false, then colors should be in gamma space (values beyond 0-1 are allowed anyway).
-			if (hdr)
+			if (_hdr)
 			{
 				createFlags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
 			}
@@ -204,7 +214,7 @@ namespace NGX
 			// It's possible that DLSS will reject that the "NVSDK_NGX_PerfQuality_Value" parameter, so try again with a different quality mode (they are often meaningless, as what matters is only the resolution).
 			if (NVSDK_NGX_FAILED(createResult))
 			{
-				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default; // We should probably just use "NVSDK_NGX_DLSS_Hint_Render_Preset_E" but let's pick the default just to be sure.
+				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default; // Let's pick the default just to be sure.
 				NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, renderPreset);
 
 				CreateParams.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_Balanced;
@@ -327,10 +337,13 @@ bool NGX::DLSS::UpdateSettings(DLSSInstanceData* data, ID3D11DeviceContext* comm
 	assert(immediate_context.Get() == commandList); // DLSS only supports the immediate context apparently (both here and in the actual draw function)!
 #endif
 
+	bool featureInstanceCreated = data->instance.superSamplingFeature != nullptr && data->instance.runtimeParams != nullptr;
+
 	// No need to re-instantiate DLSS "features" if all the params are the same
 	if ((int)outputWidth == data->outputWidth && (int)outputHeight == data->outputHeight
 		&& (int)renderWidth == data->renderWidth && (int)renderHeight == data->renderHeight
-		&& dynamicResolution == data->dynamicResolution && hdr == data->hdr && data->instance.commandList.Get() == commandList)
+		&& dynamicResolution == data->dynamicResolution && hdr == data->hdr
+		&& data->instance.commandList.Get() == commandList && featureInstanceCreated)
 	{
 		return true;
 	}
@@ -400,7 +413,7 @@ bool NGX::DLSS::UpdateSettings(DLSSInstanceData* data, ID3D11DeviceContext* comm
 	}
 
 	data->instance.commandList.Reset(); // Just to be explicit
-	data->instance = data->CreateSuperSamplingFeature(commandList, outputWidth, outputHeight, renderWidth, renderHeight, qualityMode);
+	data->instance = data->CreateSuperSamplingFeature(commandList, outputWidth, outputHeight, renderWidth, renderHeight, qualityMode, hdr);
 	data->uniqueHandles.insert(data->instance.superSamplingFeature);
 	data->uniqueParameters.insert(data->instance.runtimeParams);
 
@@ -450,7 +463,7 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0 // Disabled to avoid sharpening randomly coming back if users used old DLLs or NV restored it
 	evalParams.Feature.InSharpness = data->sharpness; // It's likely clamped between 0 and 1 internally, though a value of 0 might fall back to the internal default
 #endif
-#if 0
+#if !GAME_PREY
 	evalParams.InMVScaleX = 1.0;
 	evalParams.InMVScaleY = 1.0;
 #else // Needed in Prey
@@ -460,10 +473,10 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth);
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight);
-#elif 1 // This is what's needed by vanilla Prey
+#elif GAME_PREY // This is what's needed by vanilla Prey
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * -0.5f;
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * 0.5f;
-#elif 0 // This is an alternative version we modified Prey to follow, but it ended up being wrong
+#elif GAME_PREY && 0 // This is an alternative version we modified Prey to follow, but it ended up being wrong
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(data->outputWidth) * -0.5f * (static_cast<float>(data->outputWidth) / static_cast<float>(renderWidth));
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(data->outputHeight) * 0.5f * (static_cast<float>(data->outputHeight) / static_cast<float>(renderHeight));
 #else

@@ -1,4 +1,5 @@
-// Needs "Math.hlsl" included before it
+#ifndef SRC_COLOR_HLSL
+#define SRC_COLOR_HLSL
 
 // Needed by "linearToLog()" and "logToLinear()"
 #pragma warning( disable : 4122 )
@@ -8,6 +9,7 @@
 static const float MidGray = 0.18f;
 static const float DefaultGamma = 2.2f;
 static const float3 Rec709_Luminance = float3( 0.2126f, 0.7152f, 0.0722f );
+static const float3 Rec2020_Luminance = float3( 0.2627066f, 0.6779996f, 0.0592938f );
 static const float HDR10_MaxWhiteNits = 10000.0f;
 static const float ITU_WhiteLevelNits = 203.0f;
 static const float Rec709_WhiteLevelNits = 100.0f;
@@ -23,17 +25,43 @@ static const float sRGB_WhiteLevelNits = 80.0f;
 #define GCT_SATURATE 2
 #define GCT_MIRROR 3
 
+#ifndef GCT_DEFAULT
+#define GCT_DEFAULT GCT_NONE
+#endif
+
 static const float3x3 BT709_2_XYZ = float3x3
   (0.412390798f,  0.357584327f, 0.180480793f,
    0.212639003f,  0.715168654f, 0.0721923187f, // ~same as "Rec709_Luminance"
    0.0193308182f, 0.119194783f, 0.950532138f);
 
-float GetLuminance( float3 color )
+#define CS_BT709 0
+#define CS_BT2020 1
+
+#define CS_DEFAULT CS_BT709
+
+float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 {
+	if (colorSpace == CS_BT2020)
+	{
+		return dot( color, Rec2020_Luminance );
+	}
 	return dot( color, Rec709_Luminance );
 }
 
-float3 linear_to_gamma(float3 Color, int ClampType = GCT_NONE, float Gamma = DefaultGamma)
+float GetSaturation(float3 color)
+{
+    float maxVal = max(color.r, max(color.g, color.b));
+    float minVal = min(color.r, min(color.g, color.b));
+    return (maxVal == 0.0) ? 0.0 : saturate((maxVal - minVal) / maxVal);
+}
+
+float3 Saturation(float3 color, float saturation, uint colorSpace = CS_DEFAULT)
+{
+	float luminance = GetLuminance(color, colorSpace);
+	return lerp(luminance, color, saturation);
+}
+
+float3 linear_to_gamma(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
 {
 	float3 colorSign = sign(Color);
 	if (ClampType == GCT_POSITIVE)
@@ -54,7 +82,13 @@ float gamma_to_linear1(float Color, float Gamma = DefaultGamma)
 	return pow(Color, Gamma);
 }
 
-float3 gamma_to_linear(float3 Color, int ClampType = GCT_NONE, float Gamma = DefaultGamma)
+// 1 component
+float linear_to_gamma1(float Color, float Gamma = DefaultGamma)
+{
+	return pow(Color, 1.f / Gamma);
+}
+
+float3 gamma_to_linear(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
 {
 	float3 colorSign = sign(Color);
 	if (ClampType == GCT_POSITIVE)
@@ -79,7 +113,7 @@ float gamma_sRGB_to_linear1(float channel)
 }
 
 // The sRGB gamma formula already works beyond the 0-1 range but mirroring (and thus running the pow below 0 too) makes it look better
-float3 gamma_sRGB_to_linear(float3 Color, int ClampType = GCT_NONE)
+float3 gamma_sRGB_to_linear(float3 Color, int ClampType = GCT_DEFAULT)
 {
 	float3 colorSign = sign(Color);
 	if (ClampType == GCT_POSITIVE)
@@ -104,7 +138,7 @@ float linear_to_sRGB_gamma1(float channel)
 }
 
 // The sRGB gamma formula already works beyond the 0-1 range but mirroring (and thus running the pow below 0 too) makes it look better
-float3 linear_to_sRGB_gamma(float3 Color, int ClampType = GCT_NONE)
+float3 linear_to_sRGB_gamma(float3 Color, int ClampType = GCT_DEFAULT)
 {
 	float3 colorSign = sign(Color);
 	if (ClampType == GCT_POSITIVE)
@@ -136,7 +170,7 @@ static const float PQ_constant_C2 = 18.8515625f;
 static const float PQ_constant_C3 = 18.6875f;
 
 // PQ (Perceptual Quantizer - ST.2084) encode/decode used for HDR10 BT.2100.
-float3 Linear_to_PQ(float3 LinearColor, int clampType = GCT_NONE)
+float3 Linear_to_PQ(float3 LinearColor, int clampType = GCT_DEFAULT)
 {
 	float3 LinearColorSign = sign(LinearColor);
 	if (clampType == GCT_POSITIVE)
@@ -154,7 +188,7 @@ float3 Linear_to_PQ(float3 LinearColor, int clampType = GCT_NONE)
 	return pq;
 }
 
-float3 PQ_to_Linear(float3 ST2084Color, int clampType = GCT_NONE)
+float3 PQ_to_Linear(float3 ST2084Color, int clampType = GCT_DEFAULT)
 {
 	float3 ST2084ColorSign = sign(ST2084Color);
 	if (clampType == GCT_POSITIVE)
@@ -196,7 +230,7 @@ float3 logToLinear_internal(float3 logColor, float3 logGrey = LogGrey)
 // Perceptual encoding functions (more accurate than HDR10 PQ).
 // "linearColor" is expected to be >= 0 and with a white point around 80-100.
 // These function are "normalized" so that they will map a linear color value of 0 to a log encoding of 0.
-float3 linearToLog(float3 linearColor, int clampType = GCT_NONE, float3 logGrey = LogGrey)
+float3 linearToLog(float3 linearColor, int clampType = GCT_DEFAULT, float3 logGrey = LogGrey)
 {
 	float3 linearColorSign = sign(linearColor);
 	if (clampType == GCT_POSITIVE || clampType == GCT_SATURATE)
@@ -208,7 +242,7 @@ float3 linearToLog(float3 linearColor, int clampType = GCT_NONE, float3 logGrey 
 		normalizedLogColor *= sign(linearColorSign);
 	return normalizedLogColor;
 }
-float3 logToLinear(float3 normalizedLogColor, int clampType = GCT_NONE, float3 logGrey = LogGrey)
+float3 logToLinear(float3 normalizedLogColor, int clampType = GCT_DEFAULT, float3 logGrey = LogGrey)
 {
 	float3 normalizedLogColorSign = sign(normalizedLogColor);
 	if (clampType == GCT_MIRROR)
@@ -238,3 +272,68 @@ float3 BT2020_To_BT709(float3 color)
 {
 	return mul(BT2020_2_BT709, color);
 }
+
+static const float2 D65xy = float2(0.3127f, 0.3290f);
+
+static const float2 R2020xy = float2(0.708f, 0.292f);
+static const float2 G2020xy = float2(0.170f, 0.797f);
+static const float2 B2020xy = float2(0.131f, 0.046f);
+
+static const float2 R709xy = float2(0.64f, 0.33f);
+static const float2 G709xy = float2(0.30f, 0.60f);
+static const float2 B709xy = float2(0.15f, 0.06f);
+
+static const float3x3 BT2020_To_XYZ = {
+	0.636958062648773193359375f, 0.144616901874542236328125f,    0.1688809692859649658203125f,
+	0.26270020008087158203125f,  0.677998065948486328125f,       0.0593017153441905975341796875f,
+	0.f,                         0.028072692453861236572265625f, 1.060985088348388671875f};
+
+static const float3x3 XYZ_To_BT2020 = {
+	 1.7166512012481689453125f,       -0.3556707799434661865234375f,   -0.253366291522979736328125f,
+	-0.666684329509735107421875f,      1.61648118495941162109375f,      0.0157685466110706329345703125f,
+	 0.0176398567855358123779296875f, -0.0427706129848957061767578125f, 0.9421031475067138671875f };
+
+static const float3x3 BT709_To_XYZ = {
+	0.4123907983303070068359375f,    0.3575843274593353271484375f,   0.18048079311847686767578125f,
+	0.2126390039920806884765625f,    0.715168654918670654296875f,    0.072192318737506866455078125f,
+	0.0193308182060718536376953125f, 0.119194783270359039306640625f, 0.950532138347625732421875f };
+
+static const float3x3 XYZ_To_BT709 = {
+	 3.2409698963165283203125f,      -1.53738319873809814453125f,  -0.4986107647418975830078125f,
+	-0.96924364566802978515625f,      1.875967502593994140625f,     0.0415550582110881805419921875f,
+	 0.055630080401897430419921875f, -0.2039769589900970458984375f, 1.05697154998779296875f };
+
+float3 XYZToxyY(float3 XYZ)
+{
+	const float xyz = XYZ.x + XYZ.y + XYZ.z;
+	float x = XYZ.x / xyz;
+	float y = XYZ.y / xyz;
+	return float3(x, y, XYZ.y);
+}
+
+float3 xyYToXYZ(float3 xyY)
+{
+	float X = (xyY.x / xyY.y) * xyY.z;
+	float Z = ((1.f - xyY.x - xyY.y) / xyY.y) * xyY.z;
+	return float3(X, xyY.z, Z);
+}
+
+float GetM(float2 A, float2 B)
+{
+	return (B.y - A.y) / (B.x - A.x);
+}
+
+float2 LineIntercept(float MP, float2 FromXYCoords, float2 ToXYCoords, float2 WhitePointXYCoords = D65xy)
+{
+	const float m = GetM(FromXYCoords, ToXYCoords);
+	const float m_mul_xyx = m * FromXYCoords.x;
+
+	const float m_minus_MP = m - MP;
+	const float MP_mul_WhitePoint_xyx = MP * WhitePointXYCoords.x;
+
+	float x = (-MP_mul_WhitePoint_xyx + WhitePointXYCoords.y - FromXYCoords.y + m_mul_xyx) / m_minus_MP;
+	float y = (-WhitePointXYCoords.y * m + m * MP_mul_WhitePoint_xyx + FromXYCoords.y * MP - m_mul_xyx * MP) / -m_minus_MP;
+	return float2(x, y);
+}
+
+#endif // SRC_COLOR_HLSL

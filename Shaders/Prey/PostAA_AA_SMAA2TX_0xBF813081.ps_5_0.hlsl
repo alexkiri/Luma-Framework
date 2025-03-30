@@ -5,7 +5,7 @@
 #define DRAW_TAA_JITTER_TEST_BANDS (DEVELOPMENT && 1)
 
 #if TEST_TAA_TYPE == 1
-#include "include/CBuffer_PerFrame.hlsl"
+#include "Includes/CBuffer_PerFrame.hlsl"
 #endif // TEST_TAA_TYPE == 1
 
 // PostAA_PS
@@ -90,11 +90,12 @@ void main(
 	return;
 #endif
 
+#ifdef ENABLE_AA
 #if !ENABLE_AA || !ENABLE_TAA
 	outColor	= SampleCurrentScene(dejitteredCurrTC * CV_HPosScale.xy);
 	return;
 #endif // !ENABLE_AA || !ENABLE_TAA
-
+#endif
 	uint3 pixelCoord = int3(inWPos.xy, 0);
 	
 	// LUMA FT: the depth buffer is jittered

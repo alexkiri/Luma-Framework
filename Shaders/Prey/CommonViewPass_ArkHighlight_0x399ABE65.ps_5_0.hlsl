@@ -1,8 +1,8 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define _RT_SAMPLE0 1
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 void main(
   float4 v0 : SV_Position0,

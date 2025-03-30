@@ -1,6 +1,6 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0);
 SamplerState _tex1_s : register(s1);

@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
@@ -8,7 +8,7 @@ cbuffer PER_BATCH : register(b0)
 	float4 vParams : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 SamplerState _tex0_s : register(s0); // Bilinear
 Texture2D<float4> _tex0 : register(t0);

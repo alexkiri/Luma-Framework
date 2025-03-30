@@ -1,5 +1,3 @@
-// ---- Created with 3Dmigoto v1.3.16 on Wed Oct 02 01:54:37 2024
-
 cbuffer CBPerViewGlobal : register(b13)
 {
   row_major float4x4 CV_ViewProjZeroMatr : packoffset(c0);
@@ -38,10 +36,7 @@ cbuffer CBPerViewGlobal : register(b13)
 
 Texture2D<float> LinearizeDepth_DepthTex : register(t0);
 
-
-// 3Dmigoto declarations
 #define cmp -
-
 
 void main(
   float4 v0 : SV_Position0,
@@ -64,5 +59,4 @@ void main(
   r0.y = r0.w ? r0.y : r0.z;
   o0.x = r0.x ? 1 : r0.y;
   o0.yzw = float3(0,0,0);
-  return;
 }

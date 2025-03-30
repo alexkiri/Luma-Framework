@@ -16,5 +16,4 @@ void main(
 	float3 cFinal = fScale.xxx * fStarIntensity;
 
 	outColor = float4(cFinal, fScale);
-  return;
 }

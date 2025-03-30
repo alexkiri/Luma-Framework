@@ -1,4 +1,7 @@
-#include "include/Common.hlsl"
+#ifndef SRC_DICE_HLSL
+#define SRC_DICE_HLSL
+
+#include "Common.hlsl"
 
 // Applies exponential ("Photographic") luminance/luma compression.
 // The pow can modulate the curve without changing the values around the edges.
@@ -68,7 +71,7 @@ DICESettings DefaultDICESettings()
 {
   DICESettings Settings;
   Settings.Type = DICE_TYPE_BY_CHANNEL_PQ;
-  Settings.ShoulderStart = (Settings.Type > DICE_TYPE_BY_LUMINANCE_RGB) ? (1.f / 3.f) : 0.f; // Setting it higher than 1/3 might cause highlights clipping as detail is too compressed. Setting it lower than 1/4 would probably look dynamic range. 1/3 seems like the best compromize.
+  Settings.ShoulderStart = (Settings.Type > DICE_TYPE_BY_LUMINANCE_RGB) ? (1.0 / 3.0) : 0.0; // Setting it higher than 1/3 might cause highlights clipping as detail is too compressed. Setting it lower than 1/4 would probably look dynamic range. 1/3 seems like the best compromize.
   Settings.DesaturationAmount = 1.0 / 3.0;
   Settings.DarkeningAmount = 1.0 / 3.0;
   return Settings;
@@ -153,3 +156,5 @@ float3 DICETonemap(
 
   return Color;
 }
+
+#endif // SRC_DICE_HLSL

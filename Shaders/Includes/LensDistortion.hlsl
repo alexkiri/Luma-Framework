@@ -1,4 +1,7 @@
-#include "include/Common.hlsl"
+#ifndef SRC_LENS_DISTORTION_HLSL
+#define SRC_LENS_DISTORTION_HLSL
+
+#include "Common.hlsl"
 
 /* >> Functions << */
 
@@ -336,3 +339,5 @@ float2 PerfectPerspectiveLensDistortion_Inverse(float2 texCoord, float horFOV, f
 
 	return texCoord;
 }
+
+#endif // SRC_LENS_DISTORTION_HLSL

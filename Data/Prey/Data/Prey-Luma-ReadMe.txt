@@ -1,7 +1,8 @@
 Luma is a Prey (2017) + Mooncrash DLC mod that re-writes the game's late rendering and post processing phases to improve the game's look without drifting from the artistic vision (believe me!).
 The highlight feature is adding HDR support, DLSS and new Ambient Occlusion, making it akin to a smallish Remastered.
 The mod works by hooking into the game's code and replacing shaders.
-Luma was created by Pumbo (graphics) and Ersh (reverse engineering).
+Luma for Prey was created by Pumbo (graphics) and Ersh (reverse engineering).
+Since then Luma grew into a generic DirectX 11 games modding framework (https://github.com/Filoppi/Luma-Framework).
 
 # List of features:
 - Added HDR output (scRGB 16bit) (improved tonemapping, reworked all post processing effects)
@@ -9,7 +10,7 @@ Luma was created by Pumbo (graphics) and Ersh (reverse engineering).
 - Improved the quality of dynamic shadow, especially from up close (they had broken filtering that causes them to be blocky) (the maximum shadow render distance is also increased through configs)
 - Added a more modern Ambient Occlusion solution (GTAO) (the original AO is also improved in quality)
 - Improved Screen Space Reflections (they are not cropped close to the camera anymore, they now get progressively more diffuse with distance, they blend in and out of view more nicely etc etc, their math in general has been refactored for much better looking and more "physically accurate" results)
-- Added DLAA+DLSS Super Resolution (on Nvidia GPUs) (OptiScaler can be used to inject FSR 3) (this looks drastically better than the native TAA and has no noticeable ghosting)
+- Added DLAA+DLSS Super Resolution (on Nvidia GPUs) (OptiScaler can be used to inject FSR 3+) (this looks drastically better than the native TAA and has no noticeable ghosting)
 - Added RCAS sharpening after TAA (replacing the original basic sharpening implementation, making it look a lot more natural)
 - Added Perspective Correction (optional) (a modern type of "lens distortion" that makes the rendering projection look natural)
 - Improved all of the native Anti Aliasing implementations (e.g. SMAA/TAA)
@@ -27,7 +28,7 @@ Luma was created by Pumbo (graphics) and Ersh (reverse engineering).
 
 # How to install:
 - Drop all the files into the game installation folder (including "autoexec.cfg" and "system.cfg") (the root folder, not the one with the executable). Override all files (you can make a backup, but Luma just changes a couple configs in the game packages, these changes simply increase the rendering quality and can persist without Luma). If you are updating the mod, delete the "Prey-Luma" folder in the game binaries folder before applying the new one. These files will automatically load the mod for the Mooncrash DLC too, in case you had it.
-- If you are on GOG, move the files in ".\Binaries\Danielle\x64\" to ".\Binaries\Danielle\x64-GOG\".
+- If you are on GOG or Epic Games Store, move the files in ".\Binaries\Danielle\x64\" respectively to ".\Binaries\Danielle\x64-GOG\" or ".\Binaries\Danielle\x64-Epic\".
 - Install the latest VC++ redist before using (https://aka.ms/vs/17/release/vc_redist.x64.exe).
 - Install ReShade 6.3.3+ (with Addons support, for DX11, preferably as dxgi.dll) (you can disable the "Generic Depth" and "Effects Runtime Sync" Addons for performance gains).
 - Unless you are on Linux/Proton, delete the "d3dcompiler_47.dll" from the main binary folder, it's an outdated shader compiler bundled with the game for "no reason" (Windows will fall back on the latest version of it this way, but Proton doesn't distribute the file so leave it in).
@@ -44,7 +45,8 @@ Luma was created by Pumbo (graphics) and Ersh (reverse engineering).
 - If you want to force DLSS at a specific resolution scale (and thus quality mode), simply set the dynamic resolution scale to (e.g.) 0.75 in the settings menu, and then set its target frame rate very high, so that the game will never reach it and you will constantly run at the target minimum resolution.
 
 # Issues and limitations:
-- The Epic Games Store and Microsoft Store versions are not supported (the game data is across all game releases, so one could theoretically force use the Steam or GOG executables).
+- The weapon FoV will reset to a (vertical) value of 55° (the default) every time a new level is loaded.
+- The Microsoft Store version is not supported (the game data is the same across all game releases, so one could theoretically force use the executable from Steam, GOG or Epic Store).
 - The UI will look a bit different from Vanilla due to Luma using HDR/linear blending modes by default. Set "POST_PROCESS_SPACE_TYPE" to 0 or 2 in the advanced settings to make it behave like Vanilla.
 - MSAA or Super-sampling are not supported with Luma.
 - Changing the resolution after starting the game is not suggested, as some effects get initialized for the original resolution without being resized (vanilla issue).
@@ -53,6 +55,7 @@ Luma was created by Pumbo (graphics) and Ersh (reverse engineering).
 - Some objects in some levels disappear at certain camera angles (vanilla issue, lowering object details to high or below fixes it) (it can be fixed with the "Shuttle Bay Fix" mod, see below).
 - Glass and shadow can flicker heavily, especially when there's multiple layers of it (vanilla issue), this is seemingly often caused by the "Real Lights plus Ultra Graphics Mod" mod if you have it.
 - Due to Windows limitations, the game cursor will follow the OS SDR White Level (SDR content brightness) instead of the game's UI paper white. Set the Windows SDR content brightness setting to 31 (out of 100) to make it match ~203 nits, as Luma is set to by default.
+- DLSS Preset J and K, as in many other games, have too much ghosting in Prey, due to reflections and volumetric effects.
 
 # Compatibility:
 This mod should work with any other mod for Prey, just be careful of what you install, because some of the most popular mods change very random stuff with the game, or its graphics config (they will still be compatible with Luma).
@@ -64,6 +67,7 @@ Replace their files with the Luma version if necessary, none of the game's mods 
   It seems to make glasses flicker in and out of view in certain levels from certain angles.
   Luma overrides the graphics menu changes from this mod, give that it exposes a lot of random and redundant stuff for user control.
   If you use it, do not apply the "autoexec.cfg" and "system.cfg" files from it, because they contain a myriad of random and unsafe changes (use the Luma version of the same files, which is compatible with this mod too).
+  Also make sure to use the version without extra ReShade filters, as these are SDR only and are not great with Luma either way.
 - 2023 - PREY - Quality of Life Enhancement Mod - https://www.nexusmods.com/prey2017/mods/99
   This shares some features with the mod above, but generally improves on them.
 - Shuttle Bay Fix - https://www.nexusmods.com/prey2017/mods/140
@@ -71,7 +75,7 @@ Replace their files with the Luma version if necessary, none of the game's mods 
 - Touch-Up Mod - https://www.nexusmods.com/prey2017/mods/102
 - No-Intro (Skip Startup - Splash Videos) - https://www.nexusmods.com/prey2017/mods/115
 - Chairloader - The Prey Modding Framework - https://www.nexusmods.com/prey2017/mods/103
-  Not for general usage but it's great for messing around. It only works on the Epic Store version of the game, which Luma doesn't run on, otherwise it would probably be compatible.
+  Not for general usage but it's great for messing around.
 - Sensitivity Sprint Scale - https://www.nexusmods.com/prey2017/mods/117
 
 # References:

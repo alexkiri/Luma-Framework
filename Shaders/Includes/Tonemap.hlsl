@@ -1,8 +1,8 @@
 #ifndef SRC_TONEMAP_HLSL
 #define SRC_TONEMAP_HLSL
 
-#include "include/Common.hlsl"
-#include "include/DICE.hlsl"
+#include "Common.hlsl"
+#include "DICE.hlsl"
 
 static const float HableShoulderScale = 4.0;
 static const float HableLinearScale = 1.0;
@@ -48,6 +48,7 @@ float3 Tonemap_Hable_Inverse(in float3 compressedCol, float inShoulderScale = Ha
 	return uncompressCol;
 }
 
+// The wider the color space, the more saturated colors are generated in shadow
 float3 Tonemap_Hable(in float3 color, float inShoulderScale = HableShoulderScale /*= HDRFilmCurve.x*/, float inLinearScale = HableLinearScale /*= HDRFilmCurve.y*/ /*mid tones*/, float inToeScale = HableToeScale /*= HDRFilmCurve.z*/, float inWhitepoint = HableWhitepoint /*= HDRFilmCurve.w*/)
 {
 	// Filmic response curve as proposed by J. Hable. Uncharted 2 tonemapper.
@@ -71,9 +72,11 @@ float3 Tonemap_Hable(in float3 color, float inShoulderScale = HableShoulderScale
 #if 0 // LUMA FT: disabled saturate(), it's unnecessary
 	result = saturate(result);
 #endif
+
 #if 0 // Test inverse hable
 	return Tonemap_Hable_Inverse(result, inShoulderScale, inLinearScale, inToeScale, inWhitepoint);
 #endif
+
 	return result;
 }
 

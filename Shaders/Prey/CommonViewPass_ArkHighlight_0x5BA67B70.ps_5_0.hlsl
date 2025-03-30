@@ -1,4 +1,4 @@
-#include "include/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #define _RT_SAMPLE0 1
 #define _RT_SCENE_SELECTION 1
@@ -9,7 +9,7 @@ cbuffer PER_INSTANCE : register(b1)
   float4 SceneSelection : packoffset(c0);
 }
 
-#include "include/CBuffer_PerViewGlobal.hlsl"
+#include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 Texture2D<float4> sceneMaskDeviceTex : register(t26);
 

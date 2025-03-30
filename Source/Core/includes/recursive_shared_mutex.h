@@ -1,3 +1,5 @@
+#pragma once
+
 // Shared Mutex with support for multiple exclusive/unique locks from the same thread.
 // Multiple shared locks on the same thread is already allowed to begin with (hopefully, theoretically the behaviour is undefined).
 // First doing a shared lock and then a unique lock on the same thread, or the opposite, causes a deadlock, and there's no proper way of upgrading a lock from shared to unique.

@@ -1,4 +1,4 @@
-#include "include/UI.hlsl"
+#include "../Includes/UI.hlsl"
 
 cbuffer PER_BATCH : register(b0)
 {
@@ -38,7 +38,7 @@ void main(
 //Also, does this need linearization in all cases? It seems so, as it always runs at the end probably, whether it's writing on the swapchain or not.
 //Delete this tests!
 #if 0
-	if (!LumaUIData.WritingOnSwapchain)
+	if (!LumaUIData.TargetingSwapchain)
 	{
 		outColor.rgb = float3(2, 0, 1);
 	}

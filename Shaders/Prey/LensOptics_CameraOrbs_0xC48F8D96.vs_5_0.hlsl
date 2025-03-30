@@ -6,7 +6,7 @@ cbuffer PER_BATCH : register(b0)
   float3 lightProjPos : packoffset(c5);
 }
 
-#include "include/LensOptics.hlsl"
+#include "Includes/LensOptics.hlsl"
 
 // CameraOrbsVS
 void main(

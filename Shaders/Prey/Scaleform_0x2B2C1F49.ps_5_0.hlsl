@@ -1,4 +1,4 @@
-#include "include/Scaleform.hlsl"
+#include "Includes/Scaleform.hlsl"
 
 void main(
   float4 v0 : SV_Position0,
