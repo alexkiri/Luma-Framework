@@ -226,7 +226,7 @@ void CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
 {
    ID3D11Device* native_device = (ID3D11Device*)(cmd_list->get_device()->get_native());
    ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
-   auto& device_data = cmd_list->get_device()->get_private_data<DeviceData>();
+   DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
    com_ptr<ID3D11Resource> texture_resource;
    if (debug_draw_mode == DebugDrawMode::RenderTarget)

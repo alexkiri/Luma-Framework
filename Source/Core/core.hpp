@@ -1395,7 +1395,7 @@ namespace
       ASSERT_ONCE(device->get_api() == reshade::api::device_api::d3d11);
 
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-      auto& device_data = device->create_private_data<DeviceData>();
+      DeviceData& device_data = *device->create_private_data<DeviceData>();
       device_data.native_device = native_device;
 
 #if DEVELOPMENT
@@ -1514,7 +1514,7 @@ namespace
    void OnDestroyDevice(reshade::api::device* device)
    {
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-      auto& device_data = device->get_private_data<DeviceData>(); // No need to lock the data mutex here, it could be concurrently used at this point
+      DeviceData& device_data = *device->get_private_data<DeviceData>(); // No need to lock the data mutex here, it could be concurrently used at this point
 
       game->OnDestroyDeviceData(device_data);
 
@@ -1589,14 +1589,14 @@ namespace
       return changed;
    }
 
-   void OnInitSwapchain(reshade::api::swapchain* swapchain)
+   void OnInitSwapchain(reshade::api::swapchain* swapchain, bool resize)
    {
       IDXGISwapChain* native_swapchain = (IDXGISwapChain*)(swapchain->get_native());
       const size_t back_buffer_count = swapchain->get_back_buffer_count();
       auto* device = swapchain->get_device();
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-      auto& device_data = device->get_private_data<DeviceData>();
-      auto& swapchain_data = swapchain->create_private_data<SwapchainData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
+      SwapchainData& swapchain_data = *swapchain->create_private_data<SwapchainData>();
       ASSERT_ONCE(&device_data != nullptr); // Hacky nullptr check (should ever be able to happen)
 
       swapchain_data.vanilla_was_linear_space = last_swapchain_linear_space;
@@ -1719,12 +1719,12 @@ namespace
       game->OnInitSwapchain(swapchain);
    }
 
-   void OnDestroySwapchain(reshade::api::swapchain* swapchain)
+   void OnDestroySwapchain(reshade::api::swapchain* swapchain, bool resize)
    {
       auto* device = swapchain->get_device();
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       ASSERT_ONCE(&device_data != nullptr); // Hacky nullptr check (should ever be able to happen)
-      auto& swapchain_data = swapchain->get_private_data<SwapchainData>();
+      SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
       {
          const std::unique_lock lock(device_data.mutex);
          device_data.swapchains.erase(swapchain);
@@ -1750,7 +1750,7 @@ namespace
 
    void OnInitCommandList(reshade::api::command_list* cmd_list)
    {
-      auto& cmd_list_data = cmd_list->create_private_data<CommandListData>();
+      CommandListData& cmd_list_data = *cmd_list->create_private_data<CommandListData>();
 
 #if DEVELOPMENT
       com_ptr<ID3D11DeviceContext> native_device_context;
@@ -1760,7 +1760,7 @@ namespace
       {
          if (native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE)
          {
-            auto& device_data = cmd_list->get_device()->get_private_data<DeviceData>();
+            DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
             ASSERT_ONCE(!device_data.primary_command_list_data); // There should never be more than one of these?
             device_data.primary_command_list_data = &cmd_list_data;
          }
@@ -1817,7 +1817,7 @@ namespace
       bool found_replaceable_shader = false;
       bool found_custom_shader_file = false;
 
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       const std::unique_lock lock(s_mutex_generic);
       for (uint32_t i = 0; i < subobject_count; ++i)
@@ -1938,7 +1938,7 @@ namespace
       reshade::api::device* device,
       reshade::api::pipeline pipeline)
    {
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       {
          const std::unique_lock lock_loading(s_mutex_loading);
          device_data.pipelines_to_reload.erase(pipeline.handle);
@@ -1984,8 +1984,8 @@ namespace
       reshade::api::pipeline_stage stages,
       reshade::api::pipeline pipeline)
    {
-      auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
-      auto& device_data = cmd_list->get_device()->get_private_data<DeviceData>();
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+      DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
       if ((stages & reshade::api::pipeline_stage::compute_shader) != 0)
       {
@@ -2131,8 +2131,8 @@ namespace
       const std::shared_lock lock_trace(s_mutex_trace);
       if (trace_running)
       {
-         auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
-         auto& secondary_cmd_list_data = secondary_cmd_list->get_private_data<CommandListData>();
+         CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+         CommandListData& secondary_cmd_list_data = *secondary_cmd_list->get_private_data<CommandListData>();
          const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
          const std::unique_lock lock_trace_3(secondary_cmd_list_data.mutex_trace);
          cmd_list_data.trace_draw_calls_data.append_range(secondary_cmd_list_data.trace_draw_calls_data);
@@ -2151,15 +2151,15 @@ namespace
    {
       ID3D11Device* native_device = (ID3D11Device*)(queue->get_device()->get_native());
       ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(queue->get_immediate_command_list()->get_native());
-      auto& device_data = queue->get_device()->get_private_data<DeviceData>();
-      auto& swapchain_data = swapchain->get_private_data<SwapchainData>();
+      DeviceData& device_data = *queue->get_device()->get_private_data<DeviceData>();
+      SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
 
 #if DEVELOPMENT
       {
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = queue->get_immediate_command_list()->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *queue->get_immediate_command_list()->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Present;
@@ -2319,7 +2319,7 @@ namespace
 
             // Push our settings cbuffer in case where no other custom shader run this frame
             {
-               auto& device_data = queue->get_device()->get_private_data<DeviceData>();
+               DeviceData& device_data = *queue->get_device()->get_private_data<DeviceData>();
                const std::shared_lock lock(device_data.mutex); //TODOFT: is this right here?
                const auto cb_luma_frame_settings_copy = cb_luma_frame_settings;
                // Force a custom display mode in case we have no game custom shaders loaded, so the custom linearization shader can linearize anyway, independently of "POST_PROCESS_SPACE_TYPE"
@@ -2445,14 +2445,14 @@ namespace
       auto device_api = device->get_api();
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       reshade::api::shader_stage stages = reshade::api::shader_stage::all_graphics | reshade::api::shader_stage::all_compute;
 
       bool is_custom_pass = false;
       bool updated_cbuffers = false;
 
-      auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
 
 #if DEVELOPMENT
       last_drawn_shader = "";
@@ -2698,7 +2698,7 @@ namespace
 #if DEVELOPMENT
       // TODO: add support for cancelled passes here (and below), given that we can't retrieve the render target texture anymore.
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle))
       {
@@ -2740,7 +2740,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle))
       {
@@ -2775,7 +2775,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, true, original_shader_hashes);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_compute_shader.handle))
       {
@@ -2810,7 +2810,7 @@ namespace
       ShaderHashesList original_shader_hashes;
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch, original_shader_hashes);
 #if DEVELOPMENT //TODOFT: Note: this probably can't work as it's drawing on buffers, not textures!
-      auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == (is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader.handle : cmd_list_data.pipeline_state_original_pixel_shader.handle)))
       {
@@ -2962,7 +2962,7 @@ namespace
          return;
 #endif
 
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
 #if DEVELOPMENT && 0 // Assert in case we got unexpected samplers
       if (desc.filter == reshade::api::filter_mode::anisotropic || desc.filter == reshade::api::filter_mode::compare_anisotropic)
@@ -3012,7 +3012,7 @@ namespace
 
    void OnDestroySampler(reshade::api::device* device, reshade::api::sampler sampler)
    {
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       // This only seems to happen when the game shuts down in Prey (as any destroy callback, it can be called from an arbitrary thread, but that's fine)
       const std::unique_lock lock_samplers(s_mutex_samplers);
 
@@ -3040,7 +3040,7 @@ namespace
       reshade::api::resource_usage initial_state,
       reshade::api::resource resource)
    {
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       const std::unique_lock lock(device_data.mutex);
       if (waiting_on_upgraded_resource_init)
       {
@@ -3110,14 +3110,14 @@ namespace
 
    void OnDestroyResource(reshade::api::device* device, reshade::api::resource resource)
    {
-      if (!device || &(device->get_private_data<DeviceData>()) == nullptr)
+      if (!device || device->get_private_data<DeviceData>() == nullptr)
       {
 #if 0
          ASSERT_ONCE(false); // Happens when BioShock Infinite closes down (due to it using shared resources!), though it seems to be almost safe (could it be that the (now stale) device pointer has already been re-allocated? Probably not as this call comes from within the device object itself?)
 #endif
          return;
       }
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       const std::unique_lock lock(device_data.mutex);
       device_data.upgraded_resources.erase(resource.handle);
    }
@@ -3130,7 +3130,7 @@ namespace
       reshade::api::resource_usage usage_type,
       reshade::api::resource_view_desc& desc)
    {
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       // In DX11 apps can not pass a "DESC" when creating resource views, and DX11 will automatically generate the default one from it, we handle it through "reshade::api::resource_view_type::unknown".
       if (resource.handle != 0 && (desc.type == reshade::api::resource_view_type::unknown || desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::texture_2d_array || desc.type == reshade::api::resource_view_type::texture_2d_multisample || desc.type == reshade::api::resource_view_type::texture_2d_multisample_array))
       {
@@ -3251,7 +3251,7 @@ namespace
       auto* device = cmd_list->get_device();
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       switch (update.type)
       {
@@ -3330,7 +3330,7 @@ namespace
 #if DEVELOPMENT
    void OnMapTextureRegion(reshade::api::device* device, reshade::api::resource resource, uint32_t subresource, const reshade::api::subresource_box* box, reshade::api::map_access access, reshade::api::subresource_data* data)
    {
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       {
          const std::shared_lock lock_trace(s_mutex_trace);
@@ -3375,7 +3375,7 @@ namespace
    {
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       // Verify that we didn't miss any changes to the global g-buffer
       ASSERT_ONCE(!device_data.has_drawn_main_post_processing_previous || !device_data.cb_per_view_global_buffers.contains(buffer));
       return false;
@@ -3383,7 +3383,7 @@ namespace
 
    bool OnUpdateTextureRegion(reshade::api::device* device, const reshade::api::subresource_data& data, reshade::api::resource resource, uint32_t subresource, const reshade::api::subresource_box* box)
    {
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       {
          const std::shared_lock lock_trace(s_mutex_trace);
@@ -3432,7 +3432,7 @@ namespace
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::ClearResource;
@@ -3453,7 +3453,7 @@ namespace
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::ClearResource;
@@ -3474,7 +3474,7 @@ namespace
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::ClearResource;
@@ -3497,7 +3497,7 @@ namespace
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CopyResource;
@@ -3571,7 +3571,7 @@ namespace
                   return false;
                };
 
-            auto& device_data = cmd_list->get_device()->get_private_data<DeviceData>();
+            DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
             // If we detected incompatible formats that were likely caused by Luma upgrading texture formats (of render targets only...),
             // do the copy in shader
@@ -3724,7 +3724,7 @@ namespace
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CopyResource;
@@ -3743,13 +3743,13 @@ namespace
    }
 
 #if DEVELOPMENT
-   bool OnResolveTextureRegion(reshade::api::command_list* cmd_list, reshade::api::resource source, uint32_t source_subresource, const reshade::api::subresource_box* source_box, reshade::api::resource dest, uint32_t dest_subresource, int32_t dest_x, int32_t dest_y, int32_t dest_z, reshade::api::format format)
+   bool OnResolveTextureRegion(reshade::api::command_list* cmd_list, reshade::api::resource source, uint32_t source_subresource, const reshade::api::subresource_box* source_box, reshade::api::resource dest, uint32_t dest_subresource, uint32_t dest_x, uint32_t dest_y, uint32_t dest_z, reshade::api::format format)
    {
       {
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = cmd_list->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data = {};
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CopyResource;
@@ -3771,7 +3771,7 @@ namespace
 
    void OnReShadePresent(reshade::api::effect_runtime* runtime)
    {
-      auto& device_data = runtime->get_device()->get_private_data<DeviceData>();
+      DeviceData& device_data = *runtime->get_device()->get_private_data<DeviceData>();
 #if DEVELOPMENT
       {
          const std::unique_lock lock_trace(s_mutex_trace);
@@ -3782,7 +3782,7 @@ namespace
             reshade::log::message(reshade::log::level::info, "--- End Frame ---");
 #endif
             trace_running = false;
-            auto& cmd_list_data = runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
+            CommandListData& cmd_list_data = *runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
             const std::shared_lock lock_trace_2(cmd_list_data.mutex_trace);
             trace_count = cmd_list_data.trace_draw_calls_data.size();
          }
@@ -3794,7 +3794,7 @@ namespace
             // Split the trace logic over "two" frames
             trace_scheduled = false;
             {
-               auto& cmd_list_data = runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
+               CommandListData& cmd_list_data = *runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
                const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
                cmd_list_data.trace_draw_calls_data.clear();
             }
@@ -3906,7 +3906,7 @@ namespace
 
    bool OnReShadeSetEffectsState(reshade::api::effect_runtime* runtime, bool enabled)
    {
-      auto& device_data = runtime->get_device()->get_private_data<DeviceData>();
+      DeviceData& device_data = *runtime->get_device()->get_private_data<DeviceData>();
       // Note that this is not called on startup (even if the ReShade effects are enabled by default)
       // We were going to read custom keyboard events like this "GetAsyncKeyState(VK_ESCAPE) & 0x8000", but this seems like a better design
       needs_unload_shaders = !enabled;
@@ -4114,7 +4114,7 @@ namespace
    // This runs within the swapchain "Present()" function, and thus it's thread safe
    void OnRegisterOverlay(reshade::api::effect_runtime* runtime)
    {
-      auto& device_data = runtime->get_device()->get_private_data<DeviceData>();
+      DeviceData& device_data = *runtime->get_device()->get_private_data<DeviceData>();
 
       // Always do this in case a user changed the settings through ImGUI
       device_data.cb_luma_frame_settings_dirty = true;
@@ -4285,7 +4285,7 @@ namespace
                   if (!trace_running)
                   {
                      const std::shared_lock lock_generic(s_mutex_generic);
-                     auto& cmd_list_data = runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
+                     CommandListData& cmd_list_data = *runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
                      const std::shared_lock lock_trace_2(cmd_list_data.mutex_trace);
                      for (auto index = 0; index < trace_count; index++)
                      {
@@ -4483,7 +4483,7 @@ namespace
                   if (open_disassembly_tab_item)
                   {
                      static std::string disasm_string;
-                     auto& cmd_list_data = runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
+                     CommandListData& cmd_list_data = *runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
                      const std::shared_lock lock_trace(cmd_list_data.mutex_trace);
                      if (selected_index >= 0 && cmd_list_data.trace_draw_calls_data.size() >= selected_index + 1 && (changed_selected || opened_disassembly_tab_item != open_disassembly_tab_item))
                      {
@@ -4532,7 +4532,7 @@ namespace
                      static std::string hlsl_string;
                      static bool hlsl_error = false;
                      static bool hlsl_warning = false;
-                     auto& cmd_list_data = runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
+                     CommandListData& cmd_list_data = *runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
                      const std::shared_lock lock_trace(cmd_list_data.mutex_trace);
                      if (selected_index >= 0 && cmd_list_data.trace_draw_calls_data.size() >= selected_index + 1 && (changed_selected || opened_live_tab_item != open_live_tab_item || refresh_cloned_pipelines))
                      {
@@ -4637,7 +4637,7 @@ namespace
                   ImGui::PopID();
                   if (open_settings_tab_item)
                   {
-                     auto& cmd_list_data = runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
+                     CommandListData& cmd_list_data = *runtime->get_command_queue()->get_immediate_command_list()->get_private_data<CommandListData>();
                      const std::shared_lock lock_trace(cmd_list_data.mutex_trace);
                      if (selected_index >= 0 && cmd_list_data.trace_draw_calls_data.size() >= selected_index + 1)
                      {

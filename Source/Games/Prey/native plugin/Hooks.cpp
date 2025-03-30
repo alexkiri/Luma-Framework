@@ -478,6 +478,13 @@ namespace Hooks
 
 	void Hooks::Unhook()
 	{
+		// We never hooked to begin with
+		if (!asmPatchHandle_swapchain.get())
+		{
+			assert(false); // Shouldn't happen
+			return;
+		}
+
 		{
 			asmPatchHandle_swapchain->Disable();
 		}

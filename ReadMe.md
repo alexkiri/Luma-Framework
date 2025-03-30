@@ -21,7 +21,7 @@ Windows 11 SDK 10.0.26100.0 (older versions work, but don't support HDR as well)
 - x86 (Win32) games are compatible too, "BioShock 2" is an example of them.
 - Add an environment variable called "LUMA_GAME_NAME_BIN_PATH" (e.g. "LUMA_BIOSHOCK_2_BIN_PATH" for Bioshock 2), and make it point to the game's executable folder (where ReShade goes). Go to the project settings post-build event page and set it to copy the binaries in that folder.
 - Go to the project settings debugging page and set the Command to the game executable path (e.g. "$(LUMA_PREY_BIN_PATH)\Prey.exe", without the "), so it's run and attached to when debugging.
-- Install ReShade 6.3.3+ in the game's directory.
+- Install ReShade 6.4.1+ in the game's directory.
 - Build the project and run it for debugging, it should automatically run the game with the mod loaded.
 - Some of this stuff could be automated with cmake, but I dislike programs without a proper GUI :D.
 

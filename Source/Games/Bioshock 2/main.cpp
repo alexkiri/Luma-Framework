@@ -124,7 +124,7 @@ public:
 
             reshade::api::swapchain* swapchain = *device_data.swapchains.begin();
             IDXGISwapChain*  native_swapchain = (IDXGISwapChain*)(swapchain->get_native());
-            auto& swapchain_data = swapchain->get_private_data<SwapchainData>();
+            SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
             UINT back_buffer_index = swapchain->get_current_back_buffer_index();
             com_ptr<ID3D11Texture2D> back_buffer;
             DXGI_SWAP_CHAIN_DESC asd;

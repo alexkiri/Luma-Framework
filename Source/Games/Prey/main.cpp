@@ -1749,7 +1749,7 @@ public:
          return false;
       }
 
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       auto& game_device_data = GetGameDeviceData(device_data);
 
       bool output_resolution_matches = AlmostEqual(device_data.output_resolution.x, cb_output_resolution_x, 0.5f) && AlmostEqual(device_data.output_resolution.y, cb_output_resolution_y, 0.5f);
@@ -2061,7 +2061,7 @@ public:
       {
          D3D11_BUFFER_DESC buffer_desc;
          buffer->GetDesc(&buffer_desc);
-         auto& device_data = device->get_private_data<DeviceData>();
+         DeviceData& device_data = *device->get_private_data<DeviceData>();
 
          // There seems to only ever be one buffer type of this size, but it's not guaranteed (we might have found more, but it doesn't matter, they are discarded later)...
          // They seemingly all happen on the same thread.
@@ -2083,7 +2083,7 @@ public:
    {
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
-      auto& device_data = device->get_private_data<DeviceData>();
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
       // We assume this buffer is always unmapped before destruction.
       bool is_global_cbuffer = device_data.cb_per_view_global_buffer != nullptr && device_data.cb_per_view_global_buffer == buffer;
       ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data || is_global_cbuffer);
