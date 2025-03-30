@@ -36,6 +36,7 @@ Multiple games are already in the code, and adding a new one is relatively easy.
 # To do and ideas
 - Add a utility to automatically package a game mod with all the files it might need
 - Add a utility to quickly create a new game project without manual editing (CMake?)
+- Improve the way games can add custom cbuffer variables
 - Move the defines in "global_defines.h" as Solution Configurations in Visual Studio? So one doesn't need to edit the code to swap them
 - Allow packaging shaders with the mod binary (like RenoDX does)?
 - Move the core.hpp code in a static or dynamic library, instead of including it as code in every game specific project
