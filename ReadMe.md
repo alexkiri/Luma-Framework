@@ -1,11 +1,12 @@
 Luma is modding framework that facilitates improving the graphics of DirectX 11 games.
 It leverages the ReShade Addon system to add or modify rendering passes (and replace shaders (e.g. post processing)) through DirectX hooks.
-It'd be possible to achieve the same without ReShade and game specific code hooks, by only using generic DirectX hooks, but it'd be exponentially more complicated (Some engines re-use render target textures for different purposes, so we couldn't easily tell which ones to upgrade, and ReShade offers settings serialization and a bunch of other features).
+While most of the generic shaders code is focused on HDR output support, there's a lot more to it already, and no limit to what it can do.
+Multiple games are already in the code, and adding a new one is relatively easy.
 
 # Development requirements
-Windows 11 (Windows 10 probably works fine too)
-Visual Studio 2022 (older versions might work too)
-Windows 11 SDK 10.0.26100.0 (older versions work, but don't support HDR as well)
+- Windows 11 (Windows 10 probably works fine too)
+- Visual Studio 2022 (older versions might work too)
+- Windows 11 SDK 10.0.26100.0 (older versions work, but don't support HDR as well)
 
 # Instructions
 - Set "VCPKG_ROOT" environment variable to your vcpkg installation folder if it wasn't already (download it from here "https://github.com/microsoft/vcpkg", the version integrated with Visual Studio doesn't seem to be as reliable).
@@ -32,10 +33,20 @@ Windows 11 SDK 10.0.26100.0 (older versions work, but don't support HDR as well)
 - VSCode is suggested.
 - Packaging mods for now is manual and the generic and game specific shader folders need to be put in a "Luma" folder in the mod binary directory.
 
-# To Do and ideas
+# To do and ideas
 - Add a utility to automatically package a game mod with all the files it might need
 - Add a utility to quickly create a new game project without manual editing (CMake?)
 - Move the defines in "global_defines.h" as Solution Configurations in Visual Studio? So one doesn't need to edit the code to swap them
 - Allow packaging shaders with the mod binary (like RenoDX does)?
 - Move the core.hpp code in a static or dynamic library, instead of including it as code in every game specific project
 - Add DirectX 12 support? Not planned for now. Luma is based on the simplicity of DX11
+
+# Comparison with RenoDX
+Luma shares a lot with RenoDX (https://github.com/clshortfuse/renodx), where it got its original inspiration from, but Luma is more focused on modding games deep down, like for example adding and replacing entire rendering techniques.
+
+# Relationship with Starfield and Kingdom Come Deliverance Luma mods
+The Luma Framework was born out of the modding code I originally wrote for Prey (Luma). I soon after realize that I could make it all generic and re-use many of its features on other games.
+Starfield and Kingdom Come Deliverance Luma mods are not based on the Luma (generic) Framework and thus should not be confused with it. They do share some of the authors, and some of the code features (e.g. HDR stuff), but they are separate entities. 
+
+# Why ReShade?
+It'd be possible to achieve the same without ReShade and game specific code hooks, by only using generic DirectX hooks, but it'd be exponentially more complicated (Some engines re-use render target textures for different purposes, so we couldn't easily tell which ones to upgrade, and ReShade offers settings serialization and a bunch of other features).
