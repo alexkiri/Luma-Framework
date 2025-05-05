@@ -4,7 +4,6 @@
 #include "Common.hlsl"
 
 // Applies exponential ("Photographic") luminance/luma compression.
-// The pow can modulate the curve without changing the values around the edges.
 // The max is the max possible range to compress from, to not lose any output range if the input range was limited.
 float rangeCompress(float X, float Max = FLT_MAX)
 {

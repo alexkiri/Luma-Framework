@@ -215,6 +215,11 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		// We could theoretically add a mode that fakes sRGB output on scRGB->2.2 but it wouldn't really be useful as the game was likely designed for 2.2 displays (unconsciously).
 		color.rgb = ColorGradingLUTTransferFunctionOut(color.rgb, LUT_EXTRAPOLATION_TRANSFER_FUNCTION_SRGB, false);
 #endif // POST_PROCESS_SPACE_TYPE == 1
+
+#if 0 // For linux support (somehow scRGB is not interpreted as linear when in SDR) //TODOFT4: expose?
+		color.rgb = linear_to_sRGB_gamma(color.rgb, GCT_NONE);
+#endif
+
 	}
 	// HDR and SDR in HDR: in this case the UI paper white would have already been mutliplied in, relatively to the game paper white, so we only apply the game paper white.
 	else if (LumaSettings.DisplayMode >= 1)

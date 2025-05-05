@@ -1385,7 +1385,7 @@ namespace
    void OnDisplayModeChanged()
    {
       // s_mutex_reshade should already be locked here, it's not necessary anyway
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).editable = cb_luma_frame_settings.DisplayMode != 0;
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).editable = cb_luma_frame_settings.DisplayMode != 0; //TODOFT4: necessary to disable this in SDR?
 
       game->OnDisplayModeChanged();
    }
