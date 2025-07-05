@@ -3211,6 +3211,10 @@ namespace
             {
                // Happens when the call didn't provide a "DESC"
                ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
+#if 0 // This happens (e.g. Dishonored 2), but we fix it below
+               // Invalid value
+               ASSERT_ONCE(desc.texture.level_count != 0);
+#endif
                upgrade = true;
                break;
             }
@@ -3231,6 +3235,10 @@ namespace
                if (desc.type == reshade::api::resource_view_type::unknown)
                {
                   desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array); // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
+                  desc.texture.first_level = 0;
+                  desc.texture.level_count = -1; // All levels
+                  desc.texture.first_layer = 0;
+                  desc.texture.layer_count = resource_desc.texture.depth_or_layers;
                }
                desc.format = reshade::api::format::r16g16b16a16_float;
                return true;
