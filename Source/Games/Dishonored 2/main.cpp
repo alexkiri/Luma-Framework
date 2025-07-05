@@ -145,6 +145,12 @@ public:
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('3');
    }
 
+   // This needs to be overridden with your own "GameDeviceData" sub-class (destruction is automatically handled)
+   void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      device_data.game = new GameDeviceDataDishonored2;
+   }
+
    //TODOFT: delete?
    void UpdateLumaInstanceDataCB(LumaInstanceData& data) override
    {

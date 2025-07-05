@@ -3212,12 +3212,14 @@ namespace
                // Happens when the call didn't provide a "DESC"
                ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
                upgrade = true;
+               break;
             }
             case reshade::api::format::r16g16b16a16_typeless:
             {
                // Nobody should be creating a typeless view, though it might be a bug with the game's code in case of unexpected format upgrades
                ASSERT_ONCE(false);
                upgrade = true;
+               break;
             }
 #endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
             default:
