@@ -175,6 +175,26 @@ float3 RestoreHue(float3 targetColor, float3 sourceColor, float strength = 0.5, 
 #endif
 }
 
+float3 RestoreChrominance(float3 targetColor, float3 sourceColor, float strength = 1.0, uint colorSpace = CS_DEFAULT)
+{
+  if (strength == 0.f) // Static optimization (useful if the param is const)
+    return targetColor;
+  
+  float3 sourceOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(sourceColor);
+  float3 targetOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(targetColor);
+  
+  // Compute chrominance (magnitude of the a–b vector)
+  float sourceChrominance = length(sourceOklab.yz);
+  float targetChrominance = length(targetOklab.yz);
+
+  // Scale original chroma vector from 1.0 to ratio of target to new chroma
+  float chrominanceRatio = safeDivision(sourceChrominance, targetChrominance, 1);
+  float chrominanceScale = lerp(1.f, chrominanceRatio, strength);
+  targetOklab.yz *= chrominanceScale;
+
+	return colorSpace == CS_BT2020 ? oklab_to_linear_bt2020(targetOklab) : oklab_to_linear_srgb(targetOklab);
+}
+
 // Not 100% hue conservering but better than just max(color, 0.f), this maps the color on the closest humanly visible xy location on th CIE graph.
 // This doesn't break gradients. The color luminance is not considered, so invalid luminances still get gamut mapped through the same math.
 // Supports either BT.2020 or BT.709 (sRGB/scRGB) clamping (input and output need to be in the same color space). Hardcoded for D65 white point.
