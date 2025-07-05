@@ -5,6 +5,7 @@
 #define UPGRADE_RESOURCES_11FLOAT 1
 #define UPGRADE_SAMPLERS 0
 #define ENABLE_NGX 1
+#define DISABLE_AUTO_DEBUGGER
 
 // Not used by Dishonored 2?
 #define ENABLE_SHADER_CLASS_INSTANCES 1

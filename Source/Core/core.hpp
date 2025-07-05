@@ -6017,7 +6017,8 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
    // ReShade loads addons when the game creates a DirectX device, this usually only happens once on boot under normal circumstances (e.g. Prey), but can happen multiple times (e.g. Dishonored 2, Unity games, ...).
    case DLL_PROCESS_ATTACH:
    {
-#if DEVELOPMENT || _DEBUG
+// Some games like to crash or have input issues if a debugger is present on boot, so make it optional
+#if (DEVELOPMENT || _DEBUG) && !defined(DISABLE_AUTO_DEBUGGER)
       LaunchDebugger(NAME);
 #endif // DEVELOPMENT
 
