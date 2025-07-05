@@ -10,9 +10,65 @@
 // Hack: we need to include this cpp file here because it's part of the core library but we actually don't include it as a library, due to limitations (see the game template for more)
 #include "..\..\Core\dlss\DLSS.cpp"
 
+namespace
+{
+   ShaderHashesList shader_hashes_3D_UI;
+}
+
+struct GameDeviceDataMafiaIII final : public GameDeviceData
+{
+
+};
+
 class MafiaIII final : public Game
 {
 public:
+   static const GameDeviceDataMafiaIII& GetGameDeviceData(const DeviceData& device_data)
+   {
+      return *static_cast<const GameDeviceDataMafiaIII*>(device_data.game);
+   }
+   static GameDeviceDataMafiaIII& GetGameDeviceData(DeviceData& device_data)
+   {
+      return *static_cast<GameDeviceDataMafiaIII*>(device_data.game);
+   }
+
+   void OnInit(bool async) override
+   {
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+   }
+
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   {
+      auto& game_device_data = GetGameDeviceData(device_data);
+      auto game_device_data_prev = game_device_data;
+      // TODO: delete
+      if (original_shader_hashes.Contains(shader_hashes_3D_UI))
+      {
+         com_ptr<ID3D11DepthStencilState> depth_stencil_state;
+         native_device_context->OMGetDepthStencilState(&depth_stencil_state, nullptr);
+         if (depth_stencil_state)
+         {
+            D3D11_DEPTH_STENCIL_DESC depth_stencil_desc;
+            depth_stencil_state->GetDesc(&depth_stencil_desc);
+            if (depth_stencil_desc.DepthEnable)
+            {
+               D3D11_VIEWPORT viewport;
+               viewport.TopLeftX = 0.f;
+               viewport.TopLeftY = 0.f;
+               viewport.MinDepth = 0.f;
+               viewport.MaxDepth = 1.f;
+               viewport.Width = device_data.output_resolution.x;
+               viewport.Height = device_data.output_resolution.y;
+               native_device_context->RSSetViewports(1, &viewport);
+            }
+         }
+      }
+
+      return false;
+   }
+
    void PrintImGuiAbout() override
    {
       ImGui::Text("Luma for \"Mafia III\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.", "");
@@ -81,9 +137,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::WEBSITE = "";
       Globals::VERSION = 1;
 
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+      shader_hashes_3D_UI.pixel_shaders.emplace(std::stoul("CDB35CB7", nullptr, 16));
+      shader_hashes_3D_UI.pixel_shaders.emplace(std::stoul("22EE786B", nullptr, 16));
+      shader_hashes_3D_UI.pixel_shaders.emplace(std::stoul("AAA3C7B5", nullptr, 16));
 
       luma_settings_cbuffer_index = 13;
 

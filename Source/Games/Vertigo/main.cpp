@@ -10,6 +10,17 @@
 class Vertigo final : public Game
 {
 public:
+   void OnInit(bool async) override
+   {
+      std::vector<ShaderDefineData> game_shader_defines_data = {
+         {"TONEMAP_TYPE", '2', false, false, "0 - SDR: Vanilla (ACES)\n1 - HDR: Pumbo Advanced AutoHDR\n2 - HDR: Oklab (suggested)\n3 - HDR: Vanilla+"},
+      };
+      shader_defines_data.append_range(game_shader_defines_data);
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+   }
+
    void PrintImGuiAbout() override
    {
       ImGui::Text("Luma for \"Vertigo\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.", "");
@@ -80,14 +91,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
-
-      std::vector<ShaderDefineData> game_shader_defines_data = {
-         {"TONEMAP_TYPE", '2', false, false, "0 - SDR: Vanilla (ACES)\n1 - HDR: Pumbo Advanced AutoHDR\n2 - HDR: Oklab (suggested)\n3 - HDR: Vanilla+"},
-      };
-      shader_defines_data.append_range(game_shader_defines_data);
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
 
       game = new Vertigo();
    }

@@ -11,6 +11,7 @@ namespace
 {
    ShaderHashesList pixel_shader_hashes_Tonemap;
    ShaderHashesList pixel_shader_hashes_AA;
+   ShaderHashesList shader_hashes_Fog;
 }
 
 struct GameDeviceDataBioshock2 final : public GameDeviceData
@@ -32,6 +33,18 @@ public:
    static GameDeviceDataBioshock2& GetGameDeviceData(DeviceData& device_data)
    {
       return *static_cast<GameDeviceDataBioshock2*>(device_data.game);
+   }
+
+   void OnInit(bool async) override
+   {
+      std::vector<ShaderDefineData> game_shader_defines_data = {
+         {"TONEMAP_TYPE", '1', false, false, "0 - SDR: Vanilla\n1 - HDR: Vanilla+\n2 - HDR: Untonemapped"},
+      };
+      shader_defines_data.append_range(game_shader_defines_data);
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
    }
 
    void PrintImGuiAbout() override
@@ -106,6 +119,38 @@ public:
       // Check what was the previous shader
       static ShaderHashesList original_shader_hashes2;
 #endif
+
+      if (original_shader_hashes.Contains(shader_hashes_Fog))
+      {
+         com_ptr<ID3D11RenderTargetView> rtv;
+         native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
+
+         if (rtv)
+         {
+            com_ptr<ID3D11Resource> rtr;
+            rtv->GetResource(&rtr);
+
+            uint3 size_a, size_b;
+            DXGI_FORMAT format_a, format_b;
+            GetResourceInfo(game_device_data.scene_texture.get(), size_a, format_a);
+            GetResourceInfo(rtr.get(), size_b, format_b);
+            if (size_a != size_b || format_a != format_b)
+            {
+               game_device_data.scene_texture = CloneTexture2D(native_device, rtr.get(), DXGI_FORMAT_UNKNOWN, false, false);
+               game_device_data.scene_texture_srv = nullptr;
+               if (game_device_data.scene_texture)
+               {
+                  HRESULT hr = native_device->CreateShaderResourceView(game_device_data.scene_texture.get(), nullptr, &game_device_data.scene_texture_srv);
+                  ASSERT_ONCE(SUCCEEDED(hr));
+               }
+            }
+
+            native_device_context->CopyResource(game_device_data.scene_texture.get(), rtr.get());
+
+            ID3D11ShaderResourceView* const scene_texture_srv_const = game_device_data.scene_texture_srv.get();
+            native_device_context->PSSetShaderResources(1, 1, &scene_texture_srv_const);
+         }
+      }
 
       // Tonemapper
       if (!game_device_data.drew_tonemap && original_shader_hashes.Contains(pixel_shader_hashes_Tonemap))
@@ -221,15 +266,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("29D570D8") };
       pixel_shader_hashes_AA.pixel_shaders = { Shader::Hash_StrToNum("27BD2A2E"), Shader::Hash_StrToNum("5cdd5ab1") };
-
-      std::vector<ShaderDefineData> game_shader_defines_data = {
-         {"TONEMAP_TYPE", '1', false, false, "0 - SDR: Vanilla\n1 - HDR: Vanilla+\n2 - HDR: Untonemapped"},
-      };
-      shader_defines_data.append_range(game_shader_defines_data);
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
-      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
+      shader_hashes_Fog.pixel_shaders.emplace(std::stoul("FC0B307B", nullptr, 16));
 
       game = new Bioshock2();
    }

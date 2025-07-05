@@ -48,6 +48,19 @@ class Trine5 final : public Game
    }
 
 public:
+   void OnInit(bool async) override
+   {
+      std::vector<ShaderDefineData> game_shader_defines_data = {
+         {"TONEMAP_TYPE", '1', false, false, "0 - SDR: Vanilla\n1 - HDR: Vanilla+ (native method)\n2 - HDR: Vanilla+ (inverse method)\n3 - HDR: Untonemapped"},
+         {"ENABLE_VIGNETTE", '1', false, false, "Set to 0 to disable vanilla vignette"},
+      };
+      shader_defines_data.append_range(game_shader_defines_data);
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+   }
+
    void LoadConfigs() override
    {
       reshade::api::effect_runtime* runtime = nullptr;
@@ -361,16 +374,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		pixel_shader_hashes_Sharpen.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("AA97F987"), Shader::Hash_StrToNum("0910AE0F") }; // The last one is for DLSS (which doesn't do sharpening), the others are for sharpening and some for TAA too
       pixel_shader_hashes_TAA.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("0910AE0F") };
       pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("2B825C00"), Shader::Hash_StrToNum("480558AD"), Shader::Hash_StrToNum("AEDB562C") };
-
-      std::vector<ShaderDefineData> game_shader_defines_data = {
-         {"TONEMAP_TYPE", '1', false, false, "0 - SDR: Vanilla\n1 - HDR: Vanilla+ (native method)\n2 - HDR: Vanilla+ (inverse method)\n3 - HDR: Untonemapped"},
-         {"ENABLE_VIGNETTE", '1', false, false, "Set to 0 to disable vanilla vignette"},
-      };
-      shader_defines_data.append_range(game_shader_defines_data);
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
-      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
 
       game = new Trine5();
    }

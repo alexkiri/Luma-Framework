@@ -214,6 +214,7 @@ namespace
    int frame_sleep_ms = 0;
    int frame_sleep_interval = 1;
 #endif
+   bool separate_ui = true; //TODOFT
 
    // Game specific constants (these are not expected to be changed at runtime)
    uint32_t luma_settings_cbuffer_index = 13;
@@ -224,6 +225,9 @@ namespace
    const uint32_t shader_hash_copy_vertex = Shader::Hash_StrToNum("FFFFFFF0");
    const uint32_t shader_hash_copy_pixel = Shader::Hash_StrToNum("FFFFFFF1");
    const uint32_t shader_hash_transform_function_copy_pixel = Shader::Hash_StrToNum("FFFFFFF2");
+
+   // Optionally add the UI shaders to this list, to make sure they draw to a separate render target for proper HDR composition
+   ShaderHashesList shader_hashes_UI;
 
    // All the shaders the game ever loaded (including the ones that have been unloaded). Only used by shader dumping (if "ALLOW_SHADERS_DUMPING" is on) or to see their binary code in the ImGUI view. By shader hash.
    // The data it contains is fully its own, so it's not by "Device".
@@ -331,6 +335,14 @@ namespace
    {
 #if 0 // We don't lock "s_mutex_shader_defines" here as it wouldn't be particularly relevant (it won't lead to crashes, as generaly they are not edited in random threads, though having it enabled could lead to deadlocks if there's nested locks!).
       const std::shared_lock lock(s_mutex_shader_defines);
+#endif
+      assert(shader_defines_data_index.contains(hash));
+#if DEVELOPMENT // Just to avoid returning a random variable while developing
+      if (!shader_defines_data_index.contains(hash))
+      {
+         static ShaderDefineData defaultShaderDefineData;
+         return defaultShaderDefineData;
+      }
 #endif
       return shader_defines_data[shader_defines_data_index[hash]];
    }
@@ -1497,6 +1509,9 @@ namespace
          const std::unique_lock lock_reshade(s_mutex_reshade);
          dlss_sr = false; // Disable the global user setting if it's not supported (it's ok even if we pollute device and global data), we want to grey it out in the UI (there's no need to serialize the new value for it though!)
       }
+#else
+      device_data.dlss_sr = false;
+      dlss_sr = false;
 #endif // ENABLE_NGX
 
       // If all custom shaders from boot already loaded/compiled, but the custom device shaders weren't created, create them
@@ -1561,7 +1576,7 @@ namespace
       device->destroy_private_data<DeviceData>();
    }
 
-   bool OnCreateSwapchain(reshade::api::swapchain_desc& desc, void* hwnd)
+   bool OnCreateSwapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
    {
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
       bool changed = false;
@@ -2205,7 +2220,7 @@ namespace
       bool needs_gamut_mapping = mod_active && GetShaderDefineCompiledNumericalValue(GAMUT_MAPPING_TYPE_HASH) != 0;
 
 #if DEVELOPMENT
-      bool needs_debug_draw_texture = device_data.debug_draw_texture.get() != nullptr; // Note that this might look wrong if "expects_linear_output" is false
+      bool needs_debug_draw_texture = device_data.debug_draw_texture.get() != nullptr; // Note that this might look wrong if "output_linear" is false
 #else
       constexpr bool needs_debug_draw_texture = false;
 #endif
@@ -2299,7 +2314,7 @@ namespace
             com_ptr<ID3D11RenderTargetView> target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
             // If we already had a render target, we can assume it was already set to the swapchain,
             // but it's good to make sure of it nonetheless.
-            if (draw_state_stack.render_target_views[0] != nullptr)
+            if (draw_state_stack.render_target_views[0] != nullptr) //TODOFT: disable for Vertigo?
             {
                swapchain_data.display_composition_rtvs[back_buffer_index] = nullptr;
                com_ptr<ID3D11Resource> render_target_resource;
@@ -2530,6 +2545,12 @@ namespace
          }
       }
 #endif
+
+      if (separate_ui && ((device_data.has_drawn_main_post_processing && native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE) || original_shader_hashes.Contains(shader_hashes_UI)))
+      {
+         ID3D11RenderTargetView* const ui_texture_rtv_const = device_data.ui_texture_rtv.get();
+         native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr);
+      }
 
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
 
@@ -2804,6 +2825,7 @@ namespace
       uint32_t draw_count,
       uint32_t stride)
    {
+      //ASSERT_ONCE(false); // Not used by Dishonored 2 (DrawIndexedInstancedIndirect() and DrawInstancedIndirect() weren't used in Void Engine). Happens in Vertigo. //TODOFT: add support!
       bool is_dispatch = type == reshade::api::indirect_command::dispatch || type == reshade::api::indirect_command::dispatch_mesh || type == reshade::api::indirect_command::dispatch_rays;
       // NOTE: according to ShortFuse, this can be "reshade::api::indirect_command::unknown" too, so we'd need to fall back on checking what shader is bound to know if this is a compute shader draw
       ASSERT_ONCE(type != reshade::api::indirect_command::unknown);
@@ -3742,9 +3764,9 @@ namespace
       return false;
    }
 
-#if DEVELOPMENT
    bool OnResolveTextureRegion(reshade::api::command_list* cmd_list, reshade::api::resource source, uint32_t source_subresource, const reshade::api::subresource_box* source_box, reshade::api::resource dest, uint32_t dest_subresource, uint32_t dest_x, uint32_t dest_y, uint32_t dest_z, reshade::api::format format)
    {
+#if DEVELOPMENT
       {
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
@@ -3763,11 +3785,16 @@ namespace
             cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
          }
       }
+#endif // DEVELOPMENT
+
+      if (source_subresource == 0 && dest_subresource == 0 && (!source_box || (source_box->left == 0 && source_box->top == 0)) && (dest_x == 0 && dest_y == 0 && dest_z == 0))
+      {
+         return OnCopyResource(cmd_list, source, dest);
+      }
 
       ASSERT_ONCE(false);
       return false;
    }
-#endif // DEVELOPMENT
 
    void OnReShadePresent(reshade::api::effect_runtime* runtime)
    {
@@ -5862,7 +5889,9 @@ void Init(bool async)
          reshade::set_config_value(runtime, NAME, "Version", Globals::VERSION);
       }
 
+#if ENABLE_NGX
       reshade::get_config_value(runtime, NAME, "DLSSSuperResolution", dlss_sr);
+#endif
       reshade::get_config_value(runtime, NAME, "DisplayMode", cb_luma_frame_settings.DisplayMode);
 #if !DEVELOPMENT && !TEST // Don't allow "SDR in HDR for HDR" mode (there's no strong reason not to, but it avoids permutations exposed to users)
       if (cb_luma_frame_settings.DisplayMode >= 2)
@@ -5872,6 +5901,7 @@ void Init(bool async)
 #endif
       OnDisplayModeChanged();
 
+      // If we read an invalid value from the config, reset it
       if (reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_frame_settings.ScenePeakWhite) && cb_luma_frame_settings.ScenePeakWhite <= 0.f)
       {
          const std::shared_lock lock(s_mutex_device); // This is not completely safe as the write to "default_user_peak_white" isn't protected by this mutex but it's fine, it shouldn't have been written yet when we get here
@@ -6065,9 +6095,7 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
 #endif // DEVELOPMENT
       reshade::register_event<reshade::addon_event::copy_resource>(OnCopyResource);
       reshade::register_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
-#if DEVELOPMENT
       reshade::register_event<reshade::addon_event::resolve_texture_region>(OnResolveTextureRegion);
-#endif // DEVELOPMENT
 
       reshade::register_event<reshade::addon_event::draw>(OnDraw);
       reshade::register_event<reshade::addon_event::dispatch>(OnDispatch);
@@ -6140,9 +6168,7 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
 #endif // DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::copy_resource>(OnCopyResource);
       reshade::unregister_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
-#if DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::resolve_texture_region>(OnResolveTextureRegion);
-#endif // DEVELOPMENT
 
       reshade::unregister_event<reshade::addon_event::draw>(OnDraw);
       reshade::unregister_event<reshade::addon_event::dispatch>(OnDispatch);
