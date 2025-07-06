@@ -714,9 +714,7 @@ public:
    static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
    {
       auto& device_data = *device->get_private_data<DeviceData>();
-      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
-      ASSERT_ONCE(buffer == nullptr || device_data.cb_per_view_global_buffer.get() != buffer);
       // No need to convert to native DX11 flags
       if (access == reshade::api::map_access::write_only || access == reshade::api::map_access::write_discard || access == reshade::api::map_access::read_write)
       {
@@ -740,7 +738,6 @@ public:
 
    static void OnUnmapBufferRegion(reshade::api::device* device, reshade::api::resource resource)
    {
-      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
       DeviceData& device_data = *device->get_private_data<DeviceData>();
       // We assume this buffer is always unmapped before destruction.
