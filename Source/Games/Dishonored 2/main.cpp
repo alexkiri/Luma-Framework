@@ -885,8 +885,13 @@ public:
       {
          system("start https://buymeacoffee.com/realfiloppi");
       }
+      ImGui::SameLine();
+      static const std::string donation_link_ersh = std::string("Buy Ersh a Coffee ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_ersh.c_str()))
+      {
+         system("start https://ko-fi.com/musaqh");
+      }
       ImGui::PopStyleColor(3);
-      //TODOFT: https://ko-fi.com/musaqh
 
       ImGui::NewLine();
       // Restore the previous color, otherwise the state we set would persist even if we popped it
