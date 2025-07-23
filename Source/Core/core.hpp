@@ -2833,19 +2833,22 @@ namespace
       uint32_t draw_count,
       uint32_t stride)
    {
-      //ASSERT_ONCE(false); // Not used by Dishonored 2 (DrawIndexedInstancedIndirect() and DrawInstancedIndirect() weren't used in Void Engine). Happens in Vertigo. //TODOFT: add support!
-      bool is_dispatch = type == reshade::api::indirect_command::dispatch || type == reshade::api::indirect_command::dispatch_mesh || type == reshade::api::indirect_command::dispatch_rays;
+      // Not used by Dishonored 2 (DrawIndexedInstancedIndirect() and DrawInstancedIndirect() weren't used in Void Engine). Happens in Vertigo (Unity).
+
+      bool is_dispatch = type == reshade::api::indirect_command::dispatch;
+      // Unsupported types (not used in DX11)
+      ASSERT_ONCE(type == reshade::api::indirect_command::dispatch_mesh || type == reshade::api::indirect_command::dispatch_rays);
       // NOTE: according to ShortFuse, this can be "reshade::api::indirect_command::unknown" too, so we'd need to fall back on checking what shader is bound to know if this is a compute shader draw
       ASSERT_ONCE(type != reshade::api::indirect_command::unknown);
       ShaderHashesList original_shader_hashes;
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch, original_shader_hashes);
-#if DEVELOPMENT //TODOFT: Note: this probably can't work as it's drawing on buffers, not textures!
+#if DEVELOPMENT
       CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == (is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader.handle : cmd_list_data.pipeline_state_original_pixel_shader.handle)))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         if (debug_draw_pipeline_target_instance == -1 || (local_debug_draw_pipeline_instance - 1) == debug_draw_pipeline_target_instance)
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
          {
             if (!cancelled_or_replaced)
             {
@@ -2860,7 +2863,7 @@ namespace
                }
                else
                {
-                  if (draw_count > 1)
+                  if (type == reshade::api::indirect_command::draw_indexed)
                   {
                      native_device_context->DrawIndexedInstancedIndirect(reinterpret_cast<ID3D11Buffer*>(buffer.handle), static_cast<UINT>(offset) + i * stride);
                   }
