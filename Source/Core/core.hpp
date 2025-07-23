@@ -112,7 +112,9 @@
 #pragma warning(pop)
 
 // This might not disable all shaders dumping related code, but it disables enough to remove any performance cost
+#ifndef ALLOW_SHADERS_DUMPING
 #define ALLOW_SHADERS_DUMPING (DEVELOPMENT || TEST)
+#endif
 
 // Depends on "DEVELOPMENT"
 #define TEST_DLSS (DEVELOPMENT && 0)
@@ -1124,6 +1126,7 @@ namespace
                   entry_path.c_str(),
                   shader_target.c_str(),
                   local_shader_defines,
+                  // Save to disk for faster loading after the first compilation
                   !prevent_shader_cache_saving,
                   error,
                   &custom_shader->compilation_errors,
@@ -1613,7 +1616,7 @@ namespace
       SwapchainData& swapchain_data = *swapchain->create_private_data<SwapchainData>();
       ASSERT_ONCE(&device_data != nullptr); // Hacky nullptr check (should ever be able to happen)
 
-      swapchain_data.vanilla_was_linear_space = last_swapchain_linear_space;
+      swapchain_data.vanilla_was_linear_space = last_swapchain_linear_space || game->ForceVanillaSwapchainLinear();
       // We expect this define to be set to linear if the swapchain was already linear in Vanilla SDR (there might be code that makes such assumption)
       ASSERT_ONCE(!swapchain_data.vanilla_was_linear_space || (GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1));
 
