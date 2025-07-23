@@ -221,6 +221,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          }
          for (UINT i = 0; i < D3D11_PS_CS_UAV_REGISTER_COUNT; i++)
          {
+            if (uavs[i])
+            {
+               D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+               uavs[i]->GetDesc(&uav_desc);
+               trace_draw_call_data.uarv_format[i] = uav_desc.Format;
+            }
+
             GetResourceInfo(uavs[i].get(), trace_draw_call_data.uar_size[i], trace_draw_call_data.uar_format[i], &trace_draw_call_data.uar_hash[i]);
          }
 
@@ -228,6 +235,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->PSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
+            if (srvs[i])
+            {
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
+               srvs[i]->GetDesc(&srv_desc);
+               trace_draw_call_data.srv_format[i] = srv_desc.Format;
+            }
+
             GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
          }
       }
@@ -237,6 +251,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->VSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
+            if (srvs[i])
+            {
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
+               srvs[i]->GetDesc(&srv_desc);
+               trace_draw_call_data.srv_format[i] = srv_desc.Format;
+            }
+
             GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
          }
       }
@@ -246,6 +267,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->CSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
+            if (srvs[i])
+            {
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
+               srvs[i]->GetDesc(&srv_desc);
+               trace_draw_call_data.srv_format[i] = srv_desc.Format;
+            }
+
             GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
          }
 
@@ -253,6 +281,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->CSGetUnorderedAccessViews(0, D3D11_1_UAV_SLOT_COUNT, &uavs[0]);
          for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
          {
+            if (uavs[i])
+            {
+               D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
+               uavs[i]->GetDesc(&uav_desc);
+               trace_draw_call_data.uarv_format[i] = uav_desc.Format;
+            }
+
             GetResourceInfo(uavs[i].get(), trace_draw_call_data.uar_size[i], trace_draw_call_data.uar_format[i], &trace_draw_call_data.uar_hash[i]);
          }
       }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "global_defines.h"
-//TODOFT6: merge back dishonored 2 etc. rename project and git etc... then merge all commits into one (after checking the first ones again).
 
 // "_DEBUG" might already be defined in debug?
 // Setting it to 0 causes the compiler to still assume it as defined and that thus we are in debug mode (don't change this manually).
@@ -311,7 +310,7 @@ namespace
    uint32_t debug_draw_shader_hash = 0;
    char debug_draw_shader_hash_string[HASH_CHARACTERS_LENGTH + 1] = {};
    uint64_t debug_draw_pipeline = 0;
-   std::atomic<int32_t> debug_draw_pipeline_instance = 0; // Theoretically should be within "CommandListData" but this should work for most cases //TODOFT: review this as it doesn't seem to work properly
+   std::atomic<int32_t> debug_draw_pipeline_instance = 0; // Theoretically should be within "CommandListData" but this should work for most cases
    int32_t debug_draw_pipeline_target_instance = -1;
 
    DebugDrawMode debug_draw_mode = DebugDrawMode::RenderTarget;
@@ -2335,7 +2334,7 @@ namespace
             // Push our settings cbuffer in case where no other custom shader run this frame
             {
                DeviceData& device_data = *queue->get_device()->get_private_data<DeviceData>();
-               const std::shared_lock lock(device_data.mutex); //TODOFT: is this right here?
+               const std::shared_lock lock(device_data.mutex); //TODOFT: is this needed right here?
                const auto cb_luma_frame_settings_copy = cb_luma_frame_settings;
                // Force a custom display mode in case we have no game custom shaders loaded, so the custom linearization shader can linearize anyway, independently of "POST_PROCESS_SPACE_TYPE"
                bool force_reencoding_or_gamma_correction = !mod_active; // We ignore "s_mutex_generic", it doesn't matter
@@ -2556,7 +2555,7 @@ namespace
 
       if (!original_shader_hashes.Empty())
       {
-         //TODOFT3: optimize these shader searches by simply marking "CachedPipeline" with a tag on what they are (and whether they have a particular role) (also we can restrict the search to pixel shaders) upfront. And move these into their own functions. Update: we optimized this enough.
+         //TODOFT: optimize these shader searches by simply marking "CachedPipeline" with a tag on what they are (and whether they have a particular role) (also we can restrict the search to pixel shaders) upfront. And move these into their own functions. Update: we optimized this enough.
          
          if (game->OnDrawCustom(native_device, native_device_context, device_data, stages, original_shader_hashes, is_custom_pass, updated_cbuffers))
          {
@@ -2619,13 +2618,19 @@ namespace
       // We could use "has_drawn_composed_gbuffers" here instead of "has_drawn_main_post_processing", but then again, they should always match (pp should always be run)
       ui_data.background_tonemapping_amount = (cb_luma_frame_settings.DisplayMode == 1 && device_data.has_drawn_main_post_processing_previous && ui_data.targeting_swapchain) ? game->GetTonemapUIBackgroundAmount(device_data) : 0.0;
 
-      //TODOFT: check all the Prey scaleform hashes for new unknown blend types, we need to set the cbuffers even for UI passes that render at the beginning of the frame, because they will draw in world UI (e.g. computers)
       com_ptr<ID3D11BlendState> blend_state;
       native_device_context->OMGetBlendState(&blend_state, nullptr, nullptr);
       if (blend_state)
       {
          D3D11_BLEND_DESC blend_desc;
          blend_state->GetDesc(&blend_desc);
+         // Mirrored from UI shaders:
+         // 0 No alpha blend (or other unknown blend types that we can ignore)
+         // 1 Straight alpha blend: "result = (source.RGB * source.A) + (dest.RGB * (1 - source.A))" or "result = lerp(dest.RGB, source.RGB, source.A)"
+         // 2 Pre-multiplied alpha blend (alpha is also pre-multiplied, not just rgb): "result = source.RGB + (dest.RGB * (1 - source.A))"
+         // 3 Additive alpha blend (source is "Straight alpha" while destination is retained at 100%): "result = (source.RGB * source.A) + dest.RGB"
+         // 4 Additive blend (source and destination are simply summed up, ignoring the alpha): result = source.RGB + dest.RGB
+         // 
          // We don't care for the alpha blend operation (source alpha * dest alpha) as alpha is never read back from destination
          if (blend_desc.RenderTarget[0].BlendEnable
             && blend_desc.RenderTarget[0].BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
@@ -2725,7 +2730,7 @@ namespace
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          // TODO: make the "debug_draw_pipeline_target_instance" by thread (and command list) too
-         if (debug_draw_pipeline_target_instance == -1 || (local_debug_draw_pipeline_instance - 1) == debug_draw_pipeline_target_instance)
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
          {
             if (!cancelled_or_replaced)
             {
@@ -2766,7 +2771,7 @@ namespace
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         if (debug_draw_pipeline_target_instance == -1 || (local_debug_draw_pipeline_instance - 1) == debug_draw_pipeline_target_instance)
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
          {
             if (!cancelled_or_replaced)
             {
@@ -2801,7 +2806,7 @@ namespace
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_compute_shader.handle))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         if (debug_draw_pipeline_target_instance == -1 || (local_debug_draw_pipeline_instance - 1) == debug_draw_pipeline_target_instance)
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
          {
             if (!cancelled_or_replaced)
             {
@@ -4308,6 +4313,7 @@ namespace
       {
 #if DEVELOPMENT
          static int32_t selected_index = -1;
+         static std::string highlighted_resource = {};
          bool changed_selected = false;
          ImGui::PushID("##ShadersTab");
          bool handle_shader_tab = trace_count > 0 && ImGui::BeginTabItem(std::format("Traced Shaders ({})", trace_count).c_str()); // No need for "s_mutex_trace" here
@@ -4333,11 +4339,52 @@ namespace
                         const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle);
                         const bool is_valid = pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr;
                         std::stringstream name;
-                        auto text_color = IM_COL32(255, 255, 255, 255);
+                        auto text_color = IM_COL32(255, 255, 255, 255); // White
+
+                        bool found_highlighted_resource_write = false;
+                        bool found_highlighted_resource_read = false;
+                        if (!highlighted_resource.empty())
+                        {
+                           for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
+                           {
+                              if (found_highlighted_resource_read || found_highlighted_resource_write) break;
+                              found_highlighted_resource_read |= cmd_list_data.trace_draw_calls_data.at(index).sr_hash[i] == highlighted_resource;
+                           }
+                           for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
+                           {
+                              if (found_highlighted_resource_write) break;
+                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).uar_hash[i] == highlighted_resource; // We consider UAV as write even if it's not necessarily one
+                           }
+                           for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+                           {
+                              if (found_highlighted_resource_write) break;
+                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).rt_hash[i] == highlighted_resource;
+                           }
+                        }
 
                         if (is_valid && cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Shader)
                         {
                            const auto pipeline = pipeline_pair->second;
+
+                           // Highlight other draw calls with the same shader
+                           bool same_as_selected = false;
+                           if (/*!is_selected &&*/ selected_index >= 0 && cmd_list_data.trace_draw_calls_data.size() >= selected_index + 1 && cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::Shader)
+                           {
+                              auto pipeline_handle_2 = cmd_list_data.trace_draw_calls_data.at(selected_index).pipeline_handle;
+                              const auto pipeline_pair_2 = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle_2);
+                              const bool is_valid_2 = pipeline_pair_2 != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair_2->second != nullptr;
+                              if (is_valid_2)
+                              {
+                                 const auto pipeline_2 = pipeline_pair_2->second;
+                                 if (pipeline_2->shader_hashes == pipeline->shader_hashes)
+                                 {
+#if 1 // Add a space before it
+                                    name << "   ";
+#endif
+                                    same_as_selected = true;
+                                 }
+                              }
+                           }
 
                            // Index - Thread ID (command list) - Shader Hash(es) - Shader Name
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0); // Fill up 3 slots for the index so the text is aligned
@@ -4378,11 +4425,11 @@ namespace
                            // Find if the shader has been modified
                            if (pipeline->cloned)
                            {
+                              name << "*";
+
                               // For now just force picking the first shader linked to the pipeline, there should always only be one (?)
                               if (custom_shader != nullptr && custom_shader->is_hlsl && !custom_shader->file_path.empty())
                               {
-                                 name << "* - ";
-
                                  auto filename_string = custom_shader->file_path.filename().string();
                                  if (const auto hash_begin_index = filename_string.find("0x"); hash_begin_index != std::string::npos)
                                  {
@@ -4392,12 +4439,10 @@ namespace
                                  {
                                     filename_string.erase(filename_string.length() - 1);
                                  }
-
-                                 name << filename_string;
-                              }
-                              else
-                              {
-                                 name << "*";
+                                 if (!filename_string.empty())
+                                 {
+                                    name << " - " << filename_string;
+                                 }
                               }
 
                               if (pipeline->HasVertexShader())
@@ -4425,6 +4470,17 @@ namespace
                            if (custom_shader != nullptr && !custom_shader->compilation_errors.empty())
                            {
                               text_color = custom_shader->compilation_error ? IM_COL32(255, 0, 0, 255) : IM_COL32(255, 165, 0, 255); // Red for Error, Orange for Warning
+                           }
+
+                           if (same_as_selected)
+                           {
+#if 0 // We already do this better above
+                              name << " - (Selected) ";
+#endif
+                              if (!is_selected)
+                              {
+                                 text_color = IM_COL32(192, 192, 192, 255); // Grey
+                              }
                            }
                         }
                         else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CopyResource)
@@ -4477,11 +4533,34 @@ namespace
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
                            name << " - " << thread_id;
                            name << " - Present";
+
+                           // Highlight the resource on the swapchain too, given that "Present" traces aren't tracked the same way
+                           if (!highlighted_resource.empty() && !device_data.swapchains.empty())
+                           {
+                              // Not fully safe, but it should do for almost all cases
+                              reshade::api::swapchain* swapchain = *device_data.swapchains.begin();
+                              IDXGISwapChain* native_swapchain = (IDXGISwapChain*)(swapchain->get_native());
+                              UINT back_buffer_index = swapchain->get_current_back_buffer_index();
+                              com_ptr<ID3D11Texture2D> back_buffer;
+                              native_swapchain->GetBuffer(back_buffer_index, IID_PPV_ARGS(&back_buffer));
+
+                              std::string backbuffer_hash = std::to_string(std::hash<void*>{}(back_buffer.get()));
+                              if (highlighted_resource == backbuffer_hash)
+                              {
+                                 found_highlighted_resource_read = true;
+                              }
+                           }
                         }
                         else
                         {
-                           text_color = IM_COL32(255, 0, 0, 255);
-                           name << " - ERROR: Pipeline not found"; // The draw call either had an empty (e.g. pixel) shader set, or the game has since unloaded them
+                           text_color = IM_COL32(255, 0, 0, 255); // Red
+                           name << " - ERROR: Trace data not found"; // The draw call either had an empty (e.g. pixel) shader set, or the game has since unloaded them
+                        }
+
+                        if (found_highlighted_resource_write || found_highlighted_resource_read)
+                        {
+                           text_color = IM_COL32(255, 192, 203, 255); // Pink
+                           name << (found_highlighted_resource_write ? " - (Highlighted Resource Write)" : " - (Highlighted Resource Read)");
                         }
 
                         ImGui::PushStyleColor(ImGuiCol_Text, text_color);
@@ -4492,7 +4571,6 @@ namespace
                         }
                         ImGui::PopStyleColor();
 
-                        // TODO: add a button to automatically select all trace calls with the same resources
                         if (is_selected)
                         {
                            ImGui::SetItemDefaultFocus();
@@ -4703,10 +4781,27 @@ namespace
                                     recompile = true; // If this shader wasn't cloned, we'd need to compile it probably as it might not have already been compiled. If it was cloned, then our intent is to re-compile it anyway
                                  }
 
+                                 bool debug_draw_shader_enabled = false; // Whether this shader/pipeline instance is the one we are draw debugging
+
                                  if (pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasComputeShader())
                                  {
-                                    bool debug_draw_shader_enabled = debug_draw_shader_hash == pipeline_pair->second->shader_hashes[0];
-                                    if (debug_draw_shader_enabled ? ImGui::Button("Disable Debug Draw Shader") : ImGui::Button("Debug Draw Shader"))
+                                    debug_draw_shader_enabled = debug_draw_shader_hash == pipeline_pair->second->shader_hashes[0];
+
+                                    int32_t target_instance = -1;
+                                    // Automatically calculate the index of the instance of this pipeline run, to directly select it on selection (this works as long as the current scene draw calls match the ones in the trace)
+                                    {
+                                       target_instance = 0;
+                                       for (int32_t i = 0; i < selected_index; i++)
+                                       {
+                                          if (pipeline_handle == cmd_list_data.trace_draw_calls_data.at(i).pipeline_handle)
+                                             target_instance++;
+                                       }
+
+                                       debug_draw_shader_enabled &= debug_draw_pipeline_target_instance < 0 || debug_draw_pipeline_target_instance == target_instance;
+                                    }
+
+                                    // Note that this might not work properly if the render target textures are 3D or 1D etc
+                                    if (debug_draw_shader_enabled ? ImGui::Button("Disable Debug Draw Shader Instance") : ImGui::Button("Debug Draw Shader Instance"))
                                     {
                                        ASSERT_ONCE(GetShaderDefineCompiledNumericalValue(DEVELOPMENT_HASH) >= 1); // Development flag is needed in shaders for this to output correctly
                                        ASSERT_ONCE(device_data.display_composition_pixel_shader); // This shader is necessary to draw this debug stuff
@@ -4730,9 +4825,9 @@ namespace
                                        device_data.debug_draw_texture = nullptr;
                                        device_data.debug_draw_texture_format = DXGI_FORMAT_UNKNOWN;
                                        device_data.debug_draw_texture_size = {};
-#if 1 // We could also let the user settings persist if we wished so
                                        debug_draw_pipeline_instance = 0;
-                                       debug_draw_pipeline_target_instance = -1;
+#if 1 // We could also let the user settings persist if we wished so, but automatically setting them is usually better
+                                       debug_draw_pipeline_target_instance = debug_draw_shader_enabled ? -1 : target_instance;
                                        debug_draw_mode = pipeline_pair->second->HasPixelShader() ? DebugDrawMode::RenderTarget : (pipeline_pair->second->HasComputeShader() ? DebugDrawMode::UnorderedAccessView : DebugDrawMode::ShaderResource); // Do it regardless of "debug_draw_shader_enabled"
                                        debug_draw_view_index = 0;
 #endif
@@ -4743,13 +4838,17 @@ namespace
                                  {
                                     for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
                                     {
-                                       auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[i];
-                                       if (sr_format == DXGI_FORMAT_UNKNOWN)
+                                       auto srv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).srv_format[i];
+                                       if (srv_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                        {
                                           continue;
                                        }
+                                       auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[i];
                                        auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[i];
                                        auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[i];
+
+                                       ImGui::PushID(i);
+
                                        ImGui::Text("");
                                        ImGui::Text("SRV Index: %u", i);
                                        ImGui::Text("R Hash: %s", sr_hash.c_str());
@@ -4761,7 +4860,38 @@ namespace
                                        {
                                           ImGui::Text("R Format: %u", sr_format);
                                        }
+                                       if (GetFormatName(srv_format) != nullptr)
+                                       {
+                                          ImGui::Text("RV Format: %s", GetFormatName(srv_format));
+                                       }
+                                       else
+                                       {
+                                          ImGui::Text("RV Format: %u", srv_format);
+                                       }
                                        ImGui::Text("R Size: %ux%ux%u", sr_size.x, sr_size.y, sr_size.z);
+                                       for (uint64_t upgraded_resource : device_data.upgraded_resources)
+                                       {
+                                          void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
+                                          if (sr_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
+                                          {
+                                             ImGui::Text("R Upgraded");
+                                             break;
+                                          }
+                                       }
+
+                                       const bool is_highlighted_resource = highlighted_resource == sr_hash;
+                                       if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                                       {
+                                          highlighted_resource = is_highlighted_resource ? "" : sr_hash;
+                                       }
+
+                                       if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::ShaderResource || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))
+                                       {
+                                          debug_draw_mode = DebugDrawMode::ShaderResource;
+                                          debug_draw_view_index = i;
+                                       }
+
+                                       ImGui::PopID();
                                     }
                                  }
 
@@ -4769,13 +4899,17 @@ namespace
                                  {
                                     for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
                                     {
-                                       auto uar_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_format[i];
-                                       if (uar_format == DXGI_FORMAT_UNKNOWN)
+                                       auto uarv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uarv_format[i];
+                                       if (uarv_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                        {
                                           continue;
                                        }
+                                       auto uar_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_format[i];
                                        auto uar_size = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_size[i];
                                        auto uar_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_hash[i];
+
+                                       ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT); // Offset by the max amount of previous iterations from above
+
                                        ImGui::Text("");
                                        ImGui::Text("UAV Index: %u", i);
                                        ImGui::Text("R Hash: %s", uar_hash.c_str());
@@ -4787,7 +4921,38 @@ namespace
                                        {
                                           ImGui::Text("R Format: %u", uar_format);
                                        }
+                                       if (GetFormatName(uarv_format) != nullptr)
+                                       {
+                                          ImGui::Text("RV Format: %s", GetFormatName(uarv_format));
+                                       }
+                                       else
+                                       {
+                                          ImGui::Text("RV Format: %u", uarv_format);
+                                       }
                                        ImGui::Text("R Size: %ux%ux%u", uar_size.x, uar_size.y, uar_size.z);
+                                       for (uint64_t upgraded_resource : device_data.upgraded_resources)
+                                       {
+                                          void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
+                                          if (uar_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
+                                          {
+                                             ImGui::Text("R Upgraded");
+                                             break;
+                                          }
+                                       }
+
+                                       const bool is_highlighted_resource = highlighted_resource == uar_hash;
+                                       if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                                       {
+                                          highlighted_resource = is_highlighted_resource ? "" : uar_hash;
+                                       }
+
+                                       if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::UnorderedAccessView || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))
+                                       {
+                                          debug_draw_mode = DebugDrawMode::UnorderedAccessView;
+                                          debug_draw_view_index = i;
+                                       }
+
+                                       ImGui::PopID();
                                     }
                                  }
 
@@ -4798,7 +4963,7 @@ namespace
                                     for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
                                     {
                                        auto rtv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rtv_format[i];
-                                       if (rtv_format == DXGI_FORMAT_UNKNOWN)
+                                       if (rtv_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                        {
                                           continue;
                                        }
@@ -4806,11 +4971,11 @@ namespace
                                        auto rt_size = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_size[i];
                                        auto rt_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_hash[i];
 
+                                       ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT); // Offset by the max amount of previous iterations from above
+
                                        ImGui::Text("");
                                        ImGui::Text("RT Index: %u", i);
                                        ImGui::Text("R Hash: %s", rt_hash.c_str());
-                                       ImGui::Text("R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
-
                                        if (GetFormatName(rt_format) != nullptr)
                                        {
                                           ImGui::Text("R Format: %s", GetFormatName(rt_format));
@@ -4827,51 +4992,100 @@ namespace
                                        {
                                           ImGui::Text("RV Format: %u", rtv_format);
                                        }
+                                       ImGui::Text("R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
+                                       for (uint64_t upgraded_resource : device_data.upgraded_resources)
+                                       {
+                                          void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
+                                          if (rt_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
+                                          {
+                                             ImGui::Text("R Upgraded");
+                                             break;
+                                          }
+                                       }
+                                       ImGui::Text("R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[i] ? "True" : "False"); // TODO: add this for computer shaders / UAVs toos
 
-                                       ImGui::Text("R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[i] ? "True" : "False"); // TODO: add this for computer sahders / UAVs toos
-
-                                       // 0 No alpha blend (or other unknown blend types that we can ignore)
-                                       // 1 Straight alpha blend: "result = (source.RGB * source.A) + (dest.RGB * (1 - source.A))" or "result = lerp(dest.RGB, source.RGB, source.A)"
-                                       // 2 Pre-multiplied alpha blend (alpha is also pre-multiplied, not just rgb): "result = source.RGB + (dest.RGB * (1 - source.A))"
-                                       // 3 Additive alpha blend (source is "Straight alpha" while destination is retained at 100%): "result = (source.RGB * source.A) + dest.RGB"
-                                       // 4 Additive blend (source and destination are simply summed up, ignoring the alpha): result = source.RGB + dest.RGB
-                                       bool has_drawn_text = false;
-                                       // Only show render target 0 for now (most games only use that on UI (e.g. Prey))
+                                       // See "ui_data.blend_mode" for details on usage
                                        if (blend_desc.RenderTarget[i].BlendEnable)
                                        {
+                                          bool has_drawn_blend_rgb_text = false;
                                           if (blend_desc.RenderTarget[i].BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
                                           {
                                              if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
                                              {
-                                                ImGui::Text("Blend Mode: Additive Color");
-                                                has_drawn_text = true;
+                                                ImGui::Text("Blend RGB Mode: Additive Color");
+                                                has_drawn_blend_rgb_text = true;
                                              }
                                              else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
                                              {
-                                                ImGui::Text("Blend Mode: Additive Alpha");
-                                                has_drawn_text = true;
+                                                ImGui::Text("Blend RGB Mode: Additive Alpha");
+                                                has_drawn_blend_rgb_text = true;
                                              }
                                              else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
                                              {
-                                                ImGui::Text("Blend Mode: Premultiplied Alpha");
-                                                has_drawn_text = true;
+                                                ImGui::Text("Blend RGB Mode: Premultiplied Alpha");
+                                                has_drawn_blend_rgb_text = true;
                                              }
                                              else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
                                              {
-                                                ImGui::Text("Blend Mode: Straight Alpha");
-                                                has_drawn_text = true;
+                                                ImGui::Text("Blend RGB Mode: Straight Alpha");
+                                                has_drawn_blend_rgb_text = true;
+                                             }
+                                             // Often used for lighting, glow, or compositing effects where the destination alpha controls how much of the source contributes
+                                             else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_DEST_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                             {
+                                                ImGui::Text("Blend RGB Mode: Reverse Premultiplied Alpha");
+                                                has_drawn_blend_rgb_text = true;
                                              }
                                           }
-                                          if (!has_drawn_text)
+                                          if (!has_drawn_blend_rgb_text)
                                           {
-                                             ImGui::Text("Blend Mode: Unknown");
-                                             has_drawn_text = true;
+                                             ImGui::Text("Blend RGB Mode: Unknown");
+                                             has_drawn_blend_rgb_text = true;
+                                          }
+
+                                          bool has_drawn_blend_a_text = false;
+                                          if (blend_desc.RenderTarget[i].BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
+                                          {
+                                             if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
+                                             {
+                                                ImGui::Text("Blend A Mode: Additive");
+                                                has_drawn_blend_a_text = true;
+                                             }
+                                             else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                             {
+                                                ImGui::Text("Blend A Mode: Source Alpha");
+                                                has_drawn_blend_a_text = true;
+                                             }
+                                             else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
+                                             {
+                                                ImGui::Text("Blend A Mode: Destination Alpha");
+                                                has_drawn_blend_a_text = true;
+                                             }
+                                          }
+                                          if (!has_drawn_blend_a_text)
+                                          {
+                                             ImGui::Text("Blend A Mode: Unknown");
+                                             has_drawn_blend_a_text = true;
                                           }
                                        }
-                                       if (!has_drawn_text)
+                                       else
                                        {
                                           ImGui::Text("Blend Mode: Disabled");
                                        }
+
+                                       const bool is_highlighted_resource = highlighted_resource == rt_hash;
+                                       if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                                       {
+                                          highlighted_resource = is_highlighted_resource ? "" : rt_hash;
+                                       }
+
+                                       if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::RenderTarget || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))
+                                       {
+                                          debug_draw_mode = DebugDrawMode::RenderTarget;
+                                          debug_draw_view_index = i;
+                                       }
+
+                                       ImGui::PopID();
                                     }
 
                                     ImGui::Text("");
@@ -4905,6 +5119,7 @@ namespace
                            {
                               if (cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CopyResource)
                               {
+                                 ImGui::PushID(0);
                                  auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[0];
                                  auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[0];
                                  auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[0];
@@ -4915,16 +5130,22 @@ namespace
                                  }
                                  ImGui::Text("Source R Size: %ux%ux%u", sr_size.x, sr_size.y, sr_size.z);
 
-                                 ImGui::Text("");
+                                 const bool is_highlighted_resource = highlighted_resource == sr_hash;
+                                 if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                                 {
+                                    highlighted_resource = is_highlighted_resource ? "" : sr_hash;
+                                 }
+
+                                 ImGui::Text(""); // Empty line for spacing
+                                 ImGui::PopID();
                               }
 
                               auto rt_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_format[0];
                               auto rt_size = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_size[0];
                               auto rt_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_hash[0];
 
+                              ImGui::PushID(1);
                               ImGui::Text("Target R Hash: %s", rt_hash.c_str());
-                              ImGui::Text("Target R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
-
                               if (GetFormatName(rt_format) != nullptr)
                               {
                                  ImGui::Text("Target R Format: %s", GetFormatName(rt_format));
@@ -4933,10 +5154,19 @@ namespace
                               {
                                  ImGui::Text("Target R Format: %u", rt_format);
                               }
+                              ImGui::Text("Target R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
 
 #if 0 // TODO: implement for this case
                               ImGui::Text("Target R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[0] ? "True" : "False");
 #endif
+
+                              const bool is_highlighted_resource = highlighted_resource == rt_hash;
+                              if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                              {
+                                 highlighted_resource = is_highlighted_resource ? "" : rt_hash;
+                              }
+                              
+                              ImGui::PopID();
                            }
                            ImGui::EndChild(); // Settings and Info
                         }
@@ -5756,8 +5986,32 @@ namespace
 #if DEVELOPMENT || TEST
          if (ImGui::BeginTabItem("Info"))
          {
+            std::string text;
+
+            const std::shared_lock lock(device_data.mutex);
+            {
+               for (auto back_buffer : device_data.back_buffers)
+               {
+                  ImGui::Text("Swapchain Format: ", "");
+
+                  reshade::api::resource resource;
+                  resource.handle = back_buffer;
+                  const reshade::api::resource_desc resource_desc = runtime->get_device()->get_resource_desc(resource);
+                  std::ostringstream oss;
+                  oss << resource_desc.texture.format;
+                  text = oss.str();
+                  ImGui::Text(text.c_str(), "");
+                  ImGui::NewLine();
+               }
+
+               ImGui::Text("Upgraded Textures: ", "");
+               text = std::to_string((int)device_data.upgraded_resources.size());
+               ImGui::Text(text.c_str(), "");
+            }
+
+            ImGui::NewLine();
             ImGui::Text("Render Resolution: ", "");
-            std::string text = std::to_string((int)device_data.render_resolution.x) + " " + std::to_string((int)device_data.render_resolution.y);
+            text = std::to_string((int)device_data.render_resolution.x) + " " + std::to_string((int)device_data.render_resolution.y);
             ImGui::Text(text.c_str(), "");
 
             ImGui::NewLine();
