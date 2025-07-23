@@ -8,33 +8,33 @@ namespace DICE
    // Applies exponential ("Photographic") luminance/luma compression.
    // The max is the max possible range to compress from, to not lose any output range if the input range was limited.
    float rangeCompress(float X, float Max = FLT_MAX)
-{
-  // Branches are for static parameters optimizations
-  if (Max == FLT_MAX) {
-    // This does e^X. We expect X to be between 0 and 1.
-    return 1.f - exp(-X);
-  }
-  const float lostRange = exp(-Max);
-  const float restoreRangeScale = 1.f / (1.f - lostRange);
-  return (1.f - exp(-X)) * restoreRangeScale;
-}
+   {
+     // Branches are for static parameters optimizations
+     if (Max == FLT_MAX) {
+       // This does e^X. We expect X to be between 0 and 1.
+       return 1.f - exp(-X);
+     }
+     const float lostRange = exp(-Max);
+     const float restoreRangeScale = 1.f / (1.f - lostRange);
+     return (1.f - exp(-X)) * restoreRangeScale;
+   }
 
-// Refurbished DICE HDR tonemapper (per channel or luminance).
-// Expects "InValue" to be >= "ShoulderStart" and "OutMaxValue" to be > "ShoulderStart".
-float luminanceCompress(
-  float InValue,
-  float OutMaxValue,
-  float ShoulderStart = 0.f,
-  bool ConsiderMaxValue = false,
-  float InMaxValue = FLT_MAX)
-{
-  const float compressableValue = InValue - ShoulderStart;
-  const float compressableRange = InMaxValue - ShoulderStart;
-  const float compressedRange = OutMaxValue - ShoulderStart;
-  const float possibleOutValue = ShoulderStart + compressedRange * rangeCompress(compressableValue / compressedRange, ConsiderMaxValue ? (compressableRange / compressedRange) : FLT_MAX);
-#if 1
-  return possibleOutValue;
-#else // Enable this branch if "InValue" can be smaller than "ShoulderStart"
+   // Refurbished DICE HDR tonemapper (per channel or luminance).
+   // Expects "InValue" to be >= "ShoulderStart" and "OutMaxValue" to be > "ShoulderStart".
+   float luminanceCompress(
+     float InValue,
+     float OutMaxValue,
+     float ShoulderStart = 0.f,
+     bool ConsiderMaxValue = false,
+     float InMaxValue = FLT_MAX)
+   {
+     const float compressableValue = InValue - ShoulderStart;
+     const float compressableRange = InMaxValue - ShoulderStart;
+     const float compressedRange = OutMaxValue - ShoulderStart;
+     const float possibleOutValue = ShoulderStart + compressedRange * rangeCompress(compressableValue / compressedRange, ConsiderMaxValue ? (compressableRange / compressedRange) : FLT_MAX);
+   #if 1
+     return possibleOutValue;
+   #else // Enable this branch if "InValue" can be smaller than "ShoulderStart"
      return (InValue <= ShoulderStart) ? InValue : possibleOutValue;
    #endif
    }
@@ -132,7 +132,8 @@ float3 DICETonemap(
       const float peakWhitePQ = Linear_to_PQ(PeakWhite / HDR10_MaxWhite).x;
 
       // Tonemap in BT.2020 to more closely match the primaries of modern displays
-      const float3 sourceColorNormalized = BT709_To_BT2020(Color) / HDR10_MaxWhite;
+      Color = BT709_To_BT2020(Color);
+      const float3 sourceColorNormalized = Color / HDR10_MaxWhite;
       const float3 sourceColorPQ = Linear_to_PQ(sourceColorNormalized, GCT_POSITIVE);
 
       [unroll]
@@ -142,9 +143,11 @@ float3 DICETonemap(
         {
           const float compressedColorPQ = DICE::luminanceCompress(sourceColorPQ[i], peakWhitePQ, shoulderStartPQ);
           const float compressedColorNormalized = PQ_to_Linear(compressedColorPQ).x;
-          Color[i] = BT2020_To_BT709(Color[i] * (compressedColorNormalized / sourceColorNormalized[i])).x;
+          Color[i] *= compressedColorNormalized / sourceColorNormalized[i];
         }
       }
+      
+      Color = BT2020_To_BT709(Color);
     }
   }
   else // DICE_TYPE_BY_LUMINANCE_RGB
