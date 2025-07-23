@@ -29,6 +29,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
         bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
         bool linearToGamma = (LumaData.CustomData2 & (1 << 6)) != 0;
         bool flipY = (LumaData.CustomData2 & (1 << 7)) != 0;
+        bool doSaturate = (LumaData.CustomData2 & (1 << 8)) != 0;
 		bool backgroundPassthrough = false;
 
 		if (fullscreen) // Stretch to fullscreen
@@ -52,6 +53,10 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool validTexel = pos.x < debugWidth && pos.y < debugHeight;
 		float4 color = debugTexture.Load((int3)pos.xyz); // We don't have a sampler here so we just approimate to the closest texel
 
+		if (doSaturate)
+		{
+			color = saturate(color);
+		}
 		if (showAlpha)
 		{
 			color.rgb = color.a;

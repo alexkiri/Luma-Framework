@@ -5359,6 +5359,7 @@ namespace
                   bool debug_draw_linear_to_gamma = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::LinearToGamma) != 0;
                   bool debug_draw_gamma_to_linear = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::GammaToLinear) != 0;
                   bool debug_draw_flip_y = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::FlipY) != 0;
+                  bool debug_draw_saturate = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::Saturate) != 0;
                   if (ImGui::Checkbox("Debug Draw Options: Fullscreen", &debug_draw_fullscreen))
                   {
                      if (debug_draw_fullscreen)
@@ -5445,6 +5446,17 @@ namespace
                      else
                      {
                         debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::FlipY;
+                     }
+                  }
+                  if (ImGui::Checkbox("Debug Draw Options: Saturate", &debug_draw_saturate))
+                  {
+                     if (debug_draw_saturate)
+                     {
+                        debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::Saturate;
+                     }
+                     else
+                     {
+                        debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::Saturate;
                      }
                   }
                   if (device_data.debug_draw_texture || debug_draw_auto_clear_texture) // Expected to be 2D
