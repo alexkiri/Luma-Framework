@@ -6175,7 +6175,6 @@ void Init(bool async)
          cb_luma_frame_settings.DisplayMode = 0;
       }
 #endif
-      OnDisplayModeChanged();
 
       // If we read an invalid value from the config, reset it
       if (reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_frame_settings.ScenePeakWhite) && cb_luma_frame_settings.ScenePeakWhite <= 0.f)
@@ -6201,6 +6200,8 @@ void Init(bool async)
       ShaderDefineData::Load(shader_defines_data, NAME_ADVANCED_SETTINGS, runtime);
 
       game->LoadConfigs();
+
+      OnDisplayModeChanged();
 
       game->OnShaderDefinesChanged();
    }
