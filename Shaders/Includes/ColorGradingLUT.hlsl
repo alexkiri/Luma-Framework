@@ -189,7 +189,10 @@ float3 RestoreChrominance(float3 targetColor, float3 sourceColor, float strength
 
   // Scale original chroma vector from 1.0 to ratio of target to new chroma
   float chrominanceRatio = safeDivision(sourceChrominance, targetChrominance, 1);
-  float chrominanceScale = lerp(1.f, chrominanceRatio, strength);
+#if 0 // Optional safe boundaries
+  chrominanceRatio = min(chrominanceRatio, 1.333f);
+#endif
+  float chrominanceScale = lerp(1.f, chrominanceRatio, strength); //TODOFT: Unity games
   targetOklab.yz *= chrominanceScale;
 
 	return colorSpace == CS_BT2020 ? oklab_to_linear_bt2020(targetOklab) : oklab_to_linear_srgb(targetOklab);

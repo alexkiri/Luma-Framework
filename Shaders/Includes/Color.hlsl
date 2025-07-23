@@ -1,6 +1,8 @@
 #ifndef SRC_COLOR_HLSL
 #define SRC_COLOR_HLSL
 
+#include "Math.hlsl"
+
 // Needed by "linearToLog()" and "logToLinear()"
 #pragma warning( disable : 4122 )
 
