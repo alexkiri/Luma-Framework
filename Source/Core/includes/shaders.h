@@ -172,9 +172,9 @@ namespace Shader
 #endif
       if (hex_prefix)
       {
-         return std::format("{}{:X}", "0x", hash); // Somehow formatting "0x{:X}" directly removes the first zero from the hash string
+         return std::format("{}{:08X}", "0x", hash); // Somehow formatting "0x{:08X}" directly removes the first zero from the hash string
       }
-      return std::format("{:X}", hash); // big "X" to return capital letters
+      return std::format("{:08X}", hash); // big "X" to return capital letters
    }
 
    // TODO: add this around the code instead of uint32_t
