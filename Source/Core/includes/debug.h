@@ -1,10 +1,13 @@
 #pragma once
 
+#define _STRINGIZE(x) _STRINGIZE2(x)
+#define _STRINGIZE2(x) #x
+
 #if defined(NDEBUG) && DEVELOPMENT
 #undef assert
 #define assert(expression) ((void)(                                                       \
             (!!(expression)) ||                                                               \
-            (MessageBoxA(NULL, #expression, Globals::MOD_NAME, MB_SETFOREGROUND | MB_OK))) \
+            (MessageBoxA(NULL, "Assertion failed: " #expression "\nFile: " __FILE__ "\nLine: " _STRINGIZE(__LINE__), Globals::MOD_NAME, MB_SETFOREGROUND | MB_OK))) \
         )
 #endif
 
