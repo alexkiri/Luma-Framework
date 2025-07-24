@@ -7,11 +7,6 @@
 // Define all the global "core" defines before including its files:
 // Enable this to be able to use DLSS's code
 #define ENABLE_NGX 0
-// Texture upgrades (8 bit unorm and 11 bit float etc to 16 bit float)
-#define UPGRADE_SWAPCHAIN_TYPE 1
-#define UPGRADE_RESOURCES_8UNORM 1
-#define UPGRADE_RESOURCES_10UNORM 1
-#define UPGRADE_RESOURCES_11FLOAT 1
 // Update samples to override the bias, based on the rendering resolution etc
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
@@ -160,6 +155,31 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::DESCRIPTION = use_generic_name ? "Generic Luma mod" : "Template Luma mod";
       Globals::WEBSITE = ""; // E.g. Nexus link
       Globals::VERSION = 1; // Increase this to reset the game settings and shader binaries after making large changes to your mod
+
+      enable_swapchain_upgrade = true;
+      swapchain_upgrade_type = 1;
+      enable_texture_format_upgrades = true;
+      // Texture upgrades (8 bit unorm and 11 bit float etc to 16 bit float)
+      texture_upgrade_formats = {
+            reshade::api::format::r8g8b8a8_unorm,
+            reshade::api::format::r8g8b8a8_unorm_srgb,
+            reshade::api::format::r8g8b8a8_typeless,
+            reshade::api::format::r8g8b8x8_unorm,
+            reshade::api::format::r8g8b8x8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_unorm,
+            reshade::api::format::b8g8r8a8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_typeless,
+            reshade::api::format::b8g8r8x8_unorm,
+            reshade::api::format::b8g8r8x8_unorm_srgb,
+            reshade::api::format::b8g8r8x8_typeless,
+
+            reshade::api::format::r10g10b10a2_unorm,
+            reshade::api::format::r10g10b10a2_typeless,
+
+            //reshade::api::format::r16g16b16a16_unorm,
+
+            reshade::api::format::r11g11b10_float,
+      };
 
       // Create your game sub-class instance (it will be automatically destroyed on exit).
       // You do not need to do this if you have no custom data to store.

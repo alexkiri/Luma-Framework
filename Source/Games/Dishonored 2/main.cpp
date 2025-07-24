@@ -1,11 +1,11 @@
 #define GAME_DISHONORED_2 1
 
-#define UPGRADE_SWAPCHAIN_TYPE 1
-#define UPGRADE_RESOURCES_8UNORM 1
-#define UPGRADE_RESOURCES_11FLOAT 1
 #define UPGRADE_SAMPLERS 0
 #define ENABLE_NGX 1
+// Hangs on boot
 #define DISABLE_AUTO_DEBUGGER
+// Disabled as it makes boot extremely slow
+#define ALLOW_SHADERS_DUMPING 0
 
 // Not used by Dishonored 2?
 #define ENABLE_SHADER_CLASS_INSTANCES 1
@@ -102,7 +102,6 @@ struct GameDeviceDataDishonored2 final : public GameDeviceData
    com_ptr<ID3D11Resource> depth_buffer;
 
    std::atomic<bool> has_drawn_scene = false; // This is set early in the frame, as soon as we detect that the 3D scene is rendering (it won't be made true only when it finished rendering)
-   std::atomic<bool> has_drawn_post_process = false;
    std::atomic<void*> final_post_process_command_list = nullptr;
    bool has_drawn_scene_previous = false;
 
@@ -224,7 +223,7 @@ public:
 #endif // DEVELOPMENT
 
          //TODOFT: these have read/writes that are possibly not thread safe but they should never cause issues in actual usages of Prey
-         device_data.render_resolution.x = device_data.output_resolution.x * cb_per_view_global.cb_resolutionscale.x; //TODO: round or floor?
+         device_data.render_resolution.x = device_data.output_resolution.x * cb_per_view_global.cb_resolutionscale.x; // TODO: round or floor?
          device_data.render_resolution.y = device_data.output_resolution.y * cb_per_view_global.cb_resolutionscale.y;
 
          auto previous_prey_drs_active = game_device_data.prey_drs_active.load();
@@ -283,7 +282,7 @@ public:
          // The matrix is transposed so we flip the matrix x and y indices.
          projection_jitters.x = current_projection_matrix(2, 0);
          projection_jitters.y = current_projection_matrix(2, 1);
-         //TODO: cb_per_view_global.cb_jittervectors?
+         // TODO: cb_per_view_global.cb_jittervectors?
 
 #if DEVELOPMENT
          ASSERT_ONCE(disable_taa_jitters || (projection_jitters_copy.x == 0 && projection_jitters_copy.y == 0) || (projection_jitters.x != 0 || projection_jitters.y != 0)); // Once we found jitters, we should never cache matrices that don't have jitters anymore
@@ -387,8 +386,7 @@ public:
       game_device_data.has_drawn_scene_previous = game_device_data.has_drawn_scene;
       game_device_data.has_drawn_scene = false;
 
-      game_device_data.has_drawn_post_process = false;
-
+      //TODOFT: do this in the super?
       device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_main_post_processing = false;
 
@@ -398,11 +396,9 @@ public:
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
-      // Replace passes here
-
       auto& game_device_data = GetGameDeviceData(device_data);
 
-      D3D11_TEXTURE2D_DESC depth_desc; //TODO
+      D3D11_TEXTURE2D_DESC depth_desc; // TODO
 #if 1
       if (!game_device_data.has_drawn_scene && original_shader_hashes.Contains(shader_hashes_DownsampleDepth))
       {
@@ -452,7 +448,7 @@ public:
       }
 #endif
 
-      if (!game_device_data.has_drawn_post_process && original_shader_hashes.Contains(shader_hashes_UpscaleSharpen))
+      if (!device_data.has_drawn_main_post_processing && original_shader_hashes.Contains(shader_hashes_UpscaleSharpen))
       {
          if (native_device_context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
          {
@@ -460,7 +456,6 @@ public:
          }
          else
          {
-            game_device_data.has_drawn_post_process = true;
             device_data.has_drawn_main_post_processing = true;
          }
       }
@@ -476,7 +471,7 @@ public:
       // DLSS upscaling/TAA
       if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && original_shader_hashes.Contains(shader_hashes_TAA))
       {
-         com_ptr<ID3D11ShaderResourceView> srvs[2]; //TODO: rename
+         com_ptr<ID3D11ShaderResourceView> srvs[2]; // TODO: rename
          // 1 motion vectors
          // 2 color source (pre TAA, jittered)
          native_device_context->CSGetShaderResources(1, ARRAYSIZE(srvs), reinterpret_cast<ID3D11ShaderResourceView**>(srvs));
@@ -561,7 +556,7 @@ public:
                srvs[1]->GetResource(&game_device_data.dlss_source_color);
                srvs[0]->GetResource(&game_device_data.dlss_motion_vectors);
 
-               //TODO
+               // TODO
                com_ptr<ID3D11Texture2D> source_color_2d;
                HRESULT hr = game_device_data.dlss_source_color->QueryInterface(&source_color_2d);
                ASSERT_ONCE(SUCCEEDED(hr));
@@ -784,9 +779,8 @@ public:
             if (game_device_data.final_post_process_command_list == native_device_context.get())
             {
                game_device_data.final_post_process_command_list = nullptr;
-               game_device_data.has_drawn_post_process = true;
                device_data.has_drawn_main_post_processing = true;
-               if (separate_ui)
+               if (enable_separate_ui_drawing)
                {
                   ID3D11RenderTargetView* const ui_texture_rtv_const = device_data.ui_texture_rtv.get();
                   native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr);
@@ -825,7 +819,7 @@ public:
 
             float dlss_pre_exposure = 1.0;
             bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context.get(), device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), device_data.dlss_exposure.get(), dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
-            ASSERT_ONCE(dlss_succeeded); // We can't restore the original TAA pass at this point (well, we could, but it's pointless, we'll just skip one frame) //TODO: copy the resource instead?
+            ASSERT_ONCE(dlss_succeeded); // We can't restore the original TAA pass at this point (well, we could, but it's pointless, we'll just skip one frame) // TODO: copy the resource instead?
 
             game_device_data.dlss_source_color = nullptr;
             game_device_data.dlss_motion_vectors = nullptr;
@@ -883,11 +877,12 @@ public:
       static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
+         //system("start https://ko-fi.com/realpumbo");
          system("start https://buymeacoffee.com/realfiloppi");
       }
       ImGui::SameLine();
-      static const std::string donation_link_ersh = std::string("Buy Ersh a Coffee ") + std::string(ICON_FK_OK);
-      if (ImGui::Button(donation_link_ersh.c_str()))
+      static const std::string donation_link_musa = std::string("Buy Ersh a Coffee ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_musa.c_str()))
       {
          system("start https://ko-fi.com/musaqh");
       }
@@ -908,7 +903,7 @@ public:
       static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);
       if (ImGui::Button(social_link.c_str()))
       {
-         // Unique link for Vertigo Luma (to track the origin of people joining), do not share for other purposes
+         // Unique link for Luma by Pumbo (to track the origin of people joining), do not share for other purposes
          static const std::string obfuscated_link = std::string("start https://discord.gg/J9fM") + std::string("3EVuEZ");
          system(obfuscated_link.c_str());
       }
@@ -1008,6 +1003,27 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // 6-13 are seemingly totally unused by Dishonored 2
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
+
+      enable_separate_ui_drawing = true;
+
+      enable_swapchain_upgrade = true;
+      swapchain_upgrade_type = 1;
+      enable_texture_format_upgrades = true;
+      texture_upgrade_formats = {
+            reshade::api::format::r8g8b8a8_unorm,
+            reshade::api::format::r8g8b8a8_unorm_srgb,
+            reshade::api::format::r8g8b8a8_typeless,
+            reshade::api::format::r8g8b8x8_unorm,
+            reshade::api::format::r8g8b8x8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_unorm,
+            reshade::api::format::b8g8r8a8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_typeless,
+            reshade::api::format::b8g8r8x8_unorm,
+            reshade::api::format::b8g8r8x8_unorm_srgb,
+            reshade::api::format::b8g8r8x8_typeless,
+
+            reshade::api::format::r11g11b10_float,
+      };
 
       game = new Dishonored2();
    }

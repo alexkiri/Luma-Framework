@@ -108,9 +108,9 @@ static const float colorGradeLUTStrength = 1.0;
 float3 applyUserTonemap(float3 inputColor) {
   if (LumaSettings.DisplayMode == 1) {
     //float3 gammaCorrectedColor = renodx::color::correct::GammaSafe(inputColor);
-    const float paperWhite = LumaSettings.GamePaperWhiteNits / ITU_WhiteLevelNits;
+    const float paperWhite = LumaSettings.GamePaperWhiteNits / ITU_WhiteLevelNits; //TODOFT
     const float peakWhite = LumaSettings.PeakWhiteNits / ITU_WhiteLevelNits;
-    return Tonemap_DICE(inputColor * paperWhite, peakWhite) / paperWhite;
+		return Tonemap_DICE(inputColor * paperWhite, peakWhite) / paperWhite;
     //tonemapped = renodx::color::correct::GammaSafe(tonemapped, true);
   } else {
     //const float peakWhite = renodx::color::correct::GammaSafe(injectedData.toneMapPeakNits / injectedData.toneMapGameNits, true);

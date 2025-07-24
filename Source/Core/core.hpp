@@ -2207,6 +2207,40 @@ namespace
             cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
          }
       }
+
+#if GAME_BIOSHOCK_2 && 0 //TODOFT6: probably not necessary
+      if (auto native_swapchain = device_data.GetMainNativeSwapchain().get())
+      {
+         com_ptr<IDXGIOutput> output;
+         native_swapchain->GetContainingOutput(&output);
+         if (output)
+         {
+            DXGI_GAMMA_CONTROL gamma_control;
+            ASSERT_ONCE(output->GetGammaControl(&gamma_control));
+
+            // Set scale to default (1.0, 1.0, 1.0)
+            gamma_control.Scale.Red = 1.0f;
+            gamma_control.Scale.Green = 1.0f;
+            gamma_control.Scale.Blue = 1.0f;
+            // Set offset to default (0.0, 0.0, 0.0)
+            gamma_control.Offset.Red = 0.0f;
+            gamma_control.Offset.Green = 0.0f;
+            gamma_control.Offset.Blue = 0.0f;
+
+            // Create a simple gamma curve (linear in this example)
+            for (int i = 0; i < 1025; ++i)
+            {
+               float value = i / 1024.0f;
+               gamma_control.GammaCurve[i].Red = value;
+               gamma_control.GammaCurve[i].Green = value;
+               gamma_control.GammaCurve[i].Blue = value;
+            }
+
+            ASSERT_ONCE(output->SetGammaControl(nullptr));
+            ASSERT_ONCE(output->SetGammaControl(&gamma_control));
+         }
+      }
+#endif // GAME_BIOSHOCK_2
 #endif
 
 #if DEVELOPMENT // Allow to tank performance to test auto rendering resolution scaling etc
@@ -4305,7 +4339,7 @@ namespace
          {
             DumpShader(shader_to_dump, true);
          }
-#if DEVELOPMENT && 0 // Disabled as it's extremely slow // TODO: speed up
+#if DEVELOPMENT && 0 // Disabled as it's extremely slow // TODO: speed up (also, check ALLOW_SHADERS_DUMPING instead?)
          else
          {
             // Make sure two different shaders didn't have the same hash (we only check if they start by the same name/hash)
@@ -5715,7 +5749,7 @@ namespace
                   {
                      debug_draw_shader_hash = 0;
                   }
-                  // Keep the pipeline ptr if we are simply clearing the hash
+                  // Keep the pipeline ptr if we are simply clearing the hash // TODO: why???
                   if (debug_draw_shader_hash != 0)
                   {
                      debug_draw_pipeline = 0;

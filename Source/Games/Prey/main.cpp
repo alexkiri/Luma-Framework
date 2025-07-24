@@ -103,6 +103,7 @@ struct GameDeviceDataPrey final : public GameDeviceData
    com_ptr<ID3D11PixelShader> draw_exposure_pixel_shader; // DLSS (doesn't need "ENABLE_NGX)
    com_ptr<ID3D11PixelShader> lens_distortion_pixel_shader;
 
+   // Tells if the scene is still being rendered
    std::atomic<bool> has_drawn_composed_gbuffers = false;
    std::atomic<bool> has_drawn_upscaling = false;
    std::atomic<bool> has_drawn_motion_blur = false;
@@ -370,6 +371,7 @@ public:
       shader_hashes_DirOccPass.pixel_shaders = { std::stoul("944B65F0", nullptr, 16), std::stoul("DB98D83F", nullptr, 16) };
       // ShadowBlur - SSDO Blur
       shader_hashes_SSDO_Blur.pixel_shaders.emplace(std::stoul("1023CD1B", nullptr, 16));
+      //TODOFT: check all the Prey scaleform hashes for new unknown blend types, we need to set the cbuffers even for UI passes that render at the beginning of the frame, because they will draw in world UI (e.g. computers)
       //TODOFT: once we have collected 100% of the game shaders, update these hashes lists, and make global functions to convert hashes between string and int
 
       std::vector<ShaderDefineData> game_shader_defines_data = {
@@ -457,6 +459,9 @@ public:
    {
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
    }
+
+   // Prey's native code hooks already make the swapchain linear
+   bool ForceVanillaSwapchainLinear() const override { return true; }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
@@ -2359,7 +2364,7 @@ public:
       static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);
       if (ImGui::Button(social_link.c_str()))
       {
-         // Unique link for Prey Luma (to track the origin of people joining), do not share for other purposes
+         // Unique link for Luma by Pumbo (to track the origin of people joining), do not share for other purposes
          static const std::string obfuscated_link = std::string("start https://discord.gg/J9fM") + std::string("3EVuEZ");
          system(obfuscated_link.c_str());
       }

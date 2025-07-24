@@ -1,8 +1,5 @@
 #define GAME_MAFIA_III 1
 
-#define UPGRADE_SWAPCHAIN_TYPE 1
-#define UPGRADE_RESOURCES_8UNORM 1
-#define UPGRADE_RESOURCES_11FLOAT 1
 #define UPGRADE_SAMPLERS 0
 
 #include "..\..\Core\core.hpp"
@@ -96,7 +93,7 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, button_color);
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
-#if 0 //TODOFT: add nexus link here and below
+#if 0
       static const std::string mod_link = std::string("Nexus Mods Page ") + std::string(ICON_FK_SEARCH);
       if (ImGui::Button(mod_link.c_str()))
       {
@@ -106,7 +103,7 @@ public:
       static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);
       if (ImGui::Button(social_link.c_str()))
       {
-         // Unique link for Vertigo Luma (to track the origin of people joining), do not share for other purposes
+         // Unique link for Luma by Pumbo (to track the origin of people joining), do not share for other purposes
          static const std::string obfuscated_link = std::string("start https://discord.gg/J9fM") + std::string("3EVuEZ");
          system(obfuscated_link.c_str());
       }
@@ -147,6 +144,25 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       shader_hashes_3D_UI.pixel_shaders.emplace(std::stoul("AAA3C7B5", nullptr, 16));
 
       luma_settings_cbuffer_index = 13;
+
+      enable_swapchain_upgrade = true;
+      swapchain_upgrade_type = 1;
+      enable_texture_format_upgrades = true;
+      texture_upgrade_formats = {
+            reshade::api::format::r8g8b8a8_unorm,
+            reshade::api::format::r8g8b8a8_unorm_srgb,
+            reshade::api::format::r8g8b8a8_typeless,
+            reshade::api::format::r8g8b8x8_unorm,
+            reshade::api::format::r8g8b8x8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_unorm,
+            reshade::api::format::b8g8r8a8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_typeless,
+            reshade::api::format::b8g8r8x8_unorm,
+            reshade::api::format::b8g8r8x8_unorm_srgb,
+            reshade::api::format::b8g8r8x8_typeless,
+
+            reshade::api::format::r11g11b10_float,
+      };
 
       game = new MafiaIII();
    }
