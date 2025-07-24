@@ -473,6 +473,15 @@ const char* GetFormatName(DXGI_FORMAT format)
     case DXGI_FORMAT_D24_UNORM_S8_UINT:                    return "D24 UNORM S8 UINT";
     case DXGI_FORMAT_R24G8_TYPELESS:                       return "R24G8 TYPELESS";
     case DXGI_FORMAT_X24_TYPELESS_G8_UINT:                 return "X24 TYPELESS G8 UINT";
+    case DXGI_FORMAT_R32G8X24_TYPELESS:                    return "R32G8X24 TYPELESS";
+    case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:                 return "D32 FLOAT S8X24 UINT";
+    case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:             return "R32 FLOAT X8X24 TYPELESS";
+    case DXGI_FORMAT_R1_UNORM:                             return "R1 UNORM";
+    case DXGI_FORMAT_X32_TYPELESS_G8X24_UINT:              return "X32 TYPELESS G8X24 UINT";
+    case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:                   return "R9G9B9E5 SHAREDEXP";
+    case DXGI_FORMAT_R8G8_B8G8_UNORM:                      return "R8G8 B8G8 UNORM";
+    case DXGI_FORMAT_G8R8_G8B8_UNORM:                      return "G8R8 G8B8 UNORM";
+    case DXGI_FORMAT_R10G10B10_XR_BIAS_A2_UNORM:           return "R10G10B10 XR BIAS A2 UNORM";
 
     case DXGI_FORMAT_R8_TYPELESS:                          return "R8 TYPELESS";
     case DXGI_FORMAT_R8_UNORM:                             return "R8 UNORM";

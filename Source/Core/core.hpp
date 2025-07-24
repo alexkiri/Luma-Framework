@@ -1612,7 +1612,7 @@ namespace
 #endif
 
       // Note that occasionally this breaks after resizing the swapchain, because some games resize the swapchain maintaining whatever format it had before
-      last_swapchain_linear_space = desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb;
+      last_swapchain_linear_space = desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float;
 
       if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
       {
@@ -2253,10 +2253,17 @@ namespace
       bool mod_active = device_data.cloned_pipeline_count != 0;
       // Theoretically we should simply check the current swapchain buffer format, but this also works
       const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type >= 1) || swapchain_data.vanilla_was_linear_space;
+      bool input_linear = swapchain_data.vanilla_was_linear_space;
+#if GAME_PREY // Prey's native code hooks already make the swapchain linear, but don't change the shaders
+      input_linear = false;
+#endif
+      if (mod_active)
+      {
       // "POST_PROCESS_SPACE_TYPE" 1 means that the final image was stored in textures in linear space (e.g. float or sRGB texture formats),
       // any other type would have been in gamma space, so it needs to be linearized for scRGB HDR (linear) output.
       // "GAMMA_CORRECTION_TYPE" 2 is always re-corrected (e.g. from sRGB) in the final shader.
-      bool input_linear = mod_active ? GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1 : swapchain_data.vanilla_was_linear_space;
+         input_linear = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1;
+      }
       // Note that not all these combinations might be handled by the shader
       bool needs_reencoding = output_linear != input_linear;
       bool early_display_encoding = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1 && GetShaderDefineCompiledNumericalValue(EARLY_DISPLAY_ENCODING_HASH) >= 1;
@@ -2890,7 +2897,7 @@ namespace
 
       bool is_dispatch = type == reshade::api::indirect_command::dispatch;
       // Unsupported types (not used in DX11)
-      ASSERT_ONCE(type == reshade::api::indirect_command::dispatch_mesh || type == reshade::api::indirect_command::dispatch_rays);
+      ASSERT_ONCE(type != reshade::api::indirect_command::dispatch_mesh && type != reshade::api::indirect_command::dispatch_rays);
       // NOTE: according to ShortFuse, this can be "reshade::api::indirect_command::unknown" too, so we'd need to fall back on checking what shader is bound to know if this is a compute shader draw
       ASSERT_ONCE(type != reshade::api::indirect_command::unknown);
       ShaderHashesList original_shader_hashes;
@@ -5222,6 +5229,7 @@ namespace
                                           ImGui::Text("RV Format: %u", rtv_format);
                                        }
                                        ImGui::Text("R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
+                                       //TODOFT: test these more
                                        for (uint64_t upgraded_resource : device_data.upgraded_resources)
                                        {
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);

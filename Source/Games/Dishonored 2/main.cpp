@@ -115,6 +115,7 @@ struct GameDeviceDataDishonored2 final : public GameDeviceData
    bool previous_prey_taa_active[2] = { false, false };
 };
 
+//TODOFT: Building shaders menu (apply gamma?)
 class Dishonored2 final : public Game
 {
 public:

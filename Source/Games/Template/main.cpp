@@ -71,7 +71,7 @@ public:
          {"TONEMAP_TYPE", '1', false, false, "0 - Vanilla SDR\n1 - Luma HDR (Vanilla+)"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
-      assert(shader_defines_data.size() <= MAX_SHADER_DEFINES);
+      assert(shader_defines_data.size() < MAX_SHADER_DEFINES); // Make sure there's room for at least one extra custom define to add for development (this isn't really relevant outside of development)
 
       // Define these according to the game's original technical details and the mod's implementation (see their declarations for more).
       GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0'); // What space are the colors in? Was the swapchain linear (sRGB texture format)? Did we change post processing to store in linear space?
