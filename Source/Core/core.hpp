@@ -37,6 +37,11 @@
 #include <vector>
 #include <semaphore>
 #include <utility>
+#include <cstdint>
+
+// DirectX dependencies
+// TODO: needed by "XMConvertFloatToHalf" though somehow I couldn't include it and had to re-implement it?
+#include <DirectXMath.h>
 
 // ReShade dependencies
 #include <deps/imgui/imgui.h>
@@ -53,20 +58,6 @@
 #ifndef ALLOW_LOADING_DEV_SHADERS
 #define ALLOW_LOADING_DEV_SHADERS 1
 #endif // ALLOW_LOADING_DEV_SHADERS
-// 0 None (keep the original one, SDR or whatnot)
-// 1 scRGB HDR
-#ifndef UPGRADE_SWAPCHAIN_TYPE
-#define UPGRADE_SWAPCHAIN_TYPE 0
-#endif // UPGRADE_SWAPCHAIN_TYPE
-#ifndef UPGRADE_RESOURCES_8UNORM
-#define UPGRADE_RESOURCES_8UNORM 0
-#endif // UPGRADE_RESOURCES_8UNORM
-#ifndef UPGRADE_RESOURCES_10UNORM
-#define UPGRADE_RESOURCES_10UNORM 0
-#endif // UPGRADE_RESOURCES_10UNORM
-#ifndef UPGRADE_RESOURCES_11FLOAT
-#define UPGRADE_RESOURCES_11FLOAT 0
-#endif // UPGRADE_RESOURCES_11FLOAT
 #ifndef UPGRADE_SAMPLERS
 #define UPGRADE_SAMPLERS 0
 #endif // UPGRADE_SAMPLERS
@@ -215,7 +206,21 @@ namespace
    int frame_sleep_ms = 0;
    int frame_sleep_interval = 1;
 #endif
-   bool separate_ui = true; //TODOFT
+
+   bool enable_separate_ui_drawing = false;
+
+   bool enable_swapchain_upgrade = false;
+   // 0 None (keep the original one, SDR or whatnot)
+   // 1 scRGB HDR
+   uint32_t swapchain_upgrade_type = 0;
+   bool enable_texture_format_upgrades = false;
+	// List of render targets (and unordered access) textures that we upgrade to R16G16B16A16_FLOAT.
+   // Most formats are supported but some might not act well when upgraded.
+   std::unordered_set<reshade::api::format> texture_upgrade_formats;
+   // The size of the LUT we might want to upgrade.
+   // LUTs in most games are 16x or 32x, though in some cases they might be 15x, 31x, 48x, 64x etc
+   uint32_t texture_lut_size = -1;
+   bool texture_lut_3D = false;
 
    // Game specific constants (these are not expected to be changed at runtime)
    uint32_t luma_settings_cbuffer_index = 13;
@@ -229,6 +234,8 @@ namespace
 
    // Optionally add the UI shaders to this list, to make sure they draw to a separate render target for proper HDR composition
    ShaderHashesList shader_hashes_UI;
+   // Shaders that might be running after "has_drawn_main_post_processing" has turned true, but that are still not UI (most games don't have a fixed last shader that runs on the scene rendering before UI, e.g. FXAA might add a pass based on user settings etc), so we have to exclude them like this
+   ShaderHashesList shader_hashes_UI_excluded;
 
    // All the shaders the game ever loaded (including the ones that have been unloaded). Only used by shader dumping (if "ALLOW_SHADERS_DUMPING" is on) or to see their binary code in the ImGUI view. By shader hash.
    // The data it contains is fully its own, so it's not by "Device".
@@ -299,6 +306,8 @@ namespace
    HWND game_window = 0; // This is fixed forever (in almost all games (e.g. Prey))
 	thread_local bool last_swapchain_linear_space = false;
    thread_local bool waiting_on_upgraded_resource_init = false;
+   thread_local reshade::api::resource_desc upgraded_resource_init_desc = {};
+   thread_local void* upgraded_resource_init_data = {};
 
 #if DEVELOPMENT
    bool trace_scheduled = false; // For next frame
@@ -1594,14 +1603,24 @@ namespace
          changed = true;
       }
 
+#if GAME_THIEF && DEVELOPMENT && 0 // Force it back to the original format, given that this game keeps the last swapchain format when resizing the swapchain //TODOFT: Disabled as this crashes and anyway the game was already linear so it works nonetheless, swapchain resource creation fails
+      if (!enable_swapchain_upgrade && swapchain_upgrade_type > 0)
+      {
+         desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm_srgb;
+         changed = true;
+      }
+#endif
+
+      // Note that occasionally this breaks after resizing the swapchain, because some games resize the swapchain maintaining whatever format it had before
       last_swapchain_linear_space = desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb;
 
-#if UPGRADE_SWAPCHAIN_TYPE
+      if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
+      {
       ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r10g10b10a2_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float); // Just a bounch of formats we encountered and we are sure we can upgrade (or that have already been upgraded)
       // DXGI_FORMAT_R16G16B16A16_FLOAT will automatically pick DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 on first creation
       desc.back_buffer.texture.format = reshade::api::format::r16g16b16a16_float;
       changed = true;
-#endif
+      }
 
       return changed;
    }
@@ -1716,17 +1735,20 @@ namespace
          }
          device_data.cb_luma_frame_settings_dirty = true;
 
-#if UPGRADE_SWAPCHAIN_TYPE && 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
-         UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-         DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-         hr = native_swapchain3->ResizeBuffers(0, 0, 0, format, flags); // Pass in zero to not change any values if not the format
+#if 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
+         if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
+         {
+            UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+            DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            hr = native_swapchain3->ResizeBuffers(0, 0, 0, format, flags); // Pass in zero to not change any values if not the format
          ASSERT_ONCE(SUCCEEDED(hr));
 
          DXGI_COLOR_SPACE_TYPE colorSpace;
-         colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
-         hr = native_swapchain3->SetColorSpace1(colorSpace);
-         ASSERT_ONCE(SUCCEEDED(hr));
-#endif // UPGRADE_SWAPCHAIN_TYPE
+            colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+            hr = native_swapchain3->SetColorSpace1(colorSpace);
+            ASSERT_ONCE(SUCCEEDED(hr));
+         }
+#endif
 
          // We release the resource because the swapchain lifespan is, and should be, controlled by the game.
          // We already have "OnDestroySwapchain()" to handle its destruction.
@@ -2195,12 +2217,8 @@ namespace
       // If there are no shaders being currently replaced in the game ("cloned_pipeline_count"),
       // we can assume that we either missed replacing some shaders, or that we have unloaded all of our shaders.
       bool mod_active = device_data.cloned_pipeline_count != 0;
-#if UPGRADE_SWAPCHAIN_TYPE >= 1 || GAME_PREY // "Prey" upgrades swapchain buffers with native code hooks
       // Theoretically we should simply check the current swapchain buffer format, but this also works
-      constexpr bool output_linear = true;
-#else
-      const bool output_linear = swapchain_data.vanilla_was_linear_space;
-#endif
+      const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type >= 1) || swapchain_data.vanilla_was_linear_space;
       // "POST_PROCESS_SPACE_TYPE" 1 means that the final image was stored in textures in linear space (e.g. float or sRGB texture formats),
       // any other type would have been in gamma space, so it needs to be linearized for scRGB HDR (linear) output.
       // "GAMMA_CORRECTION_TYPE" 2 is always re-corrected (e.g. from sRGB) in the final shader.
@@ -2548,7 +2566,8 @@ namespace
       }
 #endif
 
-      if (separate_ui && ((device_data.has_drawn_main_post_processing && native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE) || original_shader_hashes.Contains(shader_hashes_UI)))
+      const bool mod_active = device_data.cloned_pipeline_count != 0;
+      if (enable_separate_ui_drawing && mod_active && ((device_data.has_drawn_main_post_processing && native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE && !original_shader_hashes.Contains(shader_hashes_UI_excluded)) || original_shader_hashes.Contains(shader_hashes_UI)))
       {
          ID3D11RenderTargetView* const ui_texture_rtv_const = device_data.ui_texture_rtv.get();
          native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr);
@@ -3064,7 +3083,6 @@ namespace
       device_data.custom_sampler_by_original_sampler.erase(sampler.handle);
    }
 
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
    // TODO: delete? do we need "upgraded_resources"? It's good to have it to handle edge cases (e.g. shared resources?)
    void OnInitResource(
       reshade::api::device* device,
@@ -3077,13 +3095,97 @@ namespace
       const std::unique_lock lock(device_data.mutex);
       if (waiting_on_upgraded_resource_init)
       {
-         // Shared resources can call "OnInitResource()" without a "OnCreateResource()" so we need to exclude them from the list,
-         // but we can clear the "waiting_on_upgraded_resource_init" as we'd know the last respective resource creation would have failed (thus it didn't have a matching "OnInitResource()")
-         if ((desc.flags & reshade::api::resource_flags::shared) == 0)
+         // If this happened, some resource creation failed an "OnInitResource()" was never called after "OnCreateResource()".
+         // It might have to do with the fact that the resource was shared.
+         // Either way we could never catch all cases as we don't know when that happens, and this might have false positives as a desc isn't a unique pointer (two resources might use the same desc).
+         // Then again, if the description was identical and the first would have failed, so would have the second one.
+         ASSERT_ONCE(std::memcmp(&upgraded_resource_init_desc, &desc, sizeof(upgraded_resource_init_desc)) == 0);
+         if (std::memcmp(&upgraded_resource_init_desc, &desc, sizeof(upgraded_resource_init_desc)) == 0)
          {
-            device_data.upgraded_resources.emplace(resource.handle);
+            ASSERT_ONCE(upgraded_resource_init_data == nullptr || initial_data->data == upgraded_resource_init_data);
          }
+         else
+         {
+            ASSERT_ONCE(upgraded_resource_init_data == nullptr || initial_data->data != upgraded_resource_init_data);
+         }
+         // Delete the converted data we created (there's a chance of memory leaks if creation failed, though unlikely)
+         delete upgraded_resource_init_data;
+
+         device_data.upgraded_resources.emplace(resource.handle);
          waiting_on_upgraded_resource_init = false;
+      }
+      else
+      {
+         // Code mirrored from "OnCreateResource()" (though some filter cases are still missing)
+         if (desc.type == reshade::api::resource_type::texture_2d && desc.texture.depth_or_layers == 1)
+         {
+            if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0 && enable_texture_format_upgrades && texture_upgrade_formats.contains(desc.texture.format))
+            {
+               // Shared resources can call "OnInitResource()" without a "OnCreateResource()" (see "D3D11Device::OpenSharedResource"), as they've been created on a different device (and possibly API), so we can't always upgrade them,
+               // though Luma only allows DX11 devices so it's probably guaranteed!
+               ASSERT_ONCE((desc.flags & reshade::api::resource_flags::shared) == 0);
+            }
+         }
+      }
+   }
+
+   // Define source pixel structure (8-bit per channel)
+   struct R8G8B8A8_UNORM
+   {
+      uint8_t r, g, b, a;
+   };
+   struct B8G8R8A8_UNORM
+   {
+      uint8_t b, g, r, a;
+   };
+   struct R16G16B16A16_FLOAT
+   {
+      uint16_t r, g, b, a;
+   };
+
+   inline uint16_t XMConvertFloatToHalf(float Value)
+   {
+      __m128 V1 = _mm_set_ss(Value);
+      __m128i V2 = _mm_cvtps_ph(V1, 0);
+      return _mm_cvtsi128_si32(V2);
+   }
+
+   inline uint16_t ConvertFloatToHalf(float value)
+   {
+      // XMConvertFloatToHalf converts a float to a half, returning the 16-bit unsigned short representation.
+      return XMConvertFloatToHalf(value);
+   }
+   
+   template<typename T>
+   void ConvertR8G8B8A8toR16G16B16A16(
+      const T* src_data,
+      R16G16B16A16_FLOAT* dst_data,
+      size_t width,
+      size_t height,
+      size_t depth = 1)
+   {
+      size_t slice_size = width * height;
+
+      for (size_t z = 0; z < depth; ++z)
+      {
+         size_t slice_offset = slice_size * z;
+
+         for (size_t i = 0; i < slice_size; i++)
+         {
+            const T& pixel = src_data[slice_offset + i];
+
+            // Read each channel and normalize from 0-255 to 0.0-1.0.
+            float r = pixel.r / 255.0f;
+            float g = pixel.g / 255.0f;
+            float b = pixel.b / 255.0f;
+            float a = pixel.a / 255.0f;
+
+            // Convert normalized floats to half-floats.
+            dst_data[i].r = ConvertFloatToHalf(r);
+            dst_data[i].g = ConvertFloatToHalf(g);
+            dst_data[i].b = ConvertFloatToHalf(b);
+            dst_data[i].a = ConvertFloatToHalf(a);
+         }
       }
    }
 
@@ -3094,48 +3196,85 @@ namespace
       reshade::api::subresource_data* initial_data,
       reshade::api::resource_usage initial_state)
    {
+      ASSERT_ONCE(device->get_api() == reshade::api::device_api::d3d11);
+
+      // No need to clear "upgraded_resource_init_desc"/"upgraded_resource_init_data" from its last value
       waiting_on_upgraded_resource_init = false; // If the same thread called another "OnCreateResource()" before we got a "OnInitResource()", it implies the resource creation has failed and we didn't get that event (we have to do it by thread as device objects creation is thread safe and can be done by multiple threads concurrently)
 
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
+      const std::shared_lock lock(device_data.mutex);
+      
+      bool type_and_size_filter = false;
+      
       // Note: we can't fully exclude texture 2D arrays here, because they might still have 1 layer
-      if (desc.type == reshade::api::resource_type::texture_2d && desc.texture.depth_or_layers == 1)
+      constexpr int aspect_ratio_pixel_threshold = 1; // Most games do resolution scaling properly, with a maximum aspect ratio offset of 1 pixel, though occasionally it goes to 2 pixels of difference
+		float min_aspect_ratio = (float)(desc.texture.width - aspect_ratio_pixel_threshold) / (float)desc.texture.height;
+      float max_aspect_ratio = (float)desc.texture.width / (float)(desc.texture.height - aspect_ratio_pixel_threshold);
+		float target_aspect_ratio = (float)device_data.output_resolution.x / (float)device_data.output_resolution.y; //TODOFT: expose this as setting per game
+      type_and_size_filter |= desc.type == reshade::api::resource_type::texture_2d && desc.texture.depth_or_layers == 1 && ((desc.texture.width == device_data.output_resolution.x && desc.texture.height == device_data.output_resolution.y) || (target_aspect_ratio >= (min_aspect_ratio - FLT_EPSILON) && target_aspect_ratio <= (max_aspect_ratio + FLT_EPSILON)));
+      if (texture_lut_3D)
+         type_and_size_filter |= desc.type == reshade::api::resource_type::texture_3d && desc.texture.width == texture_lut_size && desc.texture.height == texture_lut_size && desc.texture.depth_or_layers == texture_lut_size && desc.texture.levels == 1;
+      else
+         type_and_size_filter |= desc.type == reshade::api::resource_type::texture_2d && desc.texture.width == texture_lut_size && desc.texture.height == texture_lut_size && desc.texture.depth_or_layers == 1 && desc.texture.levels == 1;
+      
+      if (type_and_size_filter)
       {
-         if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0)
+         if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0 && enable_texture_format_upgrades && texture_upgrade_formats.contains(desc.texture.format))
          {
-            // Note that upgrading typeless texture could have unforseen consequences in some games, especially when the textures are then used as unsigned int or signed int etc (e.g. Trine 5)
-            switch (desc.texture.format)
+            // Note that upgrading typeless texture could have unforeseen consequences in some games, especially when the textures are then used as unsigned int or signed int etc (e.g. Trine 5)
+            desc.texture.format = reshade::api::format::r16g16b16a16_float;
+            waiting_on_upgraded_resource_init = true;
+            upgraded_resource_init_desc = desc;
+            bool converted_initial_data = false;
+            // We need to convert the initial data to the new format
+            if (initial_data != nullptr)
             {
-#if UPGRADE_RESOURCES_8UNORM
-				case reshade::api::format::r8g8b8a8_unorm:
-				case reshade::api::format::r8g8b8a8_unorm_srgb:
-				case reshade::api::format::r8g8b8a8_typeless:
-            case reshade::api::format::r8g8b8x8_unorm:
-            case reshade::api::format::r8g8b8x8_unorm_srgb:
-            case reshade::api::format::b8g8r8a8_unorm:
-            case reshade::api::format::b8g8r8a8_unorm_srgb:
-            case reshade::api::format::b8g8r8a8_typeless:
-            case reshade::api::format::b8g8r8x8_unorm:
-            case reshade::api::format::b8g8r8x8_unorm_srgb:
-            case reshade::api::format::b8g8r8x8_typeless:
-#endif // UPGRADE_RESOURCES_8UNORM
-#if UPGRADE_RESOURCES_10UNORM
-            case reshade::api::format::r10g10b10a2_unorm:
-            case reshade::api::format::r10g10b10a2_typeless:
-#endif // UPGRADE_RESOURCES_10UNORM
-#if UPGRADE_RESOURCES_11FLOAT
-            case reshade::api::format::r11g11b10_float:
-#endif // UPGRADE_RESOURCES_11FLOAT
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-            {
-               ASSERT_ONCE(!initial_data); // We'd need to convert it
-               ASSERT_ONCE((desc.flags & reshade::api::resource_flags::shared) == 0); // Would need more special handling
-               desc.texture.format = reshade::api::format::r16g16b16a16_float;
-               waiting_on_upgraded_resource_init = true;
-               return true;
+               void* prev_data = initial_data->data;
+               ASSERT_ONCE(initial_data->data != nullptr);
+
+               constexpr size_t bytes_per_pixel = 8; // 4 for 8bpc, 8 for 16bpc
+               const size_t buffer_size = desc.texture.width * desc.texture.height * desc.texture.depth_or_layers * bytes_per_pixel;
+
+               switch (desc.texture.format)
+               {
+               case reshade::api::format::r8g8b8a8_unorm:
+               case reshade::api::format::r8g8b8a8_unorm_srgb:
+               case reshade::api::format::r8g8b8x8_unorm:
+               case reshade::api::format::r8g8b8x8_unorm_srgb:
+               {
+                  initial_data->data = new uint8_t[buffer_size];
+                  initial_data->row_pitch = desc.texture.width * bytes_per_pixel;
+                  initial_data->slice_pitch = initial_data->row_pitch * desc.texture.height;
+                  ConvertR8G8B8A8toR16G16B16A16((R8G8B8A8_UNORM*)prev_data, (R16G16B16A16_FLOAT*)initial_data->data, desc.texture.width, desc.texture.height, desc.texture.depth_or_layers);
+                  converted_initial_data = true;
+                  break;
+               }
+               case reshade::api::format::b8g8r8a8_unorm:
+               case reshade::api::format::b8g8r8a8_unorm_srgb:
+               case reshade::api::format::b8g8r8x8_unorm:
+               case reshade::api::format::b8g8r8x8_unorm_srgb:
+               {
+                  initial_data->data = new uint8_t[buffer_size];
+                  initial_data->row_pitch = desc.texture.width * bytes_per_pixel;
+                  initial_data->slice_pitch = initial_data->row_pitch * desc.texture.height;
+                  ConvertR8G8B8A8toR16G16B16A16((B8G8R8A8_UNORM*)prev_data, (R16G16B16A16_FLOAT*)initial_data->data, desc.texture.width, desc.texture.height, desc.texture.depth_or_layers);
+                  converted_initial_data = true;
+                  break;
+               }
+               case reshade::api::format::r16g16b16a16_float:
+               {
+                  break;
+               }
+               default:
+               {
+                  ASSERT_ONCE(false); // TODO: add support
+                  break;
+               }
+               }
             }
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-            default:
-            break;
-            }
+            upgraded_resource_init_data = converted_initial_data ? initial_data->data : nullptr;
+
+            return true;
          }
       }
       return false;
@@ -3154,9 +3293,7 @@ namespace
       const std::unique_lock lock(device_data.mutex);
       device_data.upgraded_resources.erase(resource.handle);
    }
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
 
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT || UPGRADE_SWAPCHAIN_TYPE
    bool OnCreateResourceView(
       reshade::api::device* device,
       reshade::api::resource resource,
@@ -3165,124 +3302,166 @@ namespace
    {
       DeviceData& device_data = *device->get_private_data<DeviceData>();
       // In DX11 apps can not pass a "DESC" when creating resource views, and DX11 will automatically generate the default one from it, we handle it through "reshade::api::resource_view_type::unknown".
-      if (resource.handle != 0 && (desc.type == reshade::api::resource_view_type::unknown || desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::texture_2d_array || desc.type == reshade::api::resource_view_type::texture_2d_multisample || desc.type == reshade::api::resource_view_type::texture_2d_multisample_array))
+      if (resource.handle != 0 && (desc.type == reshade::api::resource_view_type::unknown || desc.type == reshade::api::resource_view_type::texture_3d || desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::texture_2d_array || desc.type == reshade::api::resource_view_type::texture_2d_multisample || desc.type == reshade::api::resource_view_type::texture_2d_multisample_array))
       {
          const reshade::api::resource_desc resource_desc = device->get_resource_desc(resource);
 
          const std::shared_lock lock(device_data.mutex);
 
-#if UPGRADE_SWAPCHAIN_TYPE
          // Needed because these were not in the upgraded resources list, but we upgraded the swapchain's textures,
          // some games randomly pick a view format when they can't pick a proper one (due to the format upgrades).
-         if (device_data.back_buffers.contains(resource.handle))
+         if (swapchain_upgrade_type >= 1 && device_data.back_buffers.contains(resource.handle))
          {
             if (desc.type == reshade::api::resource_view_type::unknown)
             {
                desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array);
             }
-            desc.format = reshade::api::format::r16g16b16a16_float;
+            ASSERT_ONCE(desc.texture.level_count != 0);
+            // Redirect typeless formats (not even sure they are supported, but it won't hurt to check)
+            switch (resource_desc.texture.format)
+            {
+            case reshade::api::format::r16g16b16a16_typeless:
+            {
+               desc.format = reshade::api::format::r16g16b16a16_float;
+               break;
+            }
+            case reshade::api::format::r8g8b8a8_typeless:
+            {
+               if (desc.format != reshade::api::format::r8g8b8a8_unorm_srgb)
+                  desc.format = reshade::api::format::r8g8b8a8_unorm;
+               break;
+            }
+            case reshade::api::format::b8g8r8a8_typeless:
+            {
+               if (desc.format != reshade::api::format::b8g8r8a8_unorm_srgb)
+                  desc.format = reshade::api::format::b8g8r8a8_unorm;
+               break;
+            }
+            case reshade::api::format::r10g10b10a2_typeless:
+            {
+               desc.format = reshade::api::format::r10g10b10a2_unorm;
+               break;
+            }
+            default:
+            {
+               bool formats_compatible = false;
+               bool rgba8_1 = desc.format == reshade::api::format::r8g8b8a8_unorm || desc.format == reshade::api::format::r8g8b8a8_unorm_srgb;
+               bool rgba8_2 = resource_desc.texture.format == reshade::api::format::r8g8b8a8_unorm || resource_desc.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb;
+               bool bgra8_1 = desc.format == reshade::api::format::b8g8r8a8_unorm || desc.format == reshade::api::format::b8g8r8a8_unorm_srgb;
+               bool bgra8_2 = resource_desc.texture.format == reshade::api::format::b8g8r8a8_unorm || resource_desc.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb;
+               formats_compatible |= rgba8_1 && rgba8_2;
+               formats_compatible |= bgra8_1 && bgra8_2;
+               // No need to force replace the view format if formats are compatible
+               if (!formats_compatible)
+                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16F if "enable_swapchain_upgrade" is on (depending on "swapchain_upgrade_type")
+               break;
+            }
+            }
             return true;
          }
-#endif // UPGRADE_SWAPCHAIN_TYPE
 
-         bool needs_upgrade = usage_type == reshade::api::resource_usage::render_target || usage_type == reshade::api::resource_usage::unordered_access || usage_type == reshade::api::resource_usage::shader_resource; // This is all of the possible types anyway...
-         needs_upgrade &= (resource_desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0; // Filter with the same conditions we upgraded textures, to make sure we only upgrade the same ones
-         if (needs_upgrade && resource_desc.type == reshade::api::resource_type::texture_2d && resource_desc.texture.depth_or_layers == 1 && resource_desc.texture.format == reshade::api::format::r16g16b16a16_float)
+#if DEVELOPMENT
+         constexpr int aspect_ratio_pixel_threshold = 1; // Most games do resolution scaling properly, with a maximum aspect ratio offset of 1 pixel, though occasionally it goes to 2 pixels of difference
+         float min_aspect_ratio = (float)(resource_desc.texture.width - aspect_ratio_pixel_threshold) / (float)resource_desc.texture.height;
+         float max_aspect_ratio = (float)resource_desc.texture.width / (float)(resource_desc.texture.height - aspect_ratio_pixel_threshold);
+         float target_aspect_ratio = (float)device_data.output_resolution.x / (float)device_data.output_resolution.y;
+
+			// Conditions copied from the texture creation code, to make sure we only upgrade the same textures in views
+         bool usage_filter = usage_type == reshade::api::resource_usage::render_target || usage_type == reshade::api::resource_usage::unordered_access || usage_type == reshade::api::resource_usage::shader_resource; // This is all of the possible types anyway...
+         usage_filter &= (resource_desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0; // Filter with the same conditions we upgraded textures, to make sure we only upgrade the same ones
+         bool type_and_size_filter = resource_desc.type == reshade::api::resource_type::texture_2d && resource_desc.texture.depth_or_layers == 1 && ((resource_desc.texture.width == device_data.output_resolution.x && resource_desc.texture.height == device_data.output_resolution.y) || (target_aspect_ratio >= (min_aspect_ratio - FLT_EPSILON) && target_aspect_ratio <= (max_aspect_ratio + FLT_EPSILON)));
+         if (texture_lut_3D)
+            type_and_size_filter |= resource_desc.type == reshade::api::resource_type::texture_3d && resource_desc.texture.width == texture_lut_size && resource_desc.texture.height == texture_lut_size && resource_desc.texture.depth_or_layers == texture_lut_size && resource_desc.texture.levels == 1;
+         else
+            type_and_size_filter |= resource_desc.type == reshade::api::resource_type::texture_2d && resource_desc.texture.width == texture_lut_size && resource_desc.texture.height == texture_lut_size && resource_desc.texture.depth_or_layers == 1 && resource_desc.texture.levels == 1;
+         if (usage_filter && type_and_size_filter && resource_desc.texture.format == reshade::api::format::r16g16b16a16_float)
          {
-            bool upgrade = false;
             switch (desc.format)
             {
-#if UPGRADE_RESOURCES_8UNORM
-            case reshade::api::format::r8g8b8a8_unorm:
-            case reshade::api::format::r8g8b8a8_unorm_srgb:
-            case reshade::api::format::r8g8b8a8_typeless:
-            case reshade::api::format::r8g8b8x8_unorm:
-            case reshade::api::format::r8g8b8x8_unorm_srgb:
-            case reshade::api::format::b8g8r8a8_unorm:
-            case reshade::api::format::b8g8r8a8_unorm_srgb:
-            case reshade::api::format::b8g8r8a8_typeless:
-            case reshade::api::format::b8g8r8x8_unorm:
-            case reshade::api::format::b8g8r8x8_unorm_srgb:
-            case reshade::api::format::b8g8r8x8_typeless:
-#endif // UPGRADE_RESOURCES_8UNORM
-#if UPGRADE_RESOURCES_10UNORM
-            case reshade::api::format::r10g10b10a2_unorm:
-            case reshade::api::format::r10g10b10a2_typeless:
-#endif // UPGRADE_RESOURCES_10UNORM
-#if UPGRADE_RESOURCES_11FLOAT
-            case reshade::api::format::r11g11b10_float:
-#endif // UPGRADE_RESOURCES_11FLOAT
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
+            default:
             {
-               ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
-               upgrade = true;
-					break;
+               // Nobody should be creating a typeless view, though it might be a bug with the game's code in case of unexpected format upgrades
+               ASSERT_ONCE(desc.format != reshade::api::format::r16g16b16a16_typeless && desc.format != reshade::api::format::r8g8b8a8_typeless && desc.format != reshade::api::format::b8g8r8a8_typeless && desc.format != reshade::api::format::b8g8r8x8_typeless);
+               break;
             }
             case reshade::api::format::unknown:
             {
-               // Happens when the call didn't provide a "DESC"
+               // Happens when the call didn't provide a "DESC", creating a default view (because if we reached here, the texture is 16bpc float)
                ASSERT_ONCE(device_data.upgraded_resources.contains(resource.handle));
-#if 0 // This happens (e.g. Dishonored 2), but we fix it below
-               // Invalid value
-               ASSERT_ONCE(desc.texture.level_count != 0);
-#endif
-               upgrade = true;
                break;
             }
-            case reshade::api::format::r16g16b16a16_typeless:
-            {
-               // Nobody should be creating a typeless view, though it might be a bug with the game's code in case of unexpected format upgrades
-               ASSERT_ONCE(false);
-               upgrade = true;
-               break;
-            }
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-            default:
-            break;
-            }
-
-            if (upgrade)
-            {
-               if (desc.type == reshade::api::resource_view_type::unknown)
-               {
-                  desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array); // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
-                  desc.texture.first_level = 0;
-                  desc.texture.level_count = -1; // All levels
-                  desc.texture.first_layer = 0;
-                  desc.texture.layer_count = resource_desc.texture.depth_or_layers;
-               }
-               desc.format = reshade::api::format::r16g16b16a16_float;
-               return true;
             }
          }
+#endif
+
+         if (device_data.upgraded_resources.contains(resource.handle))
+         {
+            if (desc.type == reshade::api::resource_view_type::unknown)
+            {
+               if (resource_desc.type == reshade::api::resource_type::texture_3d)
+               {
+                  desc.type = reshade::api::resource_view_type::texture_3d;
+               }
+               else
+               {
+                  desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array); // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
+               }
+               desc.texture.first_level = 0;
+               desc.texture.level_count = -1; // All levels (e.g. Dishonored 2 sets this to invalid values if the resource format was upgraded)
+               desc.texture.first_layer = 0;
+               desc.texture.layer_count = resource_desc.texture.depth_or_layers;
+            }
+               desc.format = reshade::api::format::r16g16b16a16_float;
+            return true;
+         }
       }
-#if (UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT) && DEVELOPMENT
+
+#if DEVELOPMENT
       const std::shared_lock lock(device_data.mutex);
       if (desc.format != reshade::api::format::r16g16b16a16_float)
       {
          ASSERT_ONCE(!device_data.upgraded_resources.contains(resource.handle)); // Why did we get here in this case?
       }
       D3D11_TEXTURE2D_DESC texture_2d_desc;
+      D3D11_TEXTURE3D_DESC texture_3d_desc;
       if (device_data.upgraded_resources.contains(resource.handle))
       {
-         if (desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::unknown) // Unsafe
+         ID3D11Resource* native_resource = reinterpret_cast<ID3D11Resource*>(resource.handle);
+         ID3D11Texture2D* texture_2d = nullptr;
+         ID3D11Texture3D* texture_3d = nullptr;
+         HRESULT hr_2d = native_resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture_2d);
+         HRESULT hr_3d = native_resource->QueryInterface(__uuidof(ID3D11Texture3D), (void**)&texture_3d);
+         if (SUCCEEDED(hr_2d) && texture_2d != nullptr)
          {
-            ID3D11Texture2D* texture_2d = reinterpret_cast<ID3D11Texture2D*>(resource.handle);
             texture_2d->GetDesc(&texture_2d_desc);
+            ASSERT_ONCE(desc.type == reshade::api::resource_view_type::texture_2d || desc.type == reshade::api::resource_view_type::texture_2d_array || desc.type == reshade::api::resource_view_type::texture_2d_multisample || desc.type == reshade::api::resource_view_type::texture_2d_multisample_array);
+            ASSERT_ONCE(desc.type != reshade::api::resource_view_type::unknown);
+         }
+         else if (SUCCEEDED(hr_3d) && texture_3d != nullptr)
+         {
+            texture_3d->GetDesc(&texture_3d_desc);
+            ASSERT_ONCE(desc.type == reshade::api::resource_view_type::texture_3d);
+            ASSERT_ONCE(desc.type != reshade::api::resource_view_type::unknown);
          }
 
          if (desc.type == reshade::api::resource_view_type::unknown)
          {
             const reshade::api::resource_desc resource_desc = device->get_resource_desc(resource);
-            desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array); // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
+            if (resource_desc.type == reshade::api::resource_type::texture_3d)
+            {
+               desc.type = reshade::api::resource_view_type::texture_3d;
+            }
+            else
+            {
+               desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array); // We need to set it in case it was "reshade::api::resource_view_type::unknown", otherwise the format would also need to be unknown
+            }
          }
          desc.format = reshade::api::format::r16g16b16a16_float;
          return true;
       }
-#endif // (UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT) && DEVELOPMENT
+#endif // DEVELOPMENT
       return false;
    }
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT || UPGRADE_SWAPCHAIN_TYPE
 
    void OnPushDescriptors(
       reshade::api::command_list* cmd_list,
@@ -3594,6 +3773,16 @@ namespace
                   }
                   return false;
                };
+            auto isUnorm16 = [](DXGI_FORMAT format)
+               {
+                  switch (format)
+                  {
+                  case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+                  case DXGI_FORMAT_R16G16B16A16_UNORM:
+                  return true;
+                  }
+                  return false;
+               };
             auto isFloat16 = [](DXGI_FORMAT format)
                {
                   switch (format)
@@ -3619,9 +3808,9 @@ namespace
             // If we detected incompatible formats that were likely caused by Luma upgrading texture formats (of render targets only...),
             // do the copy in shader
             // TODO: add gamma to linear support (e.g. non sRGB views into sRGB views)?
-            //TODOFT3: this doesn't fully work, this triggers once when a level loads? So we should make sure it works. Is it fixed now?
-            if (((isUnorm8(target_desc.Format) || isFloat11(target_desc.Format)) && isFloat16(source_desc.Format))
-               || ((isUnorm8(source_desc.Format) || isFloat11(source_desc.Format)) && isFloat16(target_desc.Format)))
+            //TODOFT3: this doesn't fully work, this triggers once when a level loads in Prey? So we should make sure it works. Is it fixed now?
+            if (((isUnorm8(target_desc.Format) || isUnorm16(target_desc.Format) || isFloat11(target_desc.Format)) && isFloat16(source_desc.Format))
+               || ((isUnorm8(source_desc.Format) || isUnorm16(source_desc.Format) || isFloat11(source_desc.Format)) && isFloat16(target_desc.Format)))
             {
                const std::shared_lock lock(s_mutex_shader_objects);
                if (device_data.copy_vertex_shader == nullptr || device_data.copy_pixel_shader == nullptr)
@@ -4116,7 +4305,7 @@ namespace
          {
             DumpShader(shader_to_dump, true);
          }
-#if DEVELOPMENT
+#if DEVELOPMENT && 0 // Disabled as it's extremely slow // TODO: speed up
          else
          {
             // Make sure two different shaders didn't have the same hash (we only check if they start by the same name/hash)
@@ -5231,7 +5420,7 @@ namespace
             {
                // Show that DLSS is engaged. Ignored if the game scene isn't rendering.
                // If DLSS currently can't run due to the user settings/state, or failed, show a warning.
-               if (device_data.has_drawn_main_post_processing_previous && device_data.dlss_sr && device_data.cloned_pipeline_count != 0)
+               if (device_data.has_drawn_main_post_processing && device_data.dlss_sr /*&& device_data.cloned_pipeline_count != 0*/)
                {
                   ImGui::PushID("DLSS Super Resolution Active");
                   ImGui::BeginDisabled();
@@ -5712,6 +5901,23 @@ namespace
                      device_data.debug_draw_texture_format = DXGI_FORMAT_UNKNOWN;
                      device_data.debug_draw_texture_size = {};
                   }
+               }
+
+               ImGui::NewLine();
+               // Requires a change in resolution to (~fully) apply
+               if (enable_texture_format_upgrades ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
+               {
+                  enable_texture_format_upgrades = !enable_texture_format_upgrades;
+               }
+               if (enable_swapchain_upgrade ? ImGui::Button("Disable Swapchain Upgrade") : ImGui::Button("Enable Swapchain Upgrade"))
+               {
+                  enable_swapchain_upgrade = !enable_swapchain_upgrade;
+               }
+
+               ImGui::NewLine();
+               if (enable_separate_ui_drawing ? ImGui::Button("Disable Separate UI Drawing") : ImGui::Button("Enable Separate UI Drawing"))
+               {
+                  enable_separate_ui_drawing = !enable_separate_ui_drawing;
                }
 
                game->DrawImGuiDevSettings(device_data);
@@ -6359,14 +6565,16 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::init_command_list>(OnInitCommandList);
       reshade::register_event<reshade::addon_event::destroy_command_list>(OnDestroyCommandList);
 
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-      reshade::register_event<reshade::addon_event::init_resource>(OnInitResource);
-      reshade::register_event<reshade::addon_event::create_resource>(OnCreateResource);
-      reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT || UPGRADE_SWAPCHAIN_TYPE
-      reshade::register_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT || UPGRADE_SWAPCHAIN_TYPE
+      if (enable_texture_format_upgrades)
+      {
+         reshade::register_event<reshade::addon_event::init_resource>(OnInitResource);
+         reshade::register_event<reshade::addon_event::create_resource>(OnCreateResource);
+         reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
+      }
+      if (enable_texture_format_upgrades || enable_swapchain_upgrade)
+      {
+         reshade::register_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
+      }
 
       reshade::register_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
 #if DEVELOPMENT
@@ -6432,14 +6640,16 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::init_command_list>(OnInitCommandList);
       reshade::unregister_event<reshade::addon_event::destroy_command_list>(OnDestroyCommandList);
 
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-      reshade::unregister_event<reshade::addon_event::init_resource>(OnInitResource);
-      reshade::unregister_event<reshade::addon_event::create_resource>(OnCreateResource);
-      reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT
-#if UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT || UPGRADE_SWAPCHAIN_TYPE
-      reshade::unregister_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
-#endif // UPGRADE_RESOURCES_8UNORM || UPGRADE_RESOURCES_10UNORM || UPGRADE_RESOURCES_11FLOAT || UPGRADE_SWAPCHAIN_TYPE
+      if (enable_texture_format_upgrades)
+      {
+         reshade::unregister_event<reshade::addon_event::init_resource>(OnInitResource);
+         reshade::unregister_event<reshade::addon_event::create_resource>(OnCreateResource);
+         reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
+      }
+      if (enable_texture_format_upgrades || enable_swapchain_upgrade)
+      {
+         reshade::unregister_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
+      }
 
       reshade::unregister_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
 #if DEVELOPMENT
