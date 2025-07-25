@@ -2403,7 +2403,7 @@ namespace
                if (force_reencoding_or_gamma_correction)
                {
                   // No need for "s_mutex_reshade" here or above, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
-                  custom_const_buffer_data_1 = swapchain_data.vanilla_was_linear_space ? 2 : 1;
+                  custom_const_buffer_data_1 = input_linear ? 2 : 1;
                }
                SetLumaConstantBuffers(native_device_context, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaSettings);
                SetLumaConstantBuffers(native_device_context, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData, custom_const_buffer_data_1, custom_const_buffer_data_2);
