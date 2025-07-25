@@ -124,7 +124,7 @@ float3 Unity_ACES(float3 input)
 
     // --- Global desaturation --- //
     //acescg = mul(RRT_SAT_MAT, acescg);
-    acescg = lerp(dot(acescg, AP1_RGB2Y).xxx, acescg, RRT_SAT_FACTOR.xxx);
+    acescg = lerp(dot(acescg, AP1_RGB2Y).xxx, acescg, RRT_SAT_FACTOR);
 
     // Apply RRT and ODT
     // https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl
@@ -148,11 +148,12 @@ float3 Unity_ACES(float3 input)
     // float3 linearCV = Y_2_linCV(rgbPost, CINEMA_WHITE, CINEMA_BLACK);
 
     // Apply gamma adjustment to compensate for dim surround
-    float3 linearCV = darkSurround_to_dimSurround(half3(rgbPost));
+    // Unity does this after their approximate ODT curve fit, but it should be done before anything else.
+    float3 linearCV = darkSurround_to_dimSurround(rgbPost);
 
     // Apply desaturation to compensate for luminance difference
     //linearCV = mul(ODT_SAT_MAT, color);
-    linearCV = lerp(dot(linearCV, AP1_RGB2Y).xxx, linearCV, ODT_SAT_FACTOR.xxx);
+    linearCV = lerp(dot(linearCV, AP1_RGB2Y).xxx, linearCV, ODT_SAT_FACTOR);
 
     // Convert to display primary encoding
     // Rendering space RGB to XYZ
@@ -520,8 +521,8 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     r1.z = dot(float3(0.00831614807,-0.00603244966,0.997716308), r2.xyz);
   }
 
-  const float paperWhite = LumaSettings.GamePaperWhiteNits / ITU_WhiteLevelNits;
-  const float peakWhite = LumaSettings.PeakWhiteNits / ITU_WhiteLevelNits;
+  const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
+  const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
 
   float3 untonemapped = r1.rgb; // In AP1
   float3 vanillaTM = Unity_ACES(untonemapped); // Outputs Rec.709

@@ -15,7 +15,7 @@ public:
       shader_defines_data.append_range(game_shader_defines_data);
       GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0'); //TODOFT: PoP 1
    }
 
    // Needed by "Shadows of Doubt" given it used sRGB views (it should work on other Unity games too)
@@ -96,7 +96,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
       enable_texture_format_upgrades = true;
-      //TODOFT: Prince of Persia only requires r8g8b8a8_typeless?
+      //TODOFT: Prince of Persia only requires r8g8b8a8_typeless
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             reshade::api::format::r8g8b8a8_unorm_srgb,
