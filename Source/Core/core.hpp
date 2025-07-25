@@ -3251,6 +3251,9 @@ namespace
       constexpr int aspect_ratio_pixel_threshold = 1; // Most games do resolution scaling properly, with a maximum aspect ratio offset of 1 pixel, though occasionally it goes to 2 pixels of difference
 		float min_aspect_ratio = (float)(desc.texture.width - aspect_ratio_pixel_threshold) / (float)desc.texture.height;
       float max_aspect_ratio = (float)desc.texture.width / (float)(desc.texture.height - aspect_ratio_pixel_threshold);
+      // Always scale from the smallest dimension, as that gives up more threshold, depending on how the devs scaled down textures (they can use multiple rounding models)
+		float min_aspect_ratio = desc.texture.width <= desc.texture.height ? ((float)(desc.texture.width - aspect_ratio_pixel_threshold) / (float)desc.texture.height) : ((float)desc.texture.width / (float)(desc.texture.height - aspect_ratio_pixel_threshold));
+      float max_aspect_ratio = desc.texture.width <= desc.texture.height ? ((float)desc.texture.width / (float)(desc.texture.height - aspect_ratio_pixel_threshold)) : ((float)(desc.texture.width - aspect_ratio_pixel_threshold) / (float)desc.texture.height);
 		float target_aspect_ratio = (float)device_data.output_resolution.x / (float)device_data.output_resolution.y; //TODOFT: expose this as setting per game
       type_and_size_filter |= desc.type == reshade::api::resource_type::texture_2d && desc.texture.depth_or_layers == 1 && ((desc.texture.width == device_data.output_resolution.x && desc.texture.height == device_data.output_resolution.y) || (target_aspect_ratio >= (min_aspect_ratio - FLT_EPSILON) && target_aspect_ratio <= (max_aspect_ratio + FLT_EPSILON)));
       if (texture_lut_3D)
@@ -3405,6 +3408,9 @@ namespace
          constexpr int aspect_ratio_pixel_threshold = 1; // Most games do resolution scaling properly, with a maximum aspect ratio offset of 1 pixel, though occasionally it goes to 2 pixels of difference
          float min_aspect_ratio = (float)(resource_desc.texture.width - aspect_ratio_pixel_threshold) / (float)resource_desc.texture.height;
          float max_aspect_ratio = (float)resource_desc.texture.width / (float)(resource_desc.texture.height - aspect_ratio_pixel_threshold);
+         constexpr int aspect_ratio_pixel_threshold = 1;
+         float min_aspect_ratio = resource_desc.texture.width <= resource_desc.texture.height ? ((float)(resource_desc.texture.width - aspect_ratio_pixel_threshold) / (float)resource_desc.texture.height) : ((float)resource_desc.texture.width / (float)(resource_desc.texture.height - aspect_ratio_pixel_threshold));
+         float max_aspect_ratio = resource_desc.texture.width <= resource_desc.texture.height ? ((float)resource_desc.texture.width / (float)(resource_desc.texture.height - aspect_ratio_pixel_threshold)) : ((float)(resource_desc.texture.width - aspect_ratio_pixel_threshold) / (float)resource_desc.texture.height);
          float target_aspect_ratio = (float)device_data.output_resolution.x / (float)device_data.output_resolution.y;
 
 			// Conditions copied from the texture creation code, to make sure we only upgrade the same textures in views
