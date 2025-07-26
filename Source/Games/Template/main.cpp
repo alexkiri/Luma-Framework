@@ -180,6 +180,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
             reshade::api::format::r11g11b10_float,
       };
+      texture_format_upgrades_lut_size = 32;
+      texture_format_upgrades_lut_dimensions = LUTDimensions::_2D;
 
       // Create your game sub-class instance (it will be automatically destroyed on exit).
       // You do not need to do this if you have no custom data to store.

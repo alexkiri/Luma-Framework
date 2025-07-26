@@ -1025,6 +1025,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
             reshade::api::format::r11g11b10_float,
       };
+      texture_format_upgrades_lut_size = 32;
+      texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
 
       game = new Dishonored2();
    }

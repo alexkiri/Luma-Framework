@@ -103,8 +103,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r8g8b8a8_typeless,
             reshade::api::format::r11g11b10_float,
       };
-      texture_lut_size = 32;
-      texture_lut_3D = true;
+      texture_format_upgrades_lut_size = 32;
+      texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
 
       game = new Vertigo();
    }
