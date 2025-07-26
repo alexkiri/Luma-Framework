@@ -3295,27 +3295,29 @@ namespace
       
       if (texture_format_upgrades_2d_size_filters != (uint32_t)TextureFormatUpgrades2DSizeFilters::All)
       {
+         bool size_filter = false;
          if ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution) != 0)
          {
-				type_and_size_filter &= desc.texture.width == device_data.output_resolution.x && desc.texture.height == device_data.output_resolution.y;
+            size_filter |= desc.texture.width == device_data.output_resolution.x && desc.texture.height == device_data.output_resolution.y;
          }
          if ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::RenderResolution) != 0)
          {
-            type_and_size_filter &= desc.texture.width == device_data.render_resolution.x && desc.texture.height == device_data.render_resolution.y;
+            size_filter |= desc.texture.width == device_data.render_resolution.x && desc.texture.height == device_data.render_resolution.y;
          }
          if ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio) != 0)
          {
             // Always scale from the smallest dimension, as that gives up more threshold, depending on how the devs scaled down textures (they can use multiple rounding models)
-            float min_aspect_ratio = desc.texture.width <= desc.texture.height ? ((float)(desc.texture.width - texture_format_upgrades_2d_aspect_ratio_pixel_threshold) / (float)desc.texture.height) : ((float)desc.texture.width / (float)(desc.texture.height - texture_format_upgrades_2d_aspect_ratio_pixel_threshold));
-            float max_aspect_ratio = desc.texture.width <= desc.texture.height ? ((float)desc.texture.width / (float)(desc.texture.height - texture_format_upgrades_2d_aspect_ratio_pixel_threshold)) : ((float)(desc.texture.width - texture_format_upgrades_2d_aspect_ratio_pixel_threshold) / (float)desc.texture.height);
+            float min_aspect_ratio = desc.texture.width <= desc.texture.height ? ((float)(desc.texture.width - texture_format_upgrades_2d_aspect_ratio_pixel_threshold) / (float)desc.texture.height) : ((float)desc.texture.width / (float)(desc.texture.height + texture_format_upgrades_2d_aspect_ratio_pixel_threshold));
+            float max_aspect_ratio = desc.texture.width <= desc.texture.height ? ((float)desc.texture.width / (float)(desc.texture.height - texture_format_upgrades_2d_aspect_ratio_pixel_threshold)) : ((float)(desc.texture.width + texture_format_upgrades_2d_aspect_ratio_pixel_threshold) / (float)desc.texture.height);
             float target_aspect_ratio = texture_format_upgrades_2d_target_aspect_ratio > 0.f ? texture_format_upgrades_2d_target_aspect_ratio : ((float)device_data.output_resolution.x / (float)device_data.output_resolution.y);
-            type_and_size_filter &= target_aspect_ratio >= (min_aspect_ratio - FLT_EPSILON) && target_aspect_ratio <= (max_aspect_ratio + FLT_EPSILON);
+            size_filter |= target_aspect_ratio >= (min_aspect_ratio - FLT_EPSILON) && target_aspect_ratio <= (max_aspect_ratio + FLT_EPSILON);
          }
          if ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::Mips) != 0)
          {
             float2 max_resolution = device_data.output_resolution.y >= device_data.render_resolution.y ? device_data.output_resolution : device_data.render_resolution;
-            type_and_size_filter &= IsMipOf(max_resolution.x, max_resolution.y, desc.texture.width, desc.texture.height);
+            size_filter |= IsMipOf(max_resolution.x, max_resolution.y, desc.texture.width, desc.texture.height);
          }
+         type_and_size_filter &= size_filter;
       }
 
       switch (texture_format_upgrades_lut_dimensions)
