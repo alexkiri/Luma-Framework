@@ -1621,10 +1621,22 @@ namespace
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
       bool changed = false;
 
+      // sRGB formats don't support flip modes, if we previously upgraded the swapchain, select a flip mode compatible format when the swapchain resizes, as we can't change it anymore after creation
+      if (!enable_swapchain_upgrade && swapchain_upgrade_type > 0 && (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb))
+      {
+         if (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb)
+            desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm;
+         else
+            desc.back_buffer.texture.format = reshade::api::format::b8g8r8a8_unorm;
+      }
+      
       // Generally we want to add these flags in all cases, they seem to work in all games
       {
          desc.back_buffer_count = max(desc.back_buffer_count, 2); // Needed by flip models, which is mandatory for HDR (for some reason DX11 might still create one buffer)
+         if ((enable_swapchain_upgrade && swapchain_upgrade_type > 0) || (desc.back_buffer.texture.format != reshade::api::format::r8g8b8a8_unorm_srgb && desc.back_buffer.texture.format != reshade::api::format::b8g8r8a8_unorm_srgb)) // sRGB formats don't support flip modes
+         {
             desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+         }
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Games will still need to call "Present()" with the tearing flag enabled for this to do anything
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
          desc.fullscreen_refresh_rate = 0.f; // This fixes games forcing a specific refresh rate (e.g. Mafia III forces 60Hz for no reason)
