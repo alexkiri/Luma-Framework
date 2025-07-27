@@ -611,6 +611,19 @@ public:
             native_device_context->OMSetRenderTargets(1, &render_target_view_const, nullptr);
             native_device_context->Draw(3, 0);
 
+#if DEVELOPMENT
+            const std::shared_lock lock_trace(s_mutex_trace);
+            if (trace_running)
+            {
+               CommandListData& cmd_list_data = *global_cmd_list->get_private_data<CommandListData>();
+               const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+               TraceDrawCallData trace_draw_call_data;
+               trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+               trace_draw_call_data.custom_name = "DLSS Draw Exposure";
+               cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+            }
+#endif
+
             // Copy it back as CPU buffer and read+store it
             native_device_context->CopyResource(game_device_data.exposure_buffers_cpu[game_device_data.exposure_buffers_cpu_index].get(), game_device_data.exposure_buffer_gpu.get());
 
@@ -1414,6 +1427,19 @@ public:
                if (NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), source_color.get(), game_device_data.dlss_motion_vectors.get(), depth_buffer.get(), device_data.dlss_exposure.get(), dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss))
                {
                   device_data.has_drawn_dlss_sr = true;
+
+#if DEVELOPMENT
+                  const std::shared_lock lock_trace(s_mutex_trace);
+                  if (trace_running)
+                  {
+                     CommandListData& cmd_list_data = *global_cmd_list->get_private_data<CommandListData>();
+                     const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+                     TraceDrawCallData trace_draw_call_data;
+                     trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+                     trace_draw_call_data.custom_name = "DLSS";
+                     cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+                  }
+#endif
                }
 
                // Fully reset the state of the RTs given that CryEngine is very delicate with it and uses some push and pop technique (simply resetting caching and resetting the first RT seemed fine for DLSS in case optimization is needed).

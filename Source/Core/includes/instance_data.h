@@ -7,13 +7,14 @@ struct TraceDrawCallData
 {
    enum TraceDrawCallType
    {
-      // Any type of shader
+      // Any type of shader (including compute)
       Shader,
       // Copy resource and similar function
       CopyResource,
       ClearResource,
       CPUWrite,
       Present,
+		Custom, // Custom draw call for custom passes we added/replaced
    };
 
    TraceDrawCallType type = TraceDrawCallType::Shader;
@@ -48,10 +49,13 @@ struct TraceDrawCallData
    uint3 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    // Unordered Access (Resource) Views
+	static_assert(D3D11_1_UAV_SLOT_COUNT >= D3D11_PS_CS_UAV_REGISTER_COUNT);
    DXGI_FORMAT uar_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource, not the view
    DXGI_FORMAT uarv_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
    uint3 uar_size[D3D11_1_UAV_SLOT_COUNT] = {};
    std::string uar_hash[D3D11_1_UAV_SLOT_COUNT] = {};
+
+   const char* custom_name = "Unknown";
 };
 
 // Applies to command lists and command queque (DirectX 11 command list and deferred or immediate contexts)

@@ -38,6 +38,7 @@
 #include <semaphore>
 #include <utility>
 #include <cstdint>
+#include <functional>
 
 // DirectX dependencies
 // TODO: needed by "XMConvertFloatToHalf" though somehow I couldn't include it and had to re-implement it?
@@ -347,11 +348,14 @@ namespace
 
    std::string last_drawn_shader = ""; // Not exactly thread safe but it's fine...
 
+   thread_local reshade::api::command_list* global_cmd_list = nullptr; // Hacky global variable (possibly not cleared, stale)
+
    uint32_t debug_draw_shader_hash = 0;
    char debug_draw_shader_hash_string[HASH_CHARACTERS_LENGTH + 1] = {};
    uint64_t debug_draw_pipeline = 0;
    std::atomic<int32_t> debug_draw_pipeline_instance = 0; // Theoretically should be within "CommandListData" but this should work for most cases
    int32_t debug_draw_pipeline_target_instance = -1;
+   bool debug_draw_replaced_pass = false; // Whether we print the debugging of the original or replaced pass (the resources bindings etc might be different, though this won't forcefully run the original pass if it was skipped by the game's mod custom code)
 
    DebugDrawMode debug_draw_mode = DebugDrawMode::RenderTarget;
    int32_t debug_draw_view_index = 0;
@@ -487,6 +491,7 @@ namespace
             {
 #if DEVELOPMENT
                cached_pipeline->skip = false;
+               cached_pipeline->redirect_data = CachedPipeline::RedirectData();
 #endif
                for (auto shader_hash : cached_pipeline->shader_hashes)
                {
@@ -2093,7 +2098,7 @@ namespace
       if (cached_pipeline->skip)
       {
          // This will make the shader output black, or skip drawing, so we can easily detect it. This might not be very safe but seems to work in DX11.
-         // TODO: replace the pipeline with a shader that outputs all "SV_Target" as purple for more visiblity,
+         // TODO: replace the pipeline with a shader that outputs all "SV_Target" as purple for more visibility,
          // or return false in "reshade::addon_event::draw_or_dispatch_indirect" and similar draw calls to prevent them from being drawn.
          cmd_list->bind_pipeline(stages, reshade::api::pipeline{ 0 });
       }
@@ -2354,7 +2359,7 @@ namespace
             uint32_t custom_const_buffer_data_1 = 0;
             uint32_t custom_const_buffer_data_2 = 0;
 
-            DrawStateStack draw_state_stack;
+            DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
             draw_state_stack.Cache(native_device_context);
 
 #if DEVELOPMENT
@@ -2573,7 +2578,9 @@ namespace
 
 #if DEVELOPMENT
       last_drawn_shader = "";
+      global_cmd_list = cmd_list;
 #endif //DEVELOPMENT
+
       // We check the last shader pointers ("pipeline_state_original_compute_shader") we had cached in the pipeline set state functions.
       // Alternatively we could check "PSGetShader()" against "pipeline_cache_by_pipeline_clone_handle" but that'd probably have uglier and slower code.
       if (is_dispatch)
@@ -2626,6 +2633,7 @@ namespace
 #if DEVELOPMENT
       {
          // TODO: add custom Luma passes to this list
+         // Do this before any custom code runs as the state might change
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
@@ -2652,7 +2660,7 @@ namespace
       if (enable_separate_ui_drawing && mod_active && ((device_data.has_drawn_main_post_processing && native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE && !original_shader_hashes.Contains(shader_hashes_UI_excluded)) || original_shader_hashes.Contains(shader_hashes_UI)))
       {
          ID3D11RenderTargetView* const ui_texture_rtv_const = device_data.ui_texture_rtv.get();
-         native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr);
+         native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr); // Note: for now we don't restore this back to the original value, as we haven't found any game that reads back the RT, or doesn't set it every frame or draw call
       }
 
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
@@ -2816,6 +2824,116 @@ namespace
       return false; // Return true to cancel this draw call
    }
 
+#if DEVELOPMENT
+   bool HandlePipelineRedirections(ID3D11DeviceContext* native_device_context, const DeviceData& device_data, const CommandListData& cmd_list_data, bool is_dispatch, std::function<void()>& draw_func)
+   {
+      CachedPipeline::RedirectData redirect_data;
+      if (is_dispatch)
+      {
+         const std::shared_lock lock(s_mutex_generic);
+         const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(cmd_list_data.pipeline_state_original_compute_shader.handle);
+         if (pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
+         {
+            redirect_data = pipeline_pair->second->redirect_data;
+         }
+      }
+      else
+      {
+         const std::shared_lock lock(s_mutex_generic);
+         const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(cmd_list_data.pipeline_state_original_pixel_shader.handle);
+         if (pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
+         {
+            redirect_data = pipeline_pair->second->redirect_data;
+         }
+      }
+
+      if (redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::None && redirect_data.target_type != CachedPipeline::RedirectData::RedirectTargetType::None)
+      {
+			com_ptr<ID3D11Resource> source_resource;
+         com_ptr<ID3D11Resource> target_resource;
+
+         switch (redirect_data.source_type)
+         {
+         case CachedPipeline::RedirectData::RedirectSourceType::SRV:
+         {
+            if (redirect_data.source_index >= 0 && redirect_data.source_index < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT)
+            {
+               com_ptr<ID3D11ShaderResourceView> srv;
+               if (is_dispatch)
+                  native_device_context->CSGetShaderResources(redirect_data.source_index, 1, &srv);
+               else
+                  native_device_context->PSGetShaderResources(redirect_data.source_index, 1, &srv);
+               if (srv)
+                  srv->GetResource(&source_resource);
+            }
+         }
+			break;
+         case CachedPipeline::RedirectData::RedirectSourceType::UAV:
+         {
+            com_ptr<ID3D11UnorderedAccessView> uav;
+            if (is_dispatch)
+            {
+               if (redirect_data.source_index >= 0 && redirect_data.source_index < D3D11_1_UAV_SLOT_COUNT)
+                  native_device_context->CSGetUnorderedAccessViews(redirect_data.source_index, 1, &uav);
+            }
+            else
+            {
+               if (redirect_data.source_index >= 0 && redirect_data.source_index < D3D11_PS_CS_UAV_REGISTER_COUNT)
+                  native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(0, nullptr, nullptr, redirect_data.source_index, 1, &uav);
+            }
+            if (uav)
+               uav->GetResource(&source_resource);
+         }
+         break;
+         }
+
+         switch (redirect_data.target_type)
+         {
+         case CachedPipeline::RedirectData::RedirectTargetType::RTV:
+         {
+            if (redirect_data.target_index >= 0 && redirect_data.target_index < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT && !is_dispatch)
+            {
+               com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
+               native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], nullptr);
+               if (rtvs[redirect_data.target_index])
+						rtvs[redirect_data.target_index]->GetResource(&target_resource);
+            }
+         }
+         break;
+         case CachedPipeline::RedirectData::RedirectTargetType::UAV:
+         {
+            com_ptr<ID3D11UnorderedAccessView> uav;
+            if (is_dispatch)
+            {
+               if (redirect_data.target_index >= 0 && redirect_data.target_index < D3D11_1_UAV_SLOT_COUNT)
+                  native_device_context->CSGetUnorderedAccessViews(redirect_data.target_index, 1, &uav);
+            }
+            else
+            {
+               if (redirect_data.target_index >= 0 && redirect_data.target_index < D3D11_PS_CS_UAV_REGISTER_COUNT)
+                  native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(0, nullptr, nullptr, redirect_data.target_index, 1, &uav);
+            }
+            if (uav)
+               uav->GetResource(&target_resource);
+         }
+         break;
+         }
+
+         // TODO: fall back to pixel shader if the formats/sizes are not compatible? Otherwise add a safety check to avoid crashing (it doesn't seem to)
+         if (source_resource.get() && target_resource.get() && source_resource.get() != target_resource.get())
+         {
+#if 0 // We don't actually need to force run the original draw call
+            draw_func();
+#endif
+            native_device_context->CopyResource(target_resource.get(), source_resource.get());
+            return true; // Make sure the original draw call is cancelled, otherwise the target resource would get overwritten
+         }
+      }
+
+      return false;
+   }
+#endif //DEVELOPMENT
+
    bool OnDraw(
       reshade::api::command_list* cmd_list,
       uint32_t vertex_count,
@@ -2823,22 +2941,21 @@ namespace
       uint32_t first_vertex,
       uint32_t first_instance)
    {
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
 #if DEVELOPMENT
-      // TODO: add support for cancelled passes here (and below), given that we can't retrieve the render target texture anymore.
-      // First run the draw call (don't delegate it to ReShade) and then copy its output
       CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+      ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
+
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle))
-      {
-         auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         // TODO: make the "debug_draw_pipeline_target_instance" by thread (and command list) too
-         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
+		wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle);
+
+      DrawStateStack pre_draw_state_stack;
+      if (wants_debug_draw)
          {
-            if (!cancelled_or_replaced)
+         pre_draw_state_stack.Cache(native_device_context);
+      }
+
+      std::function<void()> drawLambda = [&]()
             {
-               ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
                if (instance_count > 1)
                {
                   native_device_context->DrawInstanced(vertex_count, instance_count, first_vertex, first_instance);
@@ -2848,12 +2965,62 @@ namespace
                   ASSERT_ONCE(first_instance == 0);
                   native_device_context->Draw(vertex_count, first_vertex);
                }
-               cancelled_or_replaced = true;
+         };
+#endif
+      ShaderHashesList original_shader_hashes;
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
+#if DEVELOPMENT
+#if 0 // We should do this manually when replacing each draw call, we don't know if it was replaced or cancelled here
+      {
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (cancelled_or_replaced && trace_running)
+         {
+            const std::shared_lock lock_generic(s_mutex_generic);
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            if (cmd_list_data.pipeline_state_original_pixel_shader.handle != 0)
+            {
+               cmd_list_data.trace_draw_calls_data[cmd_list_data.trace_draw_calls_data.size() - 1].skipped = true;
+            }
+         }
+      }
+#endif
+
+      // First run the draw call (don't delegate it to ReShade) and then copy its output
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
+      {
+         auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
+         // TODO: make the "debug_draw_pipeline_target_instance" by thread (and command list) too, though it's rarely useful
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
+         {
+            DrawStateStack post_draw_state_stack;
+
+            if (!cancelled_or_replaced)
+            {
+               drawLambda();
+            }
+            else if (!debug_draw_replaced_pass)
+            {
+               post_draw_state_stack.Cache(native_device_context);
+               pre_draw_state_stack.Restore(native_device_context);
             }
 
             CopyDebugDrawTexture(debug_draw_mode, debug_draw_view_index, cmd_list, false);
+
+            if (cancelled_or_replaced && !debug_draw_replaced_pass)
+            {
+               post_draw_state_stack.Restore(native_device_context);
          }
+            cancelled_or_replaced = true;
       }
+      }
+      if (cancelled_or_replaced)
+      {
+         // Cancel the lambda as we've already drawn once, we don't want to do it further below
+         drawLambda = []() {};
+      }
+
+      const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, false, drawLambda);
 #endif
       return cancelled_or_replaced;
    }
@@ -2866,20 +3033,21 @@ namespace
       int32_t vertex_offset,
       uint32_t first_instance)
    {
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
 #if DEVELOPMENT
-      // First run the draw call (don't delegate it to ReShade) and then copy its output
       CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+      ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
+
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle))
-      {
-         auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
+      wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle);
+
+      DrawStateStack pre_draw_state_stack;
+      if (wants_debug_draw)
          {
-            if (!cancelled_or_replaced)
+         pre_draw_state_stack.Cache(native_device_context);
+      }
+
+      std::function<void()> drawLambda = [&]()
             {
-               ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
                if (instance_count > 1)
                {
                   native_device_context->DrawIndexedInstanced(index_count, instance_count, first_index, vertex_offset, first_instance);
@@ -2889,39 +3057,108 @@ namespace
                   ASSERT_ONCE(first_instance == 0);
                   native_device_context->DrawIndexed(index_count, first_index, vertex_offset);
                }
-               cancelled_or_replaced = true;
+         };
+#endif
+      ShaderHashesList original_shader_hashes;
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
+#if DEVELOPMENT
+      // First run the draw call (don't delegate it to ReShade) and then copy its output
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
+      {
+         auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
+         {
+            DrawStateStack post_draw_state_stack;
+
+            if (!cancelled_or_replaced)
+            {
+               drawLambda();
+            }
+            else if (!debug_draw_replaced_pass)
+            {
+               post_draw_state_stack.Cache(native_device_context);
+               pre_draw_state_stack.Restore(native_device_context);
             }
 
             CopyDebugDrawTexture(debug_draw_mode, debug_draw_view_index, cmd_list, false);
+
+            if (cancelled_or_replaced && !debug_draw_replaced_pass)
+            {
+               post_draw_state_stack.Restore(native_device_context);
+            }
+            cancelled_or_replaced = true;
          }
       }
+      if (cancelled_or_replaced)
+      {
+         // Cancel the lambda as we've already drawn once, we don't want to do it further below
+         drawLambda = []() {};
+      }
+
+      const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, false, drawLambda);
 #endif
       return cancelled_or_replaced;
    }
 
    bool OnDispatch(reshade::api::command_list* cmd_list, uint32_t group_count_x, uint32_t group_count_y, uint32_t group_count_z)
    {
+#if DEVELOPMENT
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+      ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
+
+      bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
+      wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_compute_shader.handle);
+
+      DrawStateStack<DrawStateStackType::Compute> pre_draw_state_stack;
+      if (wants_debug_draw)
+      {
+         pre_draw_state_stack.Cache(native_device_context);
+      }
+
+      std::function<void()> drawLambda = [&]()
+         {
+            native_device_context->Dispatch(group_count_x, group_count_y, group_count_z);
+         };
+#endif
       ShaderHashesList original_shader_hashes;
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, true, original_shader_hashes);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
-      bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_compute_shader.handle))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
          {
+            DrawStateStack<DrawStateStackType::Compute> post_draw_state_stack;
+
             if (!cancelled_or_replaced)
             {
-               ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
-               native_device_context->Dispatch(group_count_x, group_count_y, group_count_z);
-               cancelled_or_replaced = true;
+               drawLambda();
+            }
+            else if (!debug_draw_replaced_pass)
+            {
+               post_draw_state_stack.Cache(native_device_context);
+               pre_draw_state_stack.Restore(native_device_context);
             }
 
             CopyDebugDrawTexture(debug_draw_mode, debug_draw_view_index, cmd_list, true);
+
+            if (cancelled_or_replaced && !debug_draw_replaced_pass)
+            {
+               post_draw_state_stack.Restore(native_device_context);
+            }
+            cancelled_or_replaced = true;
          }
       }
+      if (cancelled_or_replaced)
+      {
+         // Cancel the lambda as we've already drawn once, we don't want to do it further below
+         drawLambda = []() {};
+      }
+
+      const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, true, drawLambda);
 #endif
       return cancelled_or_replaced;
    }
@@ -2935,29 +3172,35 @@ namespace
       uint32_t stride)
    {
       // Not used by Dishonored 2 (DrawIndexedInstancedIndirect() and DrawInstancedIndirect() weren't used in Void Engine). Happens in Vertigo (Unity).
-
-      bool is_dispatch = type == reshade::api::indirect_command::dispatch;
+      const bool is_dispatch = type == reshade::api::indirect_command::dispatch;
       // Unsupported types (not used in DX11)
       ASSERT_ONCE(type != reshade::api::indirect_command::dispatch_mesh && type != reshade::api::indirect_command::dispatch_rays);
       // NOTE: according to ShortFuse, this can be "reshade::api::indirect_command::unknown" too, so we'd need to fall back on checking what shader is bound to know if this is a compute shader draw
       ASSERT_ONCE(type != reshade::api::indirect_command::unknown);
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch, original_shader_hashes);
+
 #if DEVELOPMENT
       CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+      ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
+
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)) && (debug_draw_pipeline == 0 || debug_draw_pipeline == (is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader.handle : cmd_list_data.pipeline_state_original_pixel_shader.handle)))
-      {
-         auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
+      wants_debug_draw &= debug_draw_pipeline == 0 || debug_draw_pipeline == (is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader.handle : cmd_list_data.pipeline_state_original_pixel_shader.handle);
+
+      DrawStateStack<DrawStateStackType::FullGraphics> pre_draw_state_stack_graphics;
+      DrawStateStack<DrawStateStackType::Compute> pre_draw_state_stack_compute;
+      if (wants_debug_draw)
          {
-            if (!cancelled_or_replaced)
+         if (is_dispatch)
+            pre_draw_state_stack_compute.Cache(native_device_context);
+         else
+            pre_draw_state_stack_graphics.Cache(native_device_context);
+      }
+
+      std::function<void()> drawLambda = [&]()
             {
                // We only support one draw for now (it couldn't be otherwise in DX11)
                ASSERT_ONCE(draw_count == 1);
                uint32_t i = 0;
 
-               ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
                if (is_dispatch)
                {
                   native_device_context->DispatchIndirect(reinterpret_cast<ID3D11Buffer*>(buffer.handle), static_cast<UINT>(offset) + i * stride);
@@ -2973,12 +3216,57 @@ namespace
                      native_device_context->DrawInstancedIndirect(reinterpret_cast<ID3D11Buffer*>(buffer.handle), static_cast<UINT>(offset) + i * stride);
                   }
                }
-               cancelled_or_replaced = true;
+         };
+#endif
+      ShaderHashesList original_shader_hashes;
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch, original_shader_hashes);
+#if DEVELOPMENT
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)))
+      {
+         auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
+         if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
+         {
+            DrawStateStack<DrawStateStackType::FullGraphics> post_draw_state_stack_graphics;
+            DrawStateStack<DrawStateStackType::Compute> post_draw_state_stack_compute;
+
+            if (!cancelled_or_replaced)
+            {
+               drawLambda();
+            }
+            else if (!debug_draw_replaced_pass)
+            {
+               if (is_dispatch)
+               {
+                  post_draw_state_stack_compute.Cache(native_device_context);
+                  pre_draw_state_stack_compute.Restore(native_device_context);
+               }
+               else
+               {
+                  post_draw_state_stack_graphics.Cache(native_device_context);
+                  pre_draw_state_stack_graphics.Restore(native_device_context);
+               }
             }
 
             CopyDebugDrawTexture(debug_draw_mode, debug_draw_view_index, cmd_list, is_dispatch);
+
+            if (cancelled_or_replaced && !debug_draw_replaced_pass)
+            {
+               if (is_dispatch)
+                  post_draw_state_stack_compute.Restore(native_device_context);
+               else
+                  post_draw_state_stack_graphics.Restore(native_device_context);
          }
+            cancelled_or_replaced = true;
       }
+      }
+      if (cancelled_or_replaced)
+      {
+         // Cancel the lambda as we've already drawn once, we don't want to do it further below
+         drawLambda = []() {};
+      }
+
+      const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, is_dispatch, drawLambda);
 #endif
       return cancelled_or_replaced;
    }
@@ -4100,7 +4388,7 @@ namespace
                hr = native_device->CreateRenderTargetView(proxy_target_resource_texture.get(), &target_rtv_desc, &target_resource_texture_view);
                ASSERT_ONCE(SUCCEEDED(hr));
 
-               DrawStateStack draw_state_stack;
+               DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
                draw_state_stack.Cache(native_device_context);
 
                DrawCustomPixelShader(native_device_context, device_data.default_depth_stencil_state.get(), device_data.default_blend_state.get(), device_data.copy_vertex_shader.get(), device_data.copy_pixel_shader.get(), source_resource_texture_view.get(), target_resource_texture_view.get(), target_desc.Width, target_desc.Height, true);
@@ -4924,10 +5212,17 @@ namespace
                               }
                            }
                         }
+                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Custom)
+                        {
+                           text_color = IM_COL32(0, 0, 255, 255); // Blue
+
+                           name << std::setfill('0') << std::setw(3) << index << std::setw(0);
+                           name << " - " << cmd_list_data.trace_draw_calls_data.at(index).custom_name;
+                        }
                         else
                         {
                            text_color = IM_COL32(255, 0, 0, 255); // Red
-                           name << " - ERROR: Trace data not found"; // The draw call either had an empty (e.g. pixel) shader set, or the game has since unloaded them
+                           name << "ERROR: Trace data not found"; // The draw call either had an empty (e.g. pixel) shader set, or the game has since unloaded them
                         }
 
                         if (found_highlighted_resource_write || found_highlighted_resource_read)
@@ -5203,6 +5498,7 @@ namespace
                                        debug_draw_pipeline_target_instance = debug_draw_shader_enabled ? -1 : target_instance;
                                        debug_draw_mode = pipeline_pair->second->HasPixelShader() ? DebugDrawMode::RenderTarget : (pipeline_pair->second->HasComputeShader() ? DebugDrawMode::UnorderedAccessView : DebugDrawMode::ShaderResource); // Do it regardless of "debug_draw_shader_enabled"
                                        debug_draw_view_index = 0;
+                                       //debug_draw_replaced_pass = false;
 #endif
                                     }
                                  }
@@ -5247,7 +5543,7 @@ namespace
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
                                           if (sr_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
                                           {
-                                             ImGui::Text("R Upgraded");
+                                             ImGui::Text("R: Upgraded");
                                              break;
                                           }
                                        }
@@ -5308,7 +5604,7 @@ namespace
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
                                           if (uar_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
                                           {
-                                             ImGui::Text("R Upgraded");
+                                             ImGui::Text("R: Upgraded");
                                              break;
                                           }
                                        }
@@ -5323,6 +5619,36 @@ namespace
                                        {
                                           debug_draw_mode = DebugDrawMode::UnorderedAccessView;
                                           debug_draw_view_index = i;
+                                       }
+
+                                       bool is_redirection_target = pipeline_pair->second->redirect_data.target_type == CachedPipeline::RedirectData::RedirectTargetType::UAV && pipeline_pair->second->redirect_data.target_index == i;
+                                       if (pipeline_pair->second->redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::None && is_redirection_target && ImGui::Button("Disable Copy"))
+                                       {
+                                          pipeline_pair->second->redirect_data.source_type = CachedPipeline::RedirectData::RedirectSourceType::None;
+                                          pipeline_pair->second->redirect_data.target_type = CachedPipeline::RedirectData::RedirectTargetType::None;
+                                          pipeline_pair->second->redirect_data.source_index = 0;
+                                          pipeline_pair->second->redirect_data.target_index = 0;
+                                          is_redirection_target = false;
+                                       }
+                                       if ((pipeline_pair->second->redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::SRV || !is_redirection_target) && ImGui::Button("Copy from SRV"))
+                                       {
+                                          pipeline_pair->second->redirect_data.source_type = CachedPipeline::RedirectData::RedirectSourceType::SRV;
+                                          pipeline_pair->second->redirect_data.target_type = CachedPipeline::RedirectData::RedirectTargetType::UAV;
+                                          pipeline_pair->second->redirect_data.source_index = 0;
+                                          pipeline_pair->second->redirect_data.target_index = i;
+                                          is_redirection_target = true;
+                                       }
+                                       if ((pipeline_pair->second->redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::UAV || !is_redirection_target) && ImGui::Button("Copy from UAV"))
+                                       {
+                                          pipeline_pair->second->redirect_data.source_type = CachedPipeline::RedirectData::RedirectSourceType::UAV;
+                                          pipeline_pair->second->redirect_data.target_type = CachedPipeline::RedirectData::RedirectTargetType::UAV;
+                                          pipeline_pair->second->redirect_data.source_index = 0;
+                                          pipeline_pair->second->redirect_data.target_index = i;
+                                          is_redirection_target = true;
+                                       }
+                                       if (is_redirection_target)
+                                       {
+                                          ImGui::SliderInt("Copy from View Index", &pipeline_pair->second->redirect_data.source_index, 0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT /*The largest allowed view count by type*/);
                                        }
 
                                        ImGui::PopID();
@@ -5372,7 +5698,7 @@ namespace
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
                                           if (rt_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
                                           {
-                                             ImGui::Text("R Upgraded");
+                                             ImGui::Text("R: Upgraded");
                                              break;
                                           }
                                        }
@@ -5457,6 +5783,36 @@ namespace
                                        {
                                           debug_draw_mode = DebugDrawMode::RenderTarget;
                                           debug_draw_view_index = i;
+                                       }
+
+                                       bool is_redirection_target = pipeline_pair->second->redirect_data.target_type == CachedPipeline::RedirectData::RedirectTargetType::RTV && pipeline_pair->second->redirect_data.target_index == i;
+                                       if (pipeline_pair->second->redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::None && is_redirection_target && ImGui::Button("Disable Copy"))
+                                       {
+                                          pipeline_pair->second->redirect_data.source_type = CachedPipeline::RedirectData::RedirectSourceType::None;
+                                          pipeline_pair->second->redirect_data.target_type = CachedPipeline::RedirectData::RedirectTargetType::None;
+                                          pipeline_pair->second->redirect_data.source_index = 0;
+                                          pipeline_pair->second->redirect_data.target_index = 0;
+                                          is_redirection_target = false;
+                                       }
+                                       if ((pipeline_pair->second->redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::SRV || !is_redirection_target) && ImGui::Button("Copy from SRV"))
+                                       {
+                                          pipeline_pair->second->redirect_data.source_type = CachedPipeline::RedirectData::RedirectSourceType::SRV;
+                                          pipeline_pair->second->redirect_data.target_type = CachedPipeline::RedirectData::RedirectTargetType::RTV;
+                                          pipeline_pair->second->redirect_data.source_index = 0;
+                                          pipeline_pair->second->redirect_data.target_index = i;
+                                          is_redirection_target = true;
+                                       }
+                                       if ((pipeline_pair->second->redirect_data.source_type != CachedPipeline::RedirectData::RedirectSourceType::UAV || !is_redirection_target) && ImGui::Button("Copy from UAV"))
+                                       {
+                                          pipeline_pair->second->redirect_data.source_type = CachedPipeline::RedirectData::RedirectSourceType::UAV;
+                                          pipeline_pair->second->redirect_data.target_type = CachedPipeline::RedirectData::RedirectTargetType::RTV;
+                                          pipeline_pair->second->redirect_data.source_index = 0;
+                                          pipeline_pair->second->redirect_data.target_index = i;
+                                          is_redirection_target = true;
+                                       }
+                                       if (is_redirection_target)
+                                       {
+                                          ImGui::SliderInt("Copy from View Index", &pipeline_pair->second->redirect_data.source_index, 0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT /*The largest allowed view count by type*/);
                                        }
 
                                        ImGui::PopID();
@@ -5948,12 +6304,13 @@ namespace
                   }
                   else if (debug_draw_mode == DebugDrawMode::UnorderedAccessView)
                   {
-                     ImGui::SliderInt("Debug Draw: Unordered Access View", &debug_draw_view_index, 0, D3D11_1_UAV_SLOT_COUNT - 1);
+                     ImGui::SliderInt("Debug Draw: Unordered Access View", &debug_draw_view_index, 0, D3D11_1_UAV_SLOT_COUNT - 1); // "D3D11_PS_CS_UAV_REGISTER_COUNT" is smaller (we should theoretically use that unless we are a compute shader)
                   }
                   else /*if (debug_draw_mode == DebugDrawMode::ShaderResource)*/
                   {
                      ImGui::SliderInt("Debug Draw: Pixel Shader Resource Index", &debug_draw_view_index, 0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - 1);
                   }
+                  ImGui::Checkbox("Debug Draw: Allow Drawing Replaced Pass", &debug_draw_replaced_pass);
                   ImGui::SliderInt("Debug Draw: Pipeline Instance", &debug_draw_pipeline_target_instance, -1, 100); // In case the same pipeline was run more than once by the game, we can pick one to print
                   bool debug_draw_fullscreen = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::Fullscreen) != 0;
                   bool debug_draw_rend_res_scale = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::RenderResolutionScale) != 0;

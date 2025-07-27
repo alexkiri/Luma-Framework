@@ -17,9 +17,30 @@ namespace Shader
       reshade::api::pipeline pipeline_clone;
       // Original shaders hash (there should only be one)
       std::vector<uint32_t> shader_hashes;
+
 #if DEVELOPMENT
-      // If true, this pipeline is going to skip drawing
+      // If true, this pipeline is going to skip drawing (this might draw black or leave the previous target textures value persisting)
       bool skip = false;
+
+      struct RedirectData
+      {
+			enum class RedirectSourceType : uint8_t
+         {
+            None = 0,
+            SRV = 1,
+            UAV = 2,
+         };
+         RedirectSourceType source_type = RedirectSourceType::None;
+         int source_index = 0;
+         enum class RedirectTargetType : uint8_t
+         {
+            None = 0,
+            RTV = 1,
+            UAV = 2,
+         };
+         RedirectTargetType target_type = RedirectTargetType::None;
+         int target_index = 0;
+      } redirect_data;
 #endif
 
       bool HasGeometryShader() const
