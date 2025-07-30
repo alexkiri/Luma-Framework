@@ -32,15 +32,6 @@ Multiple games are already in the code, and adding a new one is relatively easy.
 - VSCode is suggested.
 - Packaging mods for now is manual and the generic and game specific shader folders need to be put in a "Luma" folder in the mod binary directory.
 
-# To do and ideas
-- Add a utility to automatically package a game mod with all the files it might need
-- Improve the way games can add custom cbuffer variables
-- Allow packaging shaders with the mod binary (like RenoDX does)? I kinda like to have them as source tbh
-- Move the core.hpp code in a static or dynamic library, instead of including it as code in every game specific project
-- Add DirectX 12 support? Not planned for now. Luma is based on the simplicity of DX11
-- Clang format/tidy (spacing and syntax is quite mix as of now)
-- Make a generic mod that works on all games
-
 # Comparison with RenoDX
 Luma shares a lot with RenoDX (https://github.com/clshortfuse/renodx), where it got its original inspiration from, but Luma is more focused on modding games deep down, like for example adding and replacing entire rendering techniques.
 

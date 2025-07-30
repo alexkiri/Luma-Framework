@@ -156,7 +156,7 @@
       </Command>
     </CustomBuildStep>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%"</Command>
+      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Publishing-Release|x64'">

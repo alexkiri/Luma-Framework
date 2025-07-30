@@ -96,6 +96,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
       enable_texture_format_upgrades = true;
+      // Unity never scales textures, not even for bloom, and games like Shadows of Doubt have problems if upgrading random resources
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution;
       //TODOFT: Prince of Persia only requires r8g8b8a8_typeless
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
