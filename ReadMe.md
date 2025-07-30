@@ -13,7 +13,7 @@ Multiple games are already in the code, and adding a new one is relatively easy.
 - Install the latest VC++ redist before running the code (https://aka.ms/vs/17/release/vc_redist.x64.exe), we enforced users to update to the latest versions, but "_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR" could be defined to avoid that.
 - Open "Luma.sln" and build it. Note that "Edit and Continue" build settings (\ZI) should not be used as they break the code patches generation (at least for projects that use DKUtil).
 - The code hot spots are in core.hpp and each game's main.cpp files.
-- Luma uses the same code for developing and shipping mods. There's a "DEVELOPMENT" and "TEST" flag (defines) in "global_defines.h", they respectively add development and testing features. They automatically spread to shaders on the next load/compile. Building in Debug (as opposed to Release), simply adds debug symbols etc, but no additional development features.
+- Luma uses the game project for developing and shipping mods. Simply toggle between DEVELOPMENT, TEST and PUBLISHING configurations to enable their respective features. They automatically spread to shaders on the next load/compile. Building in Debug (as opposed to Release), simply adds debug symbols etc, but no additional development features.
 
 # Adding a new game mod
 - Add a new project to the solution and select the Luma Template project, add it under ".\Source\Games". You can name it with the full game name, including spaces etc. You can manually check out the Template project that is already in the Luma solution for more information.
@@ -35,7 +35,6 @@ Multiple games are already in the code, and adding a new one is relatively easy.
 # To do and ideas
 - Add a utility to automatically package a game mod with all the files it might need
 - Improve the way games can add custom cbuffer variables
-- Move the defines in "global_defines.h" as Solution Configurations in Visual Studio? So one doesn't need to edit the code to swap them
 - Allow packaging shaders with the mod binary (like RenoDX does)? I kinda like to have them as source tbh
 - Move the core.hpp code in a static or dynamic library, instead of including it as code in every game specific project
 - Add DirectX 12 support? Not planned for now. Luma is based on the simplicity of DX11
