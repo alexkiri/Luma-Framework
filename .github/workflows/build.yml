@@ -30,12 +30,12 @@ jobs:
     - name: Bootstrap vcpkg
       run: .\vcpkg\bootstrap-vcpkg.bat
 
-    #exclusively for Prey. Ideally it should find the vcpkg.json automatically
-    - name: Install vcpkg packages
-      run: |
-        .\vcpkg\vcpkg install --triplet x64-windows --manifest-root=./Source/Games/Prey --debug
+#    #exclusively for Prey. Ideally it should find the vcpkg.json automatically
+#    - name: Install vcpkg packages
+#      run: |
+#        .\vcpkg\vcpkg install --triplet x64-windows --manifest-root=./Source/Games/Prey --debug
 #        .\vcpkg\vcpkg install --triplet x86-windows --manifest-root=./Source/Games/Prey
-      continue-on-error: true
+#      continue-on-error: true
 
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
@@ -48,7 +48,7 @@ jobs:
       with:
         name: Binaries-${{ matrix.config }}-${{ matrix.platform }}
         path: |
-          **/${{ matrix.platform }}/${{ matrix.config }}/*.addon
-          **/${{ matrix.platform }}/${{ matrix.config }}/*.exe
-          **/${{ matrix.platform }}/${{ matrix.config }}/*.dll
-          **/${{ matrix.platform }}/${{ matrix.config }}/*.pdb
+          **/${{ matrix.platform }}-${{ matrix.config }}/*.addon
+          **/${{ matrix.platform }}-${{ matrix.config }}/*.exe
+          **/${{ matrix.platform }}-${{ matrix.config }}/*.dll
+          **/${{ matrix.platform }}-${{ matrix.config }}/*.pdb
