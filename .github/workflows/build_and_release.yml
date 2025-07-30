@@ -42,6 +42,8 @@ jobs:
       run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
 
     - name: Create ZIP per addon with matching shaders
+      id: create_zip
+      shell: pwsh
       # We only build publishing and test for now, development builds can be built locally by devs
       if: matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release'
       run: |
@@ -58,6 +60,13 @@ jobs:
         $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
 
         Write-Host "Project name extracted: $projectName"
+        
+        # We don't care to publish the template project, it's just there for reference
+        if ($projectName -like '*_Template*') {
+          Write-Host "Project is a template. Skipping ZIP creation and upload."
+          echo "skip_upload=true" >> $env:GITHUB_OUTPUT
+          exit 0
+        }
 
         # Paths
         $addonPath = $addonFile.FullName
@@ -69,12 +78,15 @@ jobs:
         # Create ZIP with addon and matching shaders
         Compress-Archive -Path $addonPath, $globalShaderPath, $includeShaderPath, $shaderPath -DestinationPath $zipName -Force
 
+        echo "zipfile=$zipName" >> $env:GITHUB_OUTPUT
+        echo "skip_upload=false" >> $env:GITHUB_OUTPUT
+
     - name: Upload ZIP
-      if: matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release'
+      if: steps.create_zip.outputs.skip_upload != 'true' && (matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release')
       uses: actions/upload-artifact@v4
       with:
-        name: Binaries-${{ matrix.config }}-${{ matrix.platform }}
-        path: Luma-*.zip
+        name: Package-${{ matrix.config }}-${{ matrix.platform }}
+        path: ${{ steps.create_zip.outputs.zipfile }}
 
   release:
     runs-on: ubuntu-latest
