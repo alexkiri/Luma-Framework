@@ -109,7 +109,7 @@ namespace NGX
 				NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
 				//| NVSDK_NGX_DLSS_Feature_Flags_Reserved_0 // Matches the old NVSDK_NGX_DLSS_Feature_Flags_DepthJittered, which has been removed (should already be on by default now)
 //TODOFT: expose settings per game (there's more around the file), when the need will come
-#if GAME_PREY // DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality
+#if GAME_PREY || GAME_FF7_REMAKE // DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality
 				| NVSDK_NGX_DLSS_Feature_Flags_DepthInverted
 #endif
 // We modified Prey to make sure this is the case (see "FORCE_MOTION_VECTORS_JITTERED").
@@ -463,7 +463,7 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0 // Disabled to avoid sharpening randomly coming back if users used old DLLs or NV restored it
 	evalParams.Feature.InSharpness = data->sharpness; // It's likely clamped between 0 and 1 internally, though a value of 0 might fall back to the internal default
 #endif
-#if !GAME_PREY
+#if !GAME_PREY && !GAME_FF7_REMAKE // Prey uses a different scale for MVs, so we need to use the render resolution instead of the output one
 	evalParams.InMVScaleX = 1.0;
 	evalParams.InMVScaleY = 1.0;
 #else // Needed in Prey
@@ -473,6 +473,9 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth);
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight);
+#elif GAME_FF7_REMAKE
+	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * 0.5f;
+	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * 0.5f;
 #elif GAME_PREY // This is what's needed by vanilla Prey
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * -0.5f;
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * 0.5f;
