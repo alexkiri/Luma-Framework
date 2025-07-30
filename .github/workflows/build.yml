@@ -30,12 +30,12 @@ jobs:
     - name: Bootstrap vcpkg
       run: .\vcpkg\bootstrap-vcpkg.bat
 
-#    #exclusively for Prey. Ideally it should find the vcpkg.json automatically
-#    - name: Install vcpkg packages
-#      run: |
-#        .\vcpkg\vcpkg install --triplet x64-windows --manifest-root=./Source/Games/Prey --debug
-#        .\vcpkg\vcpkg install --triplet x86-windows --manifest-root=./Source/Games/Prey
-#      continue-on-error: true
+    #exclusively for Prey. Ideally it should find the vcpkg.json automatically
+    - name: Install vcpkg packages
+      run: |
+        .\vcpkg\vcpkg install --triplet x64-windows --x-manifest-root=./Source/Games/Prey --debug
+#        .\vcpkg\vcpkg install --triplet x86-windows --x-manifest-root=./Source/Games/Prey --debug
+      continue-on-error: true
 
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
