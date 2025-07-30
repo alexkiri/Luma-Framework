@@ -30,7 +30,9 @@ jobs:
     - name: Bootstrap vcpkg
       run: .\vcpkg\bootstrap-vcpkg.bat
 
+    #exclusively for Prey. Ideally it should find the vcpkg.json automatically
     - name: Install vcpkg packages
+      working-directory: ./Source/Games/Prey
       run: |
         .\vcpkg\vcpkg install --triplet x64-windows
         .\vcpkg\vcpkg install --triplet x86-windows
