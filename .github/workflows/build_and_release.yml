@@ -28,7 +28,7 @@ jobs:
     - name: Bootstrap vcpkg
       run: .\vcpkg\bootstrap-vcpkg.bat
 
-    #exclusively for Prey (which is x64). Ideally it should find the vcpkg.json automatically
+    # Exclusively for Prey (which is x64). Ideally it should find the vcpkg.json automatically
     - name: Install vcpkg packages
       run: |
         .\vcpkg\vcpkg install --triplet x64-windows --x-manifest-root=./Source/Games/Prey
@@ -41,7 +41,9 @@ jobs:
     - name: Build Luma.sln ${{ matrix.config }}|${{ matrix.platform }}
       run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
 
-    - name: Upload all EXEs and DLLs from binaries folders
+    - name: Upload all relevant binaries
+      # We only build publishing and test for now, development builds can be built locally by devs
+      if: matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release'
       uses: actions/upload-artifact@v4
       with:
         name: Binaries-${{ matrix.config }}-${{ matrix.platform }}
@@ -64,10 +66,9 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: nightly-${{ github.run_number }}
-          name: Nightly Build ${{ github.run_number }}
-          body: |
-            This is an automated release of all DLLs from matrix builds.
+          tag_name: latest-${{ github.run_number }}
+          name: Latest Release Build ${{ github.run_number }}
+#          body: This is an automated release of binaries.
           files: |
             **/*.addon
         env:

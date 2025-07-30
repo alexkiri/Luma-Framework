@@ -158,7 +158,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::WEBSITE = ""; // E.g. Nexus link
       Globals::VERSION = 1; // Increase this to reset the game settings and shader binaries after making large changes to your mod
 
-      // The following can be toggled in the dev settings (it generally only fully applies after changing the game's resolution)
+      // The following can be toggled in the dev settings (it generally only fully applies after changing the game's resolution).
+      // Default these to "false" for the mod to not do "anything" that might cause issues with the game by default.
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
       enable_texture_format_upgrades = true;
