@@ -1,12 +1,22 @@
 #pragma once
 
-#include "global_defines.h"
-
 // "_DEBUG" might already be defined in debug?
 // Setting it to 0 causes the compiler to still assume it as defined and that thus we are in debug mode (don't change this manually).
 #ifndef NDEBUG
 #define _DEBUG 1
 #endif // !NDEBUG
+
+// Enable when you are developing shaders or code (not debugging, there's "NDEBUG" for that).
+// This brings out the "devkit", allowing you to trace draw calls and a lot more stuff.
+#ifndef DEVELOPMENT
+#define DEVELOPMENT 0
+#endif // DEVELOPMENT
+// Enable when you are testing shaders or code (e.g. to dump the shaders, logging warnings, etc etc).
+// This is not mutually exclusive with "DEVELOPMENT", but it should be a sub-set of it.
+// If neither of these are true, then we are in "shipping" mode, with code meant to be used by the final user.
+#ifndef TEST
+#define TEST 0
+#endif // TEST
 
 #define LOG_VERBOSE ((DEVELOPMENT || TEST) && 0)
 
