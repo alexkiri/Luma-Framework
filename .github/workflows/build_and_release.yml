@@ -41,17 +41,40 @@ jobs:
     - name: Build Luma.sln ${{ matrix.config }}|${{ matrix.platform }}
       run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
 
-    - name: Upload all relevant binaries
+    - name: Create ZIP per addon with matching shaders
       # We only build publishing and test for now, development builds can be built locally by devs
+      if: matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release'
+      run: |
+        # Find the addon file in the build folder (adjust path accordingly)
+        $addonFile = Get-ChildItem -Path "${{ matrix.platform }}-${{ matrix.config }}" -Filter "Luma-*.addon" | Select-Object -First 1
+
+        if (-not $addonFile) {
+          Write-Error "Addon file not found!"
+          exit 1
+        }
+
+        # Extract project name by removing prefix 'Luma-' and suffix '.addon'
+        $fileName = $addonFile.Name
+        $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
+
+        Write-Host "Project name extracted: $projectName"
+
+        # Paths
+        $addonPath = $addonFile.FullName
+        $globalShaderPath = "Luma-Framework\Shaders\Global\**\*.hlsl"
+        $includeShaderPath = "Luma-Framework\Shaders\Includes\**\*.hlsl"
+        $shaderPath = "Luma-Framework\Shaders\$projectName\**\*.hlsl"
+        $zipName = "Luma-$projectName.zip"
+
+        # Create ZIP with addon and matching shaders
+        Compress-Archive -Path $addonPath, $globalShaderPath, $includeShaderPath, $shaderPath -DestinationPath $zipName -Force
+
+    - name: Upload ZIP
       if: matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release'
       uses: actions/upload-artifact@v4
       with:
         name: Binaries-${{ matrix.config }}-${{ matrix.platform }}
-        path: |
-          **/${{ matrix.platform }}-${{ matrix.config }}/*.addon
-#          **/${{ matrix.platform }}-${{ matrix.config }}/*.exe
-#          **/${{ matrix.platform }}-${{ matrix.config }}/*.dll
-#          **/${{ matrix.platform }}-${{ matrix.config }}/*.pdb
+        path: Luma-*.zip
 
   release:
     runs-on: ubuntu-latest
