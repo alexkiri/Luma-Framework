@@ -1827,6 +1827,34 @@ namespace
          {
             device_data.back_buffers.erase(handle);
          }
+
+         // Before resizing the swapchain, we need to make sure any of its resources/views are not bound to any state
+         if (!swapchain_data.display_composition_rtvs.empty())
+         {
+            ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+            com_ptr<ID3D11DeviceContext> primary_command_list;
+            native_device->GetImmediateContext(&primary_command_list);
+            com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
+            com_ptr<ID3D11DepthStencilView> depth_stencil_view;
+            primary_command_list->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &depth_stencil_view);
+            bool rts_changed = false;
+            for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+            {
+               for (const auto& display_composition_rtv : swapchain_data.display_composition_rtvs)
+               {
+                  if (rtvs[i].get() != nullptr && rtvs[i].get() == display_composition_rtv.get())
+                  {
+                     rtvs[i] = nullptr;
+                     rts_changed = true;
+                  }
+               }
+            }
+            if (rts_changed)
+            {
+               ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(rtvs[0]);
+               primary_command_list->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
+            }
+         }
       }
 
       swapchain->destroy_private_data<SwapchainData>();
@@ -2131,7 +2159,8 @@ namespace
    {
       constexpr bool force_update = false;
 
-      // Most games (e.g. Prey, Dishonored 2) doesn't ever use these buffers, so it's fine to re-apply them once per frame if they didn't change
+      // Most games (e.g. Prey, Dishonored 2) doesn't ever use these buffers, so it's fine to re-apply them once per frame if they didn't change.
+      // For other games, it'd be good to re-apply the previously set cbuffer after temporarily changing it, as they might only set them once per frame.
       switch (type)
       {
       case LumaConstantBufferType::LumaSettings:
