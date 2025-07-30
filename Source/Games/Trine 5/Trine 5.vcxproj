@@ -204,7 +204,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%"</Command>
+      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Test-Release|x64'">
@@ -252,7 +252,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%"</Command>
+      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Development-Release|x64'">
@@ -300,7 +300,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%"</Command>
+      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
