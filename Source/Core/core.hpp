@@ -1791,20 +1791,22 @@ namespace
          }
          device_data.cb_luma_frame_settings_dirty = true;
 
-#if 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
          if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
          {
+#if 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
+
             UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
             DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
             hr = native_swapchain3->ResizeBuffers(0, 0, 0, format, flags); // Pass in zero to not change any values if not the format
             ASSERT_ONCE(SUCCEEDED(hr));
+#endif
+         }
 
             DXGI_COLOR_SPACE_TYPE colorSpace;
-            colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? Add HDR10 support...
+         colorSpace = (enable_swapchain_upgrade && swapchain_upgrade_type > 0) ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
             hr = native_swapchain3->SetColorSpace1(colorSpace);
             ASSERT_ONCE(SUCCEEDED(hr));
-         }
-#endif
 
          // We release the resource because the swapchain lifespan is, and should be, controlled by the game.
          // We already have "OnDestroySwapchain()" to handle its destruction.

@@ -158,6 +158,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::WEBSITE = ""; // E.g. Nexus link
       Globals::VERSION = 1; // Increase this to reset the game settings and shader binaries after making large changes to your mod
 
+      // The following can be toggled in the dev settings (it generally only fully applies after changing the game's resolution)
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
       enable_texture_format_upgrades = true;
@@ -182,8 +183,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
             reshade::api::format::r11g11b10_float,
       };
+      // Set this to the size and type of the main color grading LUT you might want to upgrade (optional)
       texture_format_upgrades_lut_size = 32;
       texture_format_upgrades_lut_dimensions = LUTDimensions::_2D;
+		// In case the textures failed to upgrade, tweak the filtering conditions to be more lenient (e.g. aspect ratio checks etc).
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio;
 
       // Create your game sub-class instance (it will be automatically destroyed on exit).
       // You do not need to do this if you have no custom data to store.
