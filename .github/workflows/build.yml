@@ -10,6 +10,11 @@ jobs:
   build:
     runs-on: windows-latest
 
+    strategy:
+      matrix:
+        config: [Development-Debug, Development-Release, Test-Release, Publishing-Release]
+        platform: [x64, Win32]
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -19,15 +24,29 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.3.1
 
-    - name: Build Luma.sln (Development-Release|x64)
-      run: msbuild Luma.sln /p:Configuration=Publishing-Release /p:Platform=x64
+    - name: Clone vcpkg
+      run: git clone https://github.com/microsoft/vcpkg.git
+
+    - name: Bootstrap vcpkg
+      run: .\vcpkg\bootstrap-vcpkg.bat
+
+    - name: Install vcpkg packages
+      run: |
+        .\vcpkg\vcpkg install --triplet x64-windows
+        .\vcpkg\vcpkg install --triplet x86-windows
+
+    - name: Integrate vcpkg with MSBuild
+      run: .\vcpkg\vcpkg integrate install
+
+    - name: Build Luma.sln ${{ matrix.config }}|${{ matrix.platform }}
+      run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
 
     - name: Upload all EXEs and DLLs from Release folders
       uses: actions/upload-artifact@v4
       with:
-        name: All-Binaries
+        name: Binaries-${{ matrix.config }}-${{ matrix.platform }}
         path: |
-          **/x64/Publishing-Release/*.addon
-          **/x64/Publishing-Release/*.exe
-          **/x64/Publishing-Release/*.dll
-          **/x64/Publishing-Release/*.pdb
+          **/${{ matrix.platform }}/${{ matrix.config }}/*.addon
+          **/${{ matrix.platform }}/${{ matrix.config }}/*.exe
+          **/${{ matrix.platform }}/${{ matrix.config }}/*.dll
+          **/${{ matrix.platform }}/${{ matrix.config }}/*.pdb
