@@ -33,8 +33,8 @@ jobs:
     #exclusively for Prey. Ideally it should find the vcpkg.json automatically
     - name: Install vcpkg packages
       run: |
-        .\vcpkg\vcpkg install --triplet x64-windows --manifest-root=./Source/Games/Prey
-        .\vcpkg\vcpkg install --triplet x86-windows --manifest-root=./Source/Games/Prey
+        .\vcpkg\vcpkg install --triplet x64-windows --manifest-root=./Source/Games/Prey --debug
+        #.\vcpkg\vcpkg install --triplet x86-windows --manifest-root=./Source/Games/Prey
 
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
