@@ -42,7 +42,7 @@ jobs:
     - name: Build Luma.sln ${{ matrix.config }}|${{ matrix.platform }}
       run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
 
-    - name: Upload all EXEs and DLLs from Release folders
+    - name: Upload all EXEs and DLLs from binaries folders
       uses: actions/upload-artifact@v4
       with:
         name: Binaries-${{ matrix.config }}-${{ matrix.platform }}
