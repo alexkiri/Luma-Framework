@@ -28,7 +28,7 @@ jobs:
     - name: Bootstrap vcpkg
       run: .\vcpkg\bootstrap-vcpkg.bat
 
-    #exclusively for Prey. Ideally it should find the vcpkg.json automatically
+    #exclusively for Prey (which is x64). Ideally it should find the vcpkg.json automatically
     - name: Install vcpkg packages
       run: |
         .\vcpkg\vcpkg install --triplet x64-windows --x-manifest-root=./Source/Games/Prey
@@ -69,6 +69,6 @@ jobs:
           body: |
             This is an automated release of all DLLs from matrix builds.
           files: |
-            *.addon
+            **/*.addon
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
