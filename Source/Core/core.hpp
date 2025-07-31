@@ -20,7 +20,7 @@
 
 #define LOG_VERBOSE ((DEVELOPMENT || TEST) && 0)
 
-// Disables loading the ReShade Addon code (useful to test the mod without any ReShade dependencies)
+// Disables loading the ReShade Addon code (useful to test the mod without any ReShade dependencies (e.g. optionally "Prey"))
 #define DISABLE_RESHADE 0
 
 #pragma comment(lib, "dxguid.lib")
@@ -1996,12 +1996,77 @@ namespace
                }
 #endif // ALLOW_SHADERS_DUMPING
 
+#if DEVELOPMENT
+               typedef HRESULT(WINAPI* pD3DReflect)(LPCVOID, SIZE_T, REFIID, void**);
+               static HMODULE d3d_compiler;
+               static pD3DReflect d3d_reflect;
+               {
+                  //const std::lock_guard<std::mutex> lock(s_mutex_shader_compiler); //TODOFT: safe
+                  if (d3d_compiler == nullptr)
+                  {
+                     d3d_compiler = LoadLibraryW(L"D3DCompiler_47.dll");
+                  }
+                  if (d3d_compiler != nullptr && d3d_reflect == nullptr)
+                  {
+                     d3d_reflect = pD3DReflect(GetProcAddress(d3d_compiler, "D3DReflect"));
+                  }
+               }
+               
+               com_ptr<ID3D11ShaderReflection> shader_reflector;
+               HRESULT hr = d3d_reflect(new_desc->code, new_desc->code_size, IID_ID3D11ShaderReflection, (void**)&shader_reflector);
+               if (SUCCEEDED(hr))
+               {
+                  D3D11_SHADER_DESC shader_desc;
+                  shader_reflector->GetDesc(&shader_desc);
+
+                  // RTVs
+                  for (UINT i = 0; i < shader_desc.OutputParameters; ++i)
+                  {
+                     D3D11_SIGNATURE_PARAMETER_DESC shader_output_desc;
+                     hr = shader_reflector->GetOutputParameterDesc(i, &shader_output_desc);
+                     if (SUCCEEDED(hr))
+                     {
+                        ASSERT_ONCE(shader_output_desc.SemanticIndex == shader_output_desc.Register)
+                        cached_pipeline->rtvs[shader_output_desc.SemanticIndex] = true;
+                     }
+                  }
+
+                  // SRVs and UAVs (it works for compute shaders too)
+                  for (UINT i = 0; i < shader_desc.BoundResources; ++i)
+                  {
+                     D3D11_SHADER_INPUT_BIND_DESC bind_desc;
+                     hr = shader_reflector->GetResourceBindingDesc(i, &bind_desc);
+                     if (SUCCEEDED(hr))
+                     {
+                        for (UINT j = 0; j < bind_desc.BindCount; ++j)
+                        {
+                           if (bind_desc.Type == D3D_SIT_TEXTURE)
+                           {
+                              cached_pipeline->srvs[bind_desc.BindPoint + j] = true;
+                           }
+                           else if (bind_desc.Type == D3D_SIT_UAV_RWTYPED)
+                           {
+                              cached_pipeline->uavs[bind_desc.BindPoint + j] = true;
+                           }
+                        }
+                     }
+                  }
+               }
+               // Default all of them to true if we can't tell which ones are used
+               else
+               {
+                  for (bool& b : cached_pipeline->rtvs) b = true;
+                  for (bool& b : cached_pipeline->srvs) b = true;
+                  for (bool& b : cached_pipeline->uavs) b = true;
+               }
+#endif
+
                // Indexes
                assert(std::find(cached_pipeline->shader_hashes.begin(), cached_pipeline->shader_hashes.end(), shader_hash) == cached_pipeline->shader_hashes.end());
                cached_pipeline->shader_hashes.emplace_back(shader_hash);
                ASSERT_ONCE(cached_pipeline->shader_hashes.size() == 1); // Just to make sure if this actually happens
 
-               // Make sure we didn't already have a valid pipeline in there (this should never happen)
+               // Make sure we didn't already have a valid pipeline in there (this should never happen, if not with input layout vertex shaders?, or anyway unless the game compiled the same shader twice)
                auto pipelines_pair = device_data.pipeline_caches_by_shader_hash.find(shader_hash);
                if (pipelines_pair != device_data.pipeline_caches_by_shader_hash.end())
                {
@@ -3821,7 +3886,7 @@ namespace
             {
                desc.type = resource_desc.texture.samples <= 1 ? (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d : reshade::api::resource_view_type::texture_2d_array) : (resource_desc.texture.depth_or_layers <= 1 ? reshade::api::resource_view_type::texture_2d_multisample : reshade::api::resource_view_type::texture_2d_multisample_array);
             }
-            ASSERT_ONCE(desc.texture.level_count != 0);
+            desc.texture.level_count = 1; // "Deus Ex: Human Revolution - Director's Cut" sets this to 0 (at least when we upgrade the swapchain texture), it might be fine, but the DX11 docs only talk about setting it to -1 to use all levels (which are always 1 for swapchain textures anyway)
             // Redirect typeless formats (not even sure they are supported, but it won't hurt to check)
             switch (resource_desc.texture.format)
             {
@@ -5055,7 +5120,7 @@ namespace
                            for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
                            {
                               if (found_highlighted_resource_write) break;
-                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).uar_hash[i] == highlighted_resource; // We consider UAV as write even if it's not necessarily one
+                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).ua_hash[i] == highlighted_resource; // We consider UAV as write even if it's not necessarily one
                            }
                            for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
                            {
@@ -5609,51 +5674,51 @@ namespace
                                  {
                                     for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
                                     {
-                                       auto uarv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uarv_format[i];
-                                       if (uarv_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
+                                       auto uav_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uav_format[i];
+                                       if (uav_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                        {
                                           continue;
                                        }
-                                       auto uar_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_format[i];
-                                       auto uar_size = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_size[i];
-                                       auto uar_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).uar_hash[i];
+                                       auto ua_format = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_format[i];
+                                       auto ua_size = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_size[i];
+                                       auto ua_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_hash[i];
 
                                        ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT); // Offset by the max amount of previous iterations from above
 
                                        ImGui::Text("");
                                        ImGui::Text("UAV Index: %u", i);
-                                       ImGui::Text("R Hash: %s", uar_hash.c_str());
-                                       if (GetFormatName(uar_format) != nullptr)
+                                       ImGui::Text("R Hash: %s", ua_hash.c_str());
+                                       if (GetFormatName(ua_format) != nullptr)
                                        {
-                                          ImGui::Text("R Format: %s", GetFormatName(uar_format));
+                                          ImGui::Text("R Format: %s", GetFormatName(ua_format));
                                        }
                                        else
                                        {
-                                          ImGui::Text("R Format: %u", uar_format);
+                                          ImGui::Text("R Format: %u", ua_format);
                                        }
-                                       if (GetFormatName(uarv_format) != nullptr)
+                                       if (GetFormatName(uav_format) != nullptr)
                                        {
-                                          ImGui::Text("RV Format: %s", GetFormatName(uarv_format));
+                                          ImGui::Text("RV Format: %s", GetFormatName(uav_format));
                                        }
                                        else
                                        {
-                                          ImGui::Text("RV Format: %u", uarv_format);
+                                          ImGui::Text("RV Format: %u", uav_format);
                                        }
-                                       ImGui::Text("R Size: %ux%ux%u", uar_size.x, uar_size.y, uar_size.z);
+                                       ImGui::Text("R Size: %ux%ux%u", ua_size.x, ua_size.y, ua_size.z);
                                        for (uint64_t upgraded_resource : device_data.upgraded_resources)
                                        {
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
-                                          if (uar_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
+                                          if (ua_hash == std::to_string(std::hash<void*>{}(upgraded_resource_ptr)))
                                           {
                                              ImGui::Text("R: Upgraded");
                                              break;
                                           }
                                        }
 
-                                       const bool is_highlighted_resource = highlighted_resource == uar_hash;
+                                       const bool is_highlighted_resource = highlighted_resource == ua_hash;
                                        if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
                                        {
-                                          highlighted_resource = is_highlighted_resource ? "" : uar_hash;
+                                          highlighted_resource = is_highlighted_resource ? "" : ua_hash;
                                        }
 
                                        if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::UnorderedAccessView || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))

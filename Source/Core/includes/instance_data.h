@@ -36,24 +36,24 @@ struct TraceDrawCallData
    bool stencil_enabled = false;
    bool scissors = false;
    float4 viewport_0 = {};
-   // Render Target
+   // Render Target (Resource+Views)
    D3D11_BLEND_DESC blend_desc = {};
-   DXGI_FORMAT rtv_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the view
    DXGI_FORMAT rt_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the resource
+   DXGI_FORMAT rtv_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the view
    uint3 rt_size[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    std::string rt_hash[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    bool rt_is_swapchain[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-   // Shader Resource Views
-   DXGI_FORMAT sr_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the resource, not the view
+   // Shader Resource (Resource+Views)
    DXGI_FORMAT srv_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the view
+   DXGI_FORMAT sr_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the resource
    uint3 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-   // Unordered Access (Resource) Views
+   // Unordered Access (Resource+Views)
 	static_assert(D3D11_1_UAV_SLOT_COUNT >= D3D11_PS_CS_UAV_REGISTER_COUNT);
-   DXGI_FORMAT uar_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource, not the view
-   DXGI_FORMAT uarv_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
-   uint3 uar_size[D3D11_1_UAV_SLOT_COUNT] = {};
-   std::string uar_hash[D3D11_1_UAV_SLOT_COUNT] = {};
+   DXGI_FORMAT ua_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource
+   DXGI_FORMAT uav_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
+   uint3 ua_size[D3D11_1_UAV_SLOT_COUNT] = {};
+   std::string ua_hash[D3D11_1_UAV_SLOT_COUNT] = {};
 
    const char* custom_name = "Unknown";
 };

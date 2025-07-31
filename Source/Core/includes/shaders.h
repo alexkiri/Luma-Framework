@@ -15,7 +15,7 @@ namespace Shader
       // True if we cloned it and "replaced" it with custom shaders
       bool cloned = false;
       reshade::api::pipeline pipeline_clone;
-      // Original shaders hash (there should only be one)
+      // Original shaders hash (there should only be one except in DX12)
       std::vector<uint32_t> shader_hashes;
 
 #if DEVELOPMENT
@@ -41,6 +41,14 @@ namespace Shader
          RedirectTargetType target_type = RedirectTargetType::None;
          int target_index = 0;
       } redirect_data;
+
+      // Reflections data:
+      // Render Target Views
+      bool rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+      // Shader Resource Views
+      bool srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+      // Unordered Access Views
+      bool uavs[D3D11_1_UAV_SLOT_COUNT] = {};
 #endif
 
       bool HasGeometryShader() const
