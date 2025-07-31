@@ -440,6 +440,9 @@ namespace Shader
       }
       if (FAILED(result) && d3d_compilefromfile[library] != nullptr)
       {
+         out_blob.Release();
+         error_blob.Release();
+
          result = d3d_compilefromfile[library](
             file_read_path,
             defines,
