@@ -1809,11 +1809,13 @@ namespace
 #endif
          }
 
+#if !GAME_PREY && DEVELOPMENT
             DXGI_COLOR_SPACE_TYPE colorSpace;
-			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? Add HDR10 support...
+			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? Add HDR10 support... For now we only do this in development as that's the only case where you can change the swapchain upgrades type live
          colorSpace = (enable_swapchain_upgrade && swapchain_upgrade_type > 0) ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
             hr = native_swapchain3->SetColorSpace1(colorSpace);
             ASSERT_ONCE(SUCCEEDED(hr));
+#endif
 
          // We release the resource because the swapchain lifespan is, and should be, controlled by the game.
          // We already have "OnDestroySwapchain()" to handle its destruction.
@@ -2031,9 +2033,9 @@ namespace
                   {
                      D3D11_SIGNATURE_PARAMETER_DESC shader_output_desc;
                      hr = shader_reflector->GetOutputParameterDesc(i, &shader_output_desc);
-                     if (SUCCEEDED(hr))
+                     if (SUCCEEDED(hr) && shader_output_desc.SemanticName == "SV_Target")
                      {
-                        ASSERT_ONCE(shader_output_desc.SemanticIndex == shader_output_desc.Register)
+                        ASSERT_ONCE(shader_output_desc.SemanticIndex == shader_output_desc.Register);
                         cached_pipeline->rtvs[shader_output_desc.SemanticIndex] = true;
                      }
                   }
@@ -2268,13 +2270,7 @@ namespace
       {
          ASSERT_ONCE(stages == reshade::api::pipeline_stage::pixel_shader || stages == reshade::api::pipeline_stage::all); // Make sure only one stage happens at a time (it does in DX11)
          cmd_list_data.pipeline_state_original_pixel_shader = pipeline;
-      }
-
-      const std::shared_lock lock(s_mutex_generic);
-      auto pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle);
-      if (pair == device_data.pipeline_cache_by_pipeline_handle.end() || pair->second == nullptr) return;
-
-      auto* cached_pipeline = pair->second;
+         
          if (cached_pipeline)
          {
 #if DX12
