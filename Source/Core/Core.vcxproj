@@ -52,6 +52,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Publishing-Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -72,6 +73,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <CharacterSet>Unicode</CharacterSet>
     <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Publishing-Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
@@ -169,7 +171,7 @@
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;DEVELOPMENT=1</PreprocessorDefinitions>
       <UseStandardPreprocessor>true</UseStandardPreprocessor>
       <AdditionalOptions>%(AdditionalOptions) /utf-8 /Zc:strictStrings /Zc:threadSafeInit</AdditionalOptions>
       <FunctionLevelLinking>
@@ -277,7 +279,7 @@
       <Optimization>MaxSpeed</Optimization>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG;TEST=1</PreprocessorDefinitions>
       <UseStandardPreprocessor>true</UseStandardPreprocessor>
       <AdditionalOptions>%(AdditionalOptions) /utf-8 /Zc:strictStrings /Zc:threadSafeInit</AdditionalOptions>
       <FunctionLevelLinking>
@@ -330,7 +332,7 @@
       <Optimization>MaxSpeed</Optimization>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG;DEVELOPMENT=1</PreprocessorDefinitions>
       <UseStandardPreprocessor>true</UseStandardPreprocessor>
       <AdditionalOptions>%(AdditionalOptions) /utf-8 /Zc:strictStrings /Zc:threadSafeInit</AdditionalOptions>
       <FunctionLevelLinking>
@@ -385,7 +387,7 @@
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;DEVELOPMENT=1</PreprocessorDefinitions>
       <UseStandardPreprocessor>true</UseStandardPreprocessor>
       <AdditionalOptions>%(AdditionalOptions) /utf-8 /Zc:strictStrings /Zc:threadSafeInit</AdditionalOptions>
       <FunctionLevelLinking>
@@ -495,7 +497,7 @@
       <Optimization>MaxSpeed</Optimization>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG;TEST=1</PreprocessorDefinitions>
       <UseStandardPreprocessor>true</UseStandardPreprocessor>
       <AdditionalOptions>%(AdditionalOptions) /utf-8 /Zc:strictStrings /Zc:threadSafeInit</AdditionalOptions>
       <FunctionLevelLinking>
@@ -549,7 +551,7 @@
       <Optimization>MaxSpeed</Optimization>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <RuntimeTypeInfo>true</RuntimeTypeInfo>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);SOLUTION_DIR=R"($(SolutionDir))";WIN32;_WINDOWS;NDEBUG;DEVELOPMENT=1</PreprocessorDefinitions>
       <UseStandardPreprocessor>true</UseStandardPreprocessor>
       <AdditionalOptions>%(AdditionalOptions) /utf-8 /Zc:strictStrings /Zc:threadSafeInit</AdditionalOptions>
       <FunctionLevelLinking>
