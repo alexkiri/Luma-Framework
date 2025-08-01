@@ -114,7 +114,7 @@ public:
 
 #if DEVELOPMENT
       // Check what was the previous shader
-      static ShaderHashesList original_shader_hashes2;
+      static ShaderHashesList<OneShaderPerPipeline> original_shader_hashes2;
 #endif
 
       if (original_shader_hashes.Contains(shader_hashes_Fog))
