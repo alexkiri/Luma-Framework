@@ -226,6 +226,7 @@ struct DrawStateStack
    com_ptr<ID3D11RasterizerState> rasterizer_state;
 };
 
+#if DEVELOPMENT
 // Expects mutexes to already be locked
 void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data, const DeviceData& device_data, ID3D11DeviceContext* native_device_context, uint64_t pipeline_handle)
 {
@@ -395,6 +396,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
 
    trace_draw_calls_data.push_back(trace_draw_call_data);
 }
+#endif
 
 void DrawCustomPixelShader(ID3D11DeviceContext* device_context, ID3D11DepthStencilState* depth_stencil_state, ID3D11BlendState* blend_state, ID3D11VertexShader* vs, ID3D11PixelShader* ps, ID3D11ShaderResourceView* source_resource_texture_view, ID3D11RenderTargetView* target_resource_texture_view, UINT width, UINT height, bool alpha = true)
 {

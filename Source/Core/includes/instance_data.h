@@ -65,6 +65,13 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
    reshade::api::pipeline pipeline_state_original_vertex_shader = reshade::api::pipeline(0);
    reshade::api::pipeline pipeline_state_original_pixel_shader = reshade::api::pipeline(0);
 
+   Shader::ShaderHashesList<OneShaderPerPipeline> pipeline_state_original_graphics_shader_hashes;
+   Shader::ShaderHashesList<OneShaderPerPipeline> pipeline_state_original_compute_shader_hashes;
+   bool is_custom_vertex_shader = false;
+   bool is_custom_pixel_shader = false;
+   bool is_custom_graphics_pass = false;
+   bool is_custom_compute_pass = false;
+
 #if DEVELOPMENT
    std::shared_mutex mutex_trace;
    std::vector<TraceDrawCallData> trace_draw_calls_data;

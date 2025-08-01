@@ -37,12 +37,12 @@ public:
    // Called for every game's valid draw call (any type),
    // this is where you can override passes, add new ones, cancel other ones etc.
    // Return true to cancel the call.
-   virtual bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) { return false; }
+   virtual bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) { return false; }
    // This is called every frame just before sending out the final image to the display (the swapchain).
    // You can reliable reset any per frame setting here.
    virtual void OnPresent(ID3D11Device* native_device, DeviceData& device_data) {}
    virtual void UpdateLumaInstanceDataCB(LumaInstanceData& data) {}
-   // Retrieves the game's "global" (main, per view, ...) cbuffer
+   // Retrieves the game's "global" (main, per view, ...) cbuffer data
    virtual bool UpdateGlobalCB(const void* global_buffer_data_ptr, reshade::api::device* device) { return false; }
 
    // Load ReShade configs on boot

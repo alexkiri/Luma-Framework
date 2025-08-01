@@ -16,7 +16,11 @@ namespace Shader
       bool cloned = false;
       reshade::api::pipeline pipeline_clone;
       // Original shaders hash (there should only be one except in DX12)
+#if DX12
       std::vector<uint32_t> shader_hashes;
+#else
+      std::array<uint32_t, 1> shader_hashes;
+#endif
 
 #if DEVELOPMENT
       // If true, this pipeline is going to skip drawing (this might draw black or leave the previous target textures value persisting)
@@ -107,50 +111,70 @@ namespace Shader
 #endif
    };
 
+   template <bool SingleShaderHashes>
+   using ShaderHashesContainer = std::conditional_t<SingleShaderHashes,
+      std::array<uint32_t, 1>,
+      std::unordered_set<uint32_t>>;
+
+   template <typename T>
+   bool ShaderHasesContains(const std::unordered_set<T>& container, const T& value)
+   {
+      return container.contains(value);
+   }
+   template <typename T, std::size_t N>
+   bool ShaderHasesContains(const std::array<T, N>& container, const T& value)
+   {
+      ASSERT_ONCE(container[0] != 0 || value != 0); // If both are zero, something is wrong!
+      static_assert(N == 1, "Only supports std::array<T, 1>");
+      return container[0] == value;
+   }
+
+   template <bool SingleShaderHashes = false>
    struct ShaderHashesList
    {
-      std::unordered_set<uint32_t> pixel_shaders;
-      std::unordered_set<uint32_t> vertex_shaders;
+      ShaderHashesContainer<SingleShaderHashes> pixel_shaders;
+      ShaderHashesContainer<SingleShaderHashes> vertex_shaders;
 #if GEOMETRY_SHADER_SUPPORT
-      std::unordered_set<uint32_t> geometry_shaders;
+      ShaderHashesContainer<SingleShaderHashes> geometry_shaders;
 #endif
-      std::unordered_set<uint32_t> compute_shaders;
+      ShaderHashesContainer<SingleShaderHashes> compute_shaders;
 
       bool Contains(uint32_t shader_hash, reshade::api::shader_stage shader_stage) const
       {
          // NOTE: we could probably check if the value matches a specific shader stage (e.g. a switch?), but I'm not 100% sure other flags are ever set
          if ((shader_stage & reshade::api::shader_stage::pixel) != 0)
          {
-            if (pixel_shaders.contains(shader_hash)) return true;
+            if (ShaderHasesContains(pixel_shaders, shader_hash)) return true;
          }
          if ((shader_stage & reshade::api::shader_stage::vertex) != 0)
          {
-            if (vertex_shaders.contains(shader_hash)) return true;
+            if (ShaderHasesContains(vertex_shaders, shader_hash)) return true;
          }
 #if GEOMETRY_SHADER_SUPPORT
          if ((shader_stage & reshade::api::shader_stage::geometry) != 0)
          {
-            if (geometry_shaders.contains(shader_hash)) return true;
+            if (ShaderHasesContains(geometry_shaders, shader_hash)) return true;
          }
 #endif
          if ((shader_stage & reshade::api::shader_stage::compute) != 0)
          {
-            return compute_shaders.contains(shader_hash);
+            return ShaderHasesContains(compute_shaders, shader_hash);
          }
          return false;
       }
-      bool Contains(const ShaderHashesList& other) const
+      template <bool OtherSingleShaderHashes>
+      bool Contains(const ShaderHashesList<OtherSingleShaderHashes>& other) const
       {
          for (const uint32_t shader_hash : other.pixel_shaders)
          {
-            if (pixel_shaders.contains(shader_hash))
+            if (ShaderHasesContains(pixel_shaders, shader_hash))
             {
                return true;
             }
          }
          for (const uint32_t shader_hash : other.vertex_shaders)
          {
-            if (vertex_shaders.contains(shader_hash))
+            if (ShaderHasesContains(vertex_shaders, shader_hash))
             {
                return true;
             }
@@ -158,7 +182,7 @@ namespace Shader
 #if GEOMETRY_SHADER_SUPPORT
          for (const uint32_t shader_hash : other.geometry_shaders)
          {
-            if (geometry_shaders.contains(shader_hash))
+            if (ShaderHasesContains(geometry_shaders, shader_hash))
             {
                return true;
             }
@@ -166,7 +190,7 @@ namespace Shader
 #endif
          for (const uint32_t shader_hash : other.compute_shaders)
          {
-            if (compute_shaders.contains(shader_hash))
+            if (ShaderHasesContains(compute_shaders, shader_hash))
             {
                return true;
             }
@@ -175,11 +199,23 @@ namespace Shader
       }
       bool Empty() const
       {
-         return pixel_shaders.empty() && vertex_shaders.empty() && compute_shaders.empty()
+         if constexpr (SingleShaderHashes)
+         {
+            return pixel_shaders[0] == 0 && vertex_shaders[0] == 0 && compute_shaders[0] == 0
 #if GEOMETRY_SHADER_SUPPORT
-            && geometry_shaders.empty()
+               && geometry_shaders[0] == 0
 #endif
-            ;
+               ;
+         }
+         else
+         {
+            // Values are expected to be non null if the array has element
+            return pixel_shaders.empty() && vertex_shaders.empty() && compute_shaders.empty()
+#if GEOMETRY_SHADER_SUPPORT
+               && geometry_shaders.empty()
+#endif
+               ;
+         }
       }
    };
 

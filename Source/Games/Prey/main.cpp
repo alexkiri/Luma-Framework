@@ -368,7 +368,7 @@ public:
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
@@ -1610,15 +1610,7 @@ public:
       data.ReprojectionMatrix = reprojection_matrix;
    }
 
-   // Call this after reading the global cbuffer (index 13) memory (from CPU or GPU memory). This seemengly only happens in one thread.
-   // This will update the "cb_per_view_global" values if the ptr is found to be the right type of buffer (and return true in that case),
-   // correct some of its values, and cache information for other usage.
-   // 
-   // An alternative way of approaching this would be to cache all the address of buffers that are ever filled up through ::Map() calls,
-   // then store a copy of each of their instances, and when one of these buffers is set to a shader stage, re-set the same cbuffer with our
-   // modified and fixed up data. That is a bit slower but it would be more safe, as it would guarantee us 100% that the buffer we are changing is cbuffer 13.
-   // If we were looking for the value of only one buffer in particular, we can simply store the buffer pointers from the DX state in a specific draw call, and then check for following map calls to it.
-   bool UpdateGlobalCB(const void* global_buffer_data_ptr, reshade::api::device* device) override
+   static bool IsValidGlobalCB(const void* global_buffer_data_ptr)
    {
       const CBPerViewGlobal& global_buffer_data = *((const CBPerViewGlobal*)global_buffer_data_ptr);
 
@@ -1627,7 +1619,7 @@ public:
       // Note that even if it was, in the menu a lot of these parameters are uninitialized (usually zeroed around, with matrices being identity).
       // This check overall is a bit crazy, but there's ~0% chance that it will fail and accidentally use a buffer that isn't the global one (cb13)
       bool is_valid_cbuffer = true
-         && global_buffer_data.CV_AnimGenParams.x >= 0.f && global_buffer_data.CV_AnimGenParams.y >= 0.f && global_buffer_data.CV_AnimGenParams.z >= 0.f && global_buffer_data.CV_AnimGenParams.w >= 0.f // These are either all 4 0 or all 4 > 0
+         && global_buffer_data.CV_AnimGenParams.x >= 0.f && global_buffer_data.CV_AnimGenParams.y >= 0.f && global_buffer_data.CV_AnimGenParams.z >= 0.f && global_buffer_data.CV_AnimGenParams.w >= 0.f // These are either all four 0 or all four > 0
          && global_buffer_data.CV_CameraRightVector.w == 0.f
          && global_buffer_data.CV_CameraFrontVector.w == 0.f
          && global_buffer_data.CV_CameraUpVector.w == 0.f
@@ -1647,19 +1639,11 @@ public:
          && global_buffer_data.CV_DecalZFightingRemedy.w == 0.f
          && global_buffer_data.CV_PADDING0 == 0.f && global_buffer_data.CV_PADDING1 == 0.f
          ;
-
-#if DEVELOPMENT && 0
-      cb_per_view_globals.emplace_back(global_buffer_data);
-      cb_per_view_globals_last_drawn_shader.emplace_back(last_drawn_shader); // The shader hash could we unspecified if we didn't replace the shader
-#endif // DEVELOPMENT
-
       if (!is_valid_cbuffer)
       {
          return false;
       }
 
-      //if (is_valid_cbuffer)
-      {
 #if 0 // This happens, but it's not a problem
          char* global_buffer_data_ptr_cast = (char*)global_buffer_data_ptr;
          // Make sure that all extra memory is zero, as an extra check. This could easily be uninitialized memory though.
@@ -1667,10 +1651,6 @@ public:
 #endif
 
          ASSERT_ONCE((global_buffer_data.CV_DecalZFightingRemedy.x >= 0.9f && global_buffer_data.CV_DecalZFightingRemedy.x <= 1.f) || global_buffer_data.CV_DecalZFightingRemedy.x == 0.f);
-      }
-
-      float cb_output_resolution_x = std::round(0.5f / global_buffer_data.CV_ScreenSize.z); // Round here already as it would always meant to be integer
-      float cb_output_resolution_y = std::round(0.5f / global_buffer_data.CV_ScreenSize.w);
 
       // Shadow maps and other things temporarily change the values in the global cbuffer,
       // like not use inverse depth (which affects the projection matrix, and thus many other matrices?),
@@ -1679,14 +1659,32 @@ public:
       // "CV_PrevViewProjMatr" is not a raw projection matrix when rendering shadow maps, so we can easily detect that.
       // Note: we can check if the matrix is identity to detect whether we are currently in a menu (the main menu?)
       bool is_custom_draw_version = !MatrixIsProjection(global_buffer_data.CV_PrevViewProjMatr.GetTransposed());
-
       if (is_custom_draw_version)
       {
          return false;
       }
 
+      return true;
+   }
+
+   // Call this after reading the global cbuffer (index 13) memory (from CPU or GPU memory). This seemingly only happens in one thread.
+   // This will update the "cb_per_view_global" values if the ptr is found to be the right type of buffer (and return true in that case),
+   // correct some of its values, and cache information for other usage.
+   // 
+   // An alternative way of approaching this would be to cache all the address of buffers that are ever filled up through ::Map() calls,
+   // then store a copy of each of their instances, and when one of these buffers is set to a shader stage, re-set the same cbuffer with our
+   // modified and fixed up data. That is a bit slower but it would be more safe, as it would guarantee us 100% that the buffer we are changing is cbuffer 13.
+   // Another alternative, after storing the buffers pointers, would be to at least skip the validity check, after we verified a buffer pointer is only used for the same type of rendering etc.
+   // If we were looking for the value of only one buffer in particular, we can simply store the buffer pointers from the DX state in a specific draw call, and then check for following map calls to it.
+   bool UpdateGlobalCB(const void* global_buffer_data_ptr, reshade::api::device* device) override
+   {
       DeviceData& device_data = *device->get_private_data<DeviceData>();
       auto& game_device_data = GetGameDeviceData(device_data);
+
+      const CBPerViewGlobal& global_buffer_data = *((const CBPerViewGlobal*)global_buffer_data_ptr);
+
+      float cb_output_resolution_x = std::round(0.5f / global_buffer_data.CV_ScreenSize.z); // Round here already as it would always meant to be integer
+      float cb_output_resolution_y = std::round(0.5f / global_buffer_data.CV_ScreenSize.w);
 
       bool output_resolution_matches = AlmostEqual(device_data.output_resolution.x, cb_output_resolution_x, 0.5f) && AlmostEqual(device_data.output_resolution.y, cb_output_resolution_y, 0.5f);
 
@@ -1950,7 +1948,8 @@ public:
             game_device_data.previous_prey_taa_active[1] = game_device_data.prey_taa_active;
          }
 
-         // This only needs to be calculated once, before or after G-buffers are composed, but before late post processing (TM) starts, as it's for TAA (at the end of PP)
+         // This only needs to be calculated once, before or after G-buffers are composed, but before late post processing (TM) starts, as it's for TAA (at the end of PP), and last post processing clears the jitters from the matrices
+         if (!game_device_data.has_drawn_composed_gbuffers)
          {
             // NDC to UV space (y is flipped)
             const Matrix44D mScaleBias1 = Matrix44D(
@@ -1990,14 +1989,14 @@ public:
    //TODOFT6: make these game agnostic? And possibly remove "UpdateGlobalCB"
    static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
    {
-      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-      ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
       // No need to convert to native DX11 flags
       if (access == reshade::api::map_access::write_only || access == reshade::api::map_access::write_discard || access == reshade::api::map_access::read_write)
       {
+         ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
+         DeviceData& device_data = *device->get_private_data<DeviceData>();
+
          D3D11_BUFFER_DESC buffer_desc;
          buffer->GetDesc(&buffer_desc);
-         DeviceData& device_data = *device->get_private_data<DeviceData>();
 
          // There seems to only ever be one buffer type of this size, but it's not guaranteed (we might have found more, but it doesn't matter, they are discarded later)...
          // They seemingly all happen on the same thread.
@@ -2005,19 +2004,18 @@ public:
          if (buffer_desc.ByteWidth == CBPerViewGlobal_buffer_size)
          {
             device_data.cb_per_view_global_buffer = buffer;
+            ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data);
+            device_data.cb_per_view_global_buffer_map_data = *data;
 #if DEVELOPMENT
             // These are the classic "features" of cbuffer 13 (the one we are looking for), in case any of these were different, it could possibly mean we are looking at the wrong buffer here.
             ASSERT_ONCE(buffer_desc.Usage == D3D11_USAGE_DYNAMIC && buffer_desc.BindFlags == D3D11_BIND_CONSTANT_BUFFER && buffer_desc.CPUAccessFlags == D3D11_CPU_ACCESS_WRITE && buffer_desc.MiscFlags == 0 && buffer_desc.StructureByteStride == 0);
 #endif // DEVELOPMENT
-            ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data);
-            device_data.cb_per_view_global_buffer_map_data = *data;
          }
       }
    }
 
    static void OnUnmapBufferRegion(reshade::api::device* device, reshade::api::resource resource)
    {
-      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
       DeviceData& device_data = *device->get_private_data<DeviceData>();
       // We assume this buffer is always unmapped before destruction.
@@ -2025,17 +2023,29 @@ public:
       ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data || is_global_cbuffer);
       if (is_global_cbuffer && device_data.cb_per_view_global_buffer_map_data != nullptr)
       {
+         if (IsValidGlobalCB(device_data.cb_per_view_global_buffer_map_data))
+         {
+#if DEVELOPMENT && 0
+            cb_per_view_globals.emplace_back(global_buffer_data);
+            cb_per_view_globals_last_drawn_shader.emplace_back(last_drawn_shader); // The shader hash could we unspecified if we didn't replace the shader
+#endif // DEVELOPMENT
+
+#if 1
+            if (game->UpdateGlobalCB(device_data.cb_per_view_global_buffer_map_data, device) && stop_type != 7)
+#else
          // The whole buffer size is theoretically "CBPerViewGlobal_buffer_size" but we actually don't have the data for the excessive (padding) bytes,
          // they are never read by shaders on the GPU anyway.
          char global_buffer_data[CBPerViewGlobal_buffer_size];
          std::memcpy(&global_buffer_data[0], device_data.cb_per_view_global_buffer_map_data, CBPerViewGlobal_buffer_size);
          if (game->UpdateGlobalCB(&global_buffer_data[0], device))
+#endif
          {
             // Write back the cbuffer data after we have fixed it up (we always do!)
             std::memcpy(device_data.cb_per_view_global_buffer_map_data, &cb_per_view_global, sizeof(CBPerViewGlobal));
 #if DEVELOPMENT
             device_data.cb_per_view_global_buffers.emplace(buffer);
 #endif // DEVELOPMENT
+         }
          }
          device_data.cb_per_view_global_buffer_map_data = nullptr;
          device_data.cb_per_view_global_buffer = nullptr; // No need to keep this cached

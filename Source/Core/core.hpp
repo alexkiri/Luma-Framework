@@ -88,6 +88,13 @@
 #define PROJECT_NAME "Luma"
 #endif // PROJECT_NAME
 
+#if DX12
+constexpr bool OneShaderPerPipeline = false;
+#else
+#define DX11 1
+constexpr bool OneShaderPerPipeline = true;
+#endif
+
 #define DEFINE_NAME_AS_STRING(x) #x
 #define DEFINE_VALUE_AS_STRING(x) DEFINE_NAME_AS_STRING(x)
 
@@ -2063,7 +2070,11 @@ namespace
 
                // Indexes
                assert(std::find(cached_pipeline->shader_hashes.begin(), cached_pipeline->shader_hashes.end(), shader_hash) == cached_pipeline->shader_hashes.end());
+#if DX12
                cached_pipeline->shader_hashes.emplace_back(shader_hash);
+#else
+               cached_pipeline->shader_hashes[0] = shader_hash;
+#endif
                ASSERT_ONCE(cached_pipeline->shader_hashes.size() == 1); // Just to make sure if this actually happens
 
                // Make sure we didn't already have a valid pipeline in there (this should never happen, if not with input layout vertex shaders?, or anyway unless the game compiled the same shader twice)
@@ -2174,18 +2185,84 @@ namespace
       reshade::api::pipeline_stage stages,
       reshade::api::pipeline pipeline)
    {
+      constexpr reshade::api::pipeline_stage supported_stages = reshade::api::pipeline_stage::compute_shader | reshade::api::pipeline_stage::vertex_shader | reshade::api::pipeline_stage::pixel_shader
+#if GEOMETRY_SHADER_SUPPORT
+         | reshade::api::pipeline_stage::geometry_shader
+#endif
+         ;
+
+      // Nothing to do, the pipeline isn't supported
+      if ((stages & supported_stages) == 0)
+         return;
+
       CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
-      DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+
+      const Shader::CachedPipeline* cached_pipeline = nullptr;
+
+      if (pipeline.handle != 0)
+      {
+         const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+         const std::shared_lock lock(s_mutex_generic);
+         auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle);
+         if (pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end())
+         {
+            ASSERT_ONCE(pipeline_pair->second != nullptr); // Shouldn't usually happen but if it did, it's supported anyway and innocuous
+            cached_pipeline = pipeline_pair->second;
+         }
+         else
+         {
+            ASSERT_ONCE(false); // Why can't we find the shader?
+         }
+      }
 
       if ((stages & reshade::api::pipeline_stage::compute_shader) != 0)
       {
          ASSERT_ONCE(stages == reshade::api::pipeline_stage::compute_shader || stages == reshade::api::pipeline_stage::all); // Make sure only one stage happens at a time (it does in DX11)
          cmd_list_data.pipeline_state_original_compute_shader = pipeline;
+
+         if (cached_pipeline)
+         {
+#if DX12
+            cmd_list_data.pipeline_state_original_compute_shader_hashes.compute_shaders = std::unordered_set<uint32_t>(cached_pipeline->shader_hashes.begin(), cached_pipeline->shader_hashes.end());
+#else
+            cmd_list_data.pipeline_state_original_compute_shader_hashes.compute_shaders[0] = cached_pipeline->shader_hashes[0];
+#endif
+            cmd_list_data.is_custom_compute_pass = cached_pipeline->cloned;
+         }
+         else
+         {
+#if DX12
+            cmd_list_data.pipeline_state_original_compute_shader_hashes.compute_shaders.clear();
+#else
+            cmd_list_data.pipeline_state_original_compute_shader_hashes.compute_shaders[0] = 0;
+#endif
+            cmd_list_data.is_custom_compute_pass = false;
+         }
       }
       if ((stages & reshade::api::pipeline_stage::vertex_shader) != 0)
       {
          ASSERT_ONCE(stages == reshade::api::pipeline_stage::vertex_shader || stages == reshade::api::pipeline_stage::all); // Make sure only one stage happens at a time (it does in DX11)
          cmd_list_data.pipeline_state_original_vertex_shader = pipeline;
+
+         if (cached_pipeline)
+         {
+#if DX12
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.vertex_shaders = std::unordered_set<uint32_t>(cached_pipeline->shader_hashes.begin(), cached_pipeline->shader_hashes.end());
+#else
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.vertex_shaders[0] = cached_pipeline->shader_hashes[0];
+#endif
+            cmd_list_data.is_custom_vertex_shader = cached_pipeline->cloned;
+         }
+         else
+         {
+#if DX12
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.vertex_shaders.clear();
+#else
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.vertex_shaders[0] = 0;
+#endif
+            cmd_list_data.is_custom_vertex_shader = false;
+         }
+         cmd_list_data.is_custom_graphics_pass = cmd_list_data.is_custom_pixel_shader || cmd_list_data.is_custom_vertex_shader;
       }
       if ((stages & reshade::api::pipeline_stage::pixel_shader) != 0)
       {
@@ -2198,7 +2275,29 @@ namespace
       if (pair == device_data.pipeline_cache_by_pipeline_handle.end() || pair->second == nullptr) return;
 
       auto* cached_pipeline = pair->second;
+         if (cached_pipeline)
+         {
+#if DX12
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.pixel_shaders = std::unordered_set<uint32_t>(cached_pipeline->shader_hashes.begin(), cached_pipeline->shader_hashes.end());
+#else
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.pixel_shaders[0] = cached_pipeline->shader_hashes[0];
+#endif
+            cmd_list_data.is_custom_pixel_shader = cached_pipeline->cloned;
+         }
+         else
+         {
+#if DX12
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.pixel_shaders.clear();
+#else
+            cmd_list_data.pipeline_state_original_graphics_shader_hashes.pixel_shaders[0] = 0;
+#endif
+            cmd_list_data.is_custom_pixel_shader = false;
+         }
+         cmd_list_data.is_custom_graphics_pass = cmd_list_data.is_custom_pixel_shader || cmd_list_data.is_custom_vertex_shader;
+      }
 
+      if (cached_pipeline)
+      {
 #if DEVELOPMENT
       if (cached_pipeline->skip)
       {
@@ -2213,6 +2312,7 @@ namespace
       {
          cmd_list->bind_pipeline(stages, cached_pipeline->pipeline_clone);
       }
+   }
    }
 
    enum class LumaConstantBufferType
@@ -2667,7 +2767,7 @@ namespace
    // Most games (e.g. Prey, Dishonored 2) always draw in direct mode (as opposed to indirect), but uses different command lists on different threads (e.g. on Prey, that's almost only used for the shadow projection maps, in Dishonored 2, for almost every separate pass).
    // Usually there's a few compute shaders but most passes are "classic" pixel shaders.
    // If we ever wanted to still run the game's original draw call (first) and then ours (second), we'd need to pass more arguments in this function (to replicate the draw call identically).
-   bool OnDraw_Custom(reshade::api::command_list* cmd_list, bool is_dispatch /*= false*/, ShaderHashesList& original_shader_hashes)
+   bool OnDraw_Custom(reshade::api::command_list* cmd_list, bool is_dispatch /*= false*/)
    {
       const auto* device = cmd_list->get_device();
       auto device_api = device->get_api();
@@ -2675,70 +2775,45 @@ namespace
       ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
       DeviceData& device_data = *device->get_private_data<DeviceData>();
 
-      reshade::api::shader_stage stages = reshade::api::shader_stage::all_graphics | reshade::api::shader_stage::all_compute;
+      // Only for custom shaders
+      reshade::api::shader_stage stages = reshade::api::shader_stage(0); // None
 
       bool is_custom_pass = false;
       bool updated_cbuffers = false;
 
       CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
 
-#if DEVELOPMENT
-      last_drawn_shader = "";
-      global_cmd_list = cmd_list;
-#endif //DEVELOPMENT
+      const auto& original_shader_hashes = is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader_hashes : cmd_list_data.pipeline_state_original_graphics_shader_hashes;
 
-      // We check the last shader pointers ("pipeline_state_original_compute_shader") we had cached in the pipeline set state functions.
-      // Alternatively we could check "PSGetShader()" against "pipeline_cache_by_pipeline_clone_handle" but that'd probably have uglier and slower code.
       if (is_dispatch)
       {
-         if (cmd_list_data.pipeline_state_original_compute_shader.handle != 0)
-         {
-            const std::shared_lock lock(s_mutex_generic);
-            const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(cmd_list_data.pipeline_state_original_compute_shader.handle);
-            if (pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
+         is_custom_pass = cmd_list_data.is_custom_compute_pass;
+         if (!original_shader_hashes.compute_shaders.empty())
             {
-               original_shader_hashes.compute_shaders = std::unordered_set<uint32_t>(pipeline_pair->second->shader_hashes.begin(), pipeline_pair->second->shader_hashes.end());
-#if DEVELOPMENT
-               last_drawn_shader = original_shader_hashes.compute_shaders.empty() ? "" : Shader::Hash_NumToStr(*original_shader_hashes.compute_shaders.begin()); // String hash to int
-#endif //DEVELOPMENT
-               is_custom_pass = pipeline_pair->second->cloned;
                stages = reshade::api::shader_stage::compute;
             }
          }
-      }
       else
       {
-         if (cmd_list_data.pipeline_state_original_vertex_shader.handle != 0)
+         is_custom_pass = cmd_list_data.is_custom_graphics_pass;
+         if (!original_shader_hashes.vertex_shaders.empty())
          {
-            const std::shared_lock lock(s_mutex_generic);
-            const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(cmd_list_data.pipeline_state_original_vertex_shader.handle);
-            if (pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
-            {
-               original_shader_hashes.vertex_shaders = std::unordered_set<uint32_t>(pipeline_pair->second->shader_hashes.begin(), pipeline_pair->second->shader_hashes.end());
-               is_custom_pass = pipeline_pair->second->cloned;
                stages = reshade::api::shader_stage::vertex;
             }
-         }
-
-         if (cmd_list_data.pipeline_state_original_pixel_shader.handle != 0)
+         if (!original_shader_hashes.pixel_shaders.empty())
          {
-            const std::shared_lock lock(s_mutex_generic);
-            const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(cmd_list_data.pipeline_state_original_pixel_shader.handle);
-            if (pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
-            {
-               original_shader_hashes.pixel_shaders = std::unordered_set<uint32_t>(pipeline_pair->second->shader_hashes.begin(), pipeline_pair->second->shader_hashes.end());
-#if DEVELOPMENT
-               last_drawn_shader = original_shader_hashes.pixel_shaders.empty() ? "" : Shader::Hash_NumToStr(*original_shader_hashes.pixel_shaders.begin()); // String hash to int
-#endif //DEVELOPMENT
-               is_custom_pass |= pipeline_pair->second->cloned;
                stages |= reshade::api::shader_stage::pixel;
             }
          }
-      }
 
 #if DEVELOPMENT
+      if (is_dispatch)
+         last_drawn_shader = cmd_list_data.pipeline_state_original_compute_shader_hashes.compute_shaders.empty() ? "" : Shader::Hash_NumToStr(*cmd_list_data.pipeline_state_original_compute_shader_hashes.compute_shaders.begin()); // String hash to int
+      else
+         last_drawn_shader = cmd_list_data.pipeline_state_original_graphics_shader_hashes.pixel_shaders.empty() ? "" : Shader::Hash_NumToStr(*cmd_list_data.pipeline_state_original_graphics_shader_hashes.pixel_shaders.begin()); // String hash to int
+      global_cmd_list = cmd_list;
+
       {
-         // TODO: add custom Luma passes to this list
          // Do this before any custom code runs as the state might change
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
@@ -2760,7 +2835,7 @@ namespace
             }
          }
       }
-#endif
+#endif //DEVELOPMENT
 
       const bool mod_active = device_data.cloned_pipeline_count != 0;
       if (enable_separate_ui_drawing && mod_active && ((device_data.has_drawn_main_post_processing && native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE && !original_shader_hashes.Contains(shader_hashes_UI_excluded)) || original_shader_hashes.Contains(shader_hashes_UI)))
@@ -2789,7 +2864,7 @@ namespace
          updated_cbuffers = true;
       }
 
-#if !DEVELOPMENT || !GAME_PREY //TODOFT2: re-enable once we are sure we replaced all the post tonemap shaders and we are done debugging the blend states
+#if !DEVELOPMENT || !GAME_PREY //TODOFT2: re-enable once we are sure we replaced all the post tonemap shaders and we are done debugging the blend states. Compute Shaders are also never used in UI and by all stuff below...
       if (!is_custom_pass) return false;
 #else // ("GAME_PREY") We can't do any further checks in this case because some UI draws at the beginning of the frame (in world computers, in Prey), and sometimes the scene doesn't draw, but we still need to update the cbuffers (though maybe we could clear it up on present, to avoid problems)
       //if (device_data.has_drawn_main_post_processing_previous && !device_data.has_drawn_main_post_processing) return false;
@@ -3073,8 +3148,7 @@ namespace
                }
          };
 #endif
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false);
 #if DEVELOPMENT
 #if 0 // We should do this manually when replacing each draw call, we don't know if it was replaced or cancelled here
       {
@@ -3092,7 +3166,7 @@ namespace
 #endif
 
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          // TODO: make the "debug_draw_pipeline_target_instance" by thread (and command list) too, though it's rarely useful
@@ -3165,11 +3239,10 @@ namespace
                }
          };
 #endif
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false, original_shader_hashes);
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -3227,11 +3300,10 @@ namespace
             native_device_context->Dispatch(group_count_x, group_count_y, group_count_z);
          };
 #endif
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, true, original_shader_hashes);
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, true);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_compute_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -3324,9 +3396,9 @@ namespace
                }
          };
 #endif
-      ShaderHashesList original_shader_hashes;
-      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch, original_shader_hashes);
+      bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch);
 #if DEVELOPMENT
+      const auto& original_shader_hashes = is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader_hashes : cmd_list_data.pipeline_state_original_graphics_shader_hashes;
       if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
@@ -3379,8 +3451,9 @@ namespace
 
    // TODO: use the native ReShade sampler desc instead? It's not really necessary
    // Expects "s_mutex_samplers" to already be locked
-   com_ptr<ID3D11SamplerState> CreateCustomSampler(const DeviceData& device_data, ID3D11Device* device, D3D11_SAMPLER_DESC desc)
+   com_ptr<ID3D11SamplerState> CreateCustomSampler(const DeviceData& device_data, ID3D11Device* device, const D3D11_SAMPLER_DESC& original_desc)
    {
+      D3D11_SAMPLER_DESC desc = original_desc;
 #if !DEVELOPMENT
       if (desc.Filter == D3D11_FILTER_ANISOTROPIC || desc.Filter == D3D11_FILTER_COMPARISON_ANISOTROPIC)
       {
@@ -3531,9 +3604,9 @@ namespace
          }
       }
 
+      shared_lock_samplers.unlock(); // This is fine!
       D3D11_SAMPLER_DESC native_desc;
       native_sampler->GetDesc(&native_desc);
-      shared_lock_samplers.unlock(); // This is fine!
       std::unique_lock unique_lock_samplers(s_mutex_samplers);
       device_data.custom_sampler_by_original_sampler[sampler.handle][device_data.texture_mip_lod_bias_offset] = CreateCustomSampler(device_data, (ID3D11Device*)device->get_native(), native_desc);
    }
@@ -4042,45 +4115,57 @@ namespace
       uint32_t param_index,
       const reshade::api::descriptor_table_update& update)
    {
-      auto* device = cmd_list->get_device();
-      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-      ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
-      DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       switch (update.type)
       {
       default:
       break;
+#if UPGRADE_SAMPLERS
       case reshade::api::descriptor_type::sampler:
       {
+         auto* device = cmd_list->get_device();
+         DeviceData& device_data = *device->get_private_data<DeviceData>();
+
+#if 1 // Optimization hack (it's currently fine with ReShade's code, that data is created on the spot and never used again)
+         reshade::api::descriptor_table_update& custom_update = const_cast<reshade::api::descriptor_table_update&>(update);
+#else
          reshade::api::descriptor_table_update custom_update = update;
+#endif
          bool any_modified = false;
          std::shared_lock shared_lock_samplers(s_mutex_samplers);
          for (uint32_t i = 0; i < update.count; i++)
          {
             const reshade::api::sampler& sampler = static_cast<const reshade::api::sampler*>(update.descriptors)[i];
-            if (device_data.custom_sampler_by_original_sampler.contains(sampler.handle))
+
+            const auto custom_sampler_by_original_sampler_it = device_data.custom_sampler_by_original_sampler.find(sampler.handle);
+            if (custom_sampler_by_original_sampler_it != device_data.custom_sampler_by_original_sampler.end())
             {
-               ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(sampler.handle);
+               auto& custom_samplers = custom_sampler_by_original_sampler_it->second;
+               const auto custom_sampler_it = custom_samplers.find(device_data.texture_mip_lod_bias_offset);
+               const ID3D11SamplerState* custom_sampler_ptr = nullptr;
                // Create the version of this sampler to match the current mip lod bias
-               if (!device_data.custom_sampler_by_original_sampler[sampler.handle].contains(device_data.texture_mip_lod_bias_offset))
+               if (custom_sampler_it == custom_samplers.end())
                {
-                  D3D11_SAMPLER_DESC native_desc;
-                  native_sampler->GetDesc(&native_desc);
                   const auto last_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
                   shared_lock_samplers.unlock();
                   {
+                     ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(sampler.handle);
+                     D3D11_SAMPLER_DESC native_desc;
+                     native_sampler->GetDesc(&native_desc);
                      std::unique_lock unique_lock_samplers(s_mutex_samplers); // Only lock for reading if necessary. It doesn't matter if we released the shared lock above for a tiny amount of time, it's safe anyway
-                     device_data.custom_sampler_by_original_sampler[sampler.handle][last_texture_mip_lod_bias_offset] = CreateCustomSampler(device_data, (ID3D11Device*)device->get_native(), native_desc);
+                     custom_sampler_ptr = (custom_samplers[last_texture_mip_lod_bias_offset] = CreateCustomSampler(device_data, (ID3D11Device*)device->get_native(), native_desc)).get();
                   }
                   shared_lock_samplers.lock();
                }
+               else
+               {
+                  custom_sampler_ptr = custom_sampler_it->second.get();
+               }
                // Update the customized descriptor data
-               uint64_t custom_sampler_handle = (uint64_t)(device_data.custom_sampler_by_original_sampler[sampler.handle][device_data.texture_mip_lod_bias_offset].get());
-               if (custom_sampler_handle != 0)
+               if (custom_sampler_ptr != nullptr)
                {
                   reshade::api::sampler& custom_sampler = ((reshade::api::sampler*)(custom_update.descriptors))[i];
-                  custom_sampler.handle = custom_sampler_handle;
+                  custom_sampler.handle = (uint64_t)custom_sampler_ptr;
                   any_modified |= true;
                }
             }
@@ -4090,11 +4175,11 @@ namespace
                // If recursive (already cloned) sampler ptrs are set, it's because the game somehow got the pointers and is re-using them (?),
                // this seems to happen when we change the ImGui settings for samplers a lot and quickly.
                bool recursive_or_null = sampler.handle == 0;
-               ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(sampler.handle);
                for (const auto& samplers_handle : device_data.custom_sampler_by_original_sampler)
                {
                   for (const auto& custom_sampler_handle : samplers_handle.second)
                   {
+                     ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(sampler.handle);
                      recursive_or_null |= custom_sampler_handle.second.get() == native_sampler;
                   }
                }
@@ -4118,6 +4203,7 @@ namespace
          }
          break;
       }
+#endif
       }
    }
 
