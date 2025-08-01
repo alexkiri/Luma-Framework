@@ -47,39 +47,68 @@ jobs:
       # We only build publishing and test for now, development builds can be built locally by devs
       if: matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release'
       run: |
+      
         # Find the addon file in the build folder (adjust path accordingly)
         $addonFile = Get-ChildItem -Path "${{ matrix.platform }}-${{ matrix.config }}" -Filter "Luma-*.addon" | Select-Object -First 1
 
         if (-not $addonFile) {
-          Write-Error "Addon file not found!"
-          exit 1
+          Write-Host "Addon file not found, it's likely this configuration isn't present for this project."
+          "skip_upload=true" >> $env:GITHUB_OUTPUT
+          exit 0
         }
 
         # Extract project name by removing prefix 'Luma-' and suffix '.addon'
         $fileName = $addonFile.Name
         $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
-
+        $zipName = "Luma-$projectName.zip"
         Write-Host "Project name extracted: $projectName"
         
         # We don't care to publish the template project, it's just there for reference
         if ($projectName -like '*_Template*') {
           Write-Host "Project is a template. Skipping ZIP creation and upload."
-          echo "skip_upload=true" >> $env:GITHUB_OUTPUT
+          "skip_upload=true" >> $env:GITHUB_OUTPUT
           exit 0
         }
 
-        # Paths
+        # Create a temp directory
+        $tempDir = "temp_package"
+        Remove-Item -Recurse -Force $tempDir -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path "$tempDir/Luma" -Force | Out-Null
+
+        # Copy shaders folder contents into Data subfolder
+        Copy-Item -Path "Shaders/*" -Destination "$tempDir/Luma" -Recurse
+
+        # Allowed subdirectories
+        $allowedDirs = @("Global", "Includes", $projectName)
+
+        # Full path to the copied Shaders folder
+        $shaderRoot = Join-Path $tempDir "Luma"
+
+        # Get all files under the copied Shaders folder
+        Get-ChildItem -Path $shaderRoot -Recurse -File | ForEach-Object {
+          $relativePath = $_.FullName.Substring($shaderRoot.Length + 1)
+    
+          # Extract top-level directory (first segment)
+          $topDir = ($relativePath -split '\\')[0]
+
+          # Check if it's a .hlsl file in an allowed directory
+          if ($_.Extension -ne ".hlsl" -or ($allowedDirs -notcontains $topDir)) {
+            Remove-Item $_.FullName -Force
+          }
+        }
+
+        # Copy addon file to temp root
         $addonPath = $addonFile.FullName
-        $globalShaderPath = "Luma-Framework\Shaders\Global\**\*.hlsl"
-        $includeShaderPath = "Luma-Framework\Shaders\Includes\**\*.hlsl"
-        $shaderPath = "Luma-Framework\Shaders\$projectName\**\*.hlsl"
-        $zipName = "Luma-$projectName.zip"
+        Copy-Item -Path $addonPath -Destination $tempDir
 
-        # Create ZIP with addon and matching shaders
-        Compress-Archive -Path $addonPath, $globalShaderPath, $includeShaderPath, $shaderPath -DestinationPath $zipName -Force
+        # Create zip with addon and renamed Shaders folder
+        Compress-Archive -Path "$tempDir/*" -DestinationPath $zipName -Force
 
-        echo "zipfile=$zipName" >> $env:GITHUB_OUTPUT
-        echo "skip_upload=false" >> $env:GITHUB_OUTPUT
+        # Optional: clean up
+        Remove-Item -Recurse -Force $tempDir
+
+        "zipfile=$zipName" >> $env:GITHUB_OUTPUT
+        "skip_upload=false" >> $env:GITHUB_OUTPUT
 
     - name: Upload ZIP
       if: steps.create_zip.outputs.skip_upload != 'true' && (matrix.config == 'Publishing-Release' || matrix.config == 'Test-Release')
@@ -95,7 +124,7 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: Binaries-*
+          pattern: Package-*
           merge-multiple: true  # puts all files in a single folder
 
       - name: Create release
