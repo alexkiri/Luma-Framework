@@ -2029,10 +2029,9 @@ public:
             cb_per_view_globals.emplace_back(global_buffer_data);
             cb_per_view_globals_last_drawn_shader.emplace_back(last_drawn_shader); // The shader hash could we unspecified if we didn't replace the shader
 #endif // DEVELOPMENT
-
 #if 1
             if (game->UpdateGlobalCB(device_data.cb_per_view_global_buffer_map_data, device))
-#else
+#else // TODO: delete
          // The whole buffer size is theoretically "CBPerViewGlobal_buffer_size" but we actually don't have the data for the excessive (padding) bytes,
          // they are never read by shaders on the GPU anyway.
          char global_buffer_data[CBPerViewGlobal_buffer_size];

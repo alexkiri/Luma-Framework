@@ -1643,6 +1643,14 @@ namespace
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
       bool changed = false;
 
+#if GAME_THIEF && DEVELOPMENT && RESHADE_API_VERSION <= 17 // Force it back to the original format, given that this game keeps the last swapchain format when resizing the swapchain //TODOFT: Disabled as this crashes and anyway the game was already linear so it works nonetheless, swapchain resource creation fails. Not needed anymore with new ReShade
+      if (!enable_swapchain_upgrade && swapchain_upgrade_type > 0)
+      {
+         desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm_srgb;
+         changed = true;
+      }
+#endif
+
       // sRGB formats don't support flip modes, if we previously upgraded the swapchain, select a flip mode compatible format when the swapchain resizes, as we can't change it anymore after creation
       if (!enable_swapchain_upgrade && swapchain_upgrade_type > 0 && (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb))
       {
@@ -1650,6 +1658,7 @@ namespace
             desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm;
          else
             desc.back_buffer.texture.format = reshade::api::format::b8g8r8a8_unorm;
+         changed = true;
       }
       
       // Generally we want to add these flags in all cases, they seem to work in all games
@@ -1665,14 +1674,6 @@ namespace
          desc.fullscreen_state = false; // Force disable FSE (see "OnSetFullscreenState()")
          changed = true;
       }
-
-#if GAME_THIEF && DEVELOPMENT && 0 // Force it back to the original format, given that this game keeps the last swapchain format when resizing the swapchain //TODOFT: Disabled as this crashes and anyway the game was already linear so it works nonetheless, swapchain resource creation fails
-      if (!enable_swapchain_upgrade && swapchain_upgrade_type > 0)
-      {
-         desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm_srgb;
-         changed = true;
-      }
-#endif
 
       // Note that occasionally this breaks after resizing the swapchain, because some games resize the swapchain maintaining whatever format it had before
       last_swapchain_linear_space = desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float;
@@ -2428,18 +2429,36 @@ namespace
    }
 #endif
 
-   void OnPresent(
+#if RESHADE_API_VERSION >= 18
+   bool
+#else
+   void
+#endif
+      OnPresent(
       reshade::api::command_queue* queue,
       reshade::api::swapchain* swapchain,
       const reshade::api::rect* source_rect,
       const reshade::api::rect* dest_rect,
       uint32_t dirty_rect_count,
-      const reshade::api::rect* dirty_rects)
+      const reshade::api::rect* dirty_rects
+#if RESHADE_API_VERSION >= 18
+      , uint32_t* sync_interval
+      , uint32_t* flags
+#endif
+      )
    {
       ID3D11Device* native_device = (ID3D11Device*)(queue->get_device()->get_native());
       ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(queue->get_immediate_command_list()->get_native());
       DeviceData& device_data = *queue->get_device()->get_private_data<DeviceData>();
       SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
+
+#if RESHADE_API_VERSION >= 18
+      // We previously added "DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING" to the swapchain, so we need to add this too
+      if (sync_interval && *sync_interval == 0 && flags)
+      {
+         *flags |= DXGI_PRESENT_ALLOW_TEARING;
+      }
+#endif
 
 #if DEVELOPMENT
       {
@@ -2755,9 +2774,15 @@ namespace
 #endif
 
       frame_index++;
+
+#if RESHADE_API_VERSION >= 18
+      return false;
+#endif
    }
 
    //TODOFT3: merge all the shader permutations that use the same code (and then move shader binaries to bin folder? Add shader files to VS project?)
+
+   int stop_type = 0; //TODOFT...
 
    // Return false to prevent the original draw call from running (e.g. if you replaced it or just want to skip it)
    // Most games (e.g. Prey, Dishonored 2) always draw in direct mode (as opposed to indirect), but uses different command lists on different threads (e.g. on Prey, that's almost only used for the shadow projection maps, in Dishonored 2, for almost every separate pass).
