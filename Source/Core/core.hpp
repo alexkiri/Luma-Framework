@@ -378,6 +378,7 @@ namespace
    std::atomic<int32_t> debug_draw_pipeline_instance = 0; // Theoretically should be within "CommandListData" but this should work for most cases
    int32_t debug_draw_pipeline_target_instance = -1;
    bool debug_draw_replaced_pass = false; // Whether we print the debugging of the original or replaced pass (the resources bindings etc might be different, though this won't forcefully run the original pass if it was skipped by the game's mod custom code)
+   bool debug_draw_auto_gamma = true;
 
    DebugDrawMode debug_draw_mode = DebugDrawMode::RenderTarget;
    int32_t debug_draw_view_index = 0;
@@ -2115,7 +2116,7 @@ namespace
                   {
                      D3D11_SIGNATURE_PARAMETER_DESC shader_output_desc;
                      hr = shader_reflector->GetOutputParameterDesc(i, &shader_output_desc);
-                     if (SUCCEEDED(hr) && shader_output_desc.SemanticName == "SV_Target")
+                     if (SUCCEEDED(hr) && strcmp(shader_output_desc.SemanticName, "SV_Target") == 0)
                      {
                         ASSERT_ONCE(shader_output_desc.SemanticIndex == shader_output_desc.Register);
                         cached_pipeline->rtvs[shader_output_desc.SemanticIndex] = true;
@@ -5809,6 +5810,7 @@ namespace
                                        auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[i];
                                        auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[i];
                                        auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[i];
+                                       auto sr_is_rt = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_is_rt[i];
 
                                        ImGui::PushID(i);
 
@@ -5832,6 +5834,7 @@ namespace
                                           ImGui::Text("RV Format: %u", srv_format);
                                        }
                                        ImGui::Text("R Size: %ux%ux%u", sr_size.x, sr_size.y, sr_size.z);
+                                       ImGui::Text("R is RT: %s", sr_is_rt ? "True" : "False");
                                        for (uint64_t upgraded_resource : device_data.upgraded_resources)
                                        {
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
@@ -5870,6 +5873,7 @@ namespace
                                        auto ua_format = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_format[i];
                                        auto ua_size = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_size[i];
                                        auto ua_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_hash[i];
+                                       auto ua_is_rt = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_is_rt[i];
 
                                        ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT); // Offset by the max amount of previous iterations from above
 
@@ -5893,6 +5897,7 @@ namespace
                                           ImGui::Text("RV Format: %u", uav_format);
                                        }
                                        ImGui::Text("R Size: %ux%ux%u", ua_size.x, ua_size.y, ua_size.z);
+                                       ImGui::Text("R is RT: %s", ua_is_rt ? "True" : "False");
                                        for (uint64_t upgraded_resource : device_data.upgraded_resources)
                                        {
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
@@ -6117,17 +6122,16 @@ namespace
                                     ImGui::Text("Strencil Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).stencil_enabled ? "True" : "False");
                                  }
 
-                                 if (pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasVertexShader())
+                                 // TODO: figure out why this doesn't return the right values if we are a vertex shader
+                                 if (pipeline_pair->second->HasPixelShader())
                                  {
                                     ImGui::Text("");
                                     ImGui::Text("Scissors Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).scissors ? "True" : "False");
-                                    //TODOFT: do it with float print
                                     ImGui::Text("Viewport 0: x: %s y:%s w: %s h: %s",
                                        std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.x).c_str(),
                                        std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.y).c_str(),
                                        std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.z).c_str(),
                                        std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.w).c_str());
-                                    
                                  }
                               }
                               ImGui::EndChild(); // Settings and Info
@@ -6670,6 +6674,21 @@ namespace
                         debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::InvertColors;
                      }
                   }
+                  ImGui::Checkbox("Debug Draw Options: Auto Gamma", &debug_draw_auto_gamma);
+                  if (debug_draw_auto_gamma)
+                  {
+                     if (!IsLinearFormat(device_data.debug_draw_texture_format))
+                     {
+                        debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::GammaToLinear;
+                     }
+                     else
+                     {
+                        debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::LinearToGamma;
+                        debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::GammaToLinear;
+                     }
+                  }
+                  else
+                  {
                   if (ImGui::Checkbox("Debug Draw Options: Linear to Gamma", &debug_draw_linear_to_gamma))
                   {
                      if (debug_draw_linear_to_gamma)
@@ -6691,6 +6710,7 @@ namespace
                      {
                         debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::GammaToLinear;
                      }
+                  }
                   }
                   if (ImGui::Checkbox("Debug Draw Options: Flip Y", &debug_draw_flip_y))
                   {

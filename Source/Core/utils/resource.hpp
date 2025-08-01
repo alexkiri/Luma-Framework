@@ -39,13 +39,17 @@ std::optional<std::string> GetD3DNameW(ID3D11DeviceChild* obj)
 }
 #endif
 
-void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr)
+void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr, bool* render_target_flag = nullptr)
 {
    size = { };
    format = DXGI_FORMAT_UNKNOWN;
    if (hash)
    {
       *hash = "";
+   }
+   if (render_target_flag)
+   {
+      *render_target_flag = false;
    }
    if (!resource) return;
    // Go in order of popularity
@@ -57,6 +61,10 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       texture_2d->GetDesc(&texture_2d_desc);
       size = uint3{ texture_2d_desc.Width, texture_2d_desc.Height, 0 };
       format = texture_2d_desc.Format;
+      if (render_target_flag)
+      {
+         *render_target_flag = (texture_2d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
+      }
       if (hash)
       {
          *hash = std::to_string(std::hash<void*>{}(resource));
@@ -71,6 +79,10 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       texture_3d->GetDesc(&texture_3d_desc);
       size = uint3{ texture_3d_desc.Width, texture_3d_desc.Height, texture_3d_desc.Depth };
       format = texture_3d_desc.Format;
+      if (render_target_flag)
+      {
+         *render_target_flag = (texture_3d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
+      }
       if (hash)
       {
          *hash = std::to_string(std::hash<void*>{}(resource));
@@ -85,6 +97,10 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       texture_1d->GetDesc(&texture_1d_desc);
       size = uint3{ texture_1d_desc.Width, 0, 0 };
       format = texture_1d_desc.Format;
+      if (render_target_flag)
+      {
+         *render_target_flag = (texture_1d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
+      }
       if (hash)
       {
          *hash = std::to_string(std::hash<void*>{}(resource));
@@ -92,16 +108,16 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       return;
    }
 }
-void GetResourceInfo(ID3D11View* view, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr)
+void GetResourceInfo(ID3D11View* view, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr, bool* render_target_flag = nullptr)
 {
    if (!view)
    {
-      GetResourceInfo((ID3D11Resource*)nullptr, size, format, hash);
+      GetResourceInfo((ID3D11Resource*)nullptr, size, format, hash, render_target_flag);
       return;
    }
    com_ptr<ID3D11Resource> srv_resource;
    view->GetResource(&srv_resource);
-   return GetResourceInfo(srv_resource.get(), size, format, hash);
+   return GetResourceInfo(srv_resource.get(), size, format, hash, render_target_flag);
 }
 
 bool AreResourcesEqual(ID3D11Resource* resource1, ID3D11Resource* resource2, bool check_format = true)
@@ -322,7 +338,9 @@ void CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          texture->GetDesc(&texture_desc);
          texture_desc.Usage = D3D11_USAGE_DEFAULT;
          texture_desc.CPUAccessFlags = 0;
-         texture_desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS; // Just do all of them
+         texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE; // We don't need "D3D11_BIND_RENDER_TARGET" nor "D3D11_BIND_UNORDERED_ACCESS" for now
+         texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_GENERATE_MIPS;
+         texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_SHARED;
          device_data.debug_draw_texture = nullptr;
          HRESULT hr = native_device->CreateTexture2D(&texture_desc, nullptr, &device_data.debug_draw_texture); //TODOFT: figure out error, happens sometimes. And make thread safe!
          ASSERT_ONCE(SUCCEEDED(hr));

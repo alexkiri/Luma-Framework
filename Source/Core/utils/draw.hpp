@@ -269,6 +269,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
             trace_draw_call_data.viewport_0 = { viewport.TopLeftX, viewport.TopLeftY, viewport.Width, viewport.Height };
          }
       }
+      constexpr bool show_unused_bound_resources = false; // Expose if needed
       if (pipeline->HasPixelShader())
       {
          com_ptr<ID3D11DepthStencilState> depth_stencil_state;
@@ -298,7 +299,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &uavs[0]);
          for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
          {
-            if (rtvs[i] != nullptr && pipeline->rtvs[i])
+            if (rtvs[i] != nullptr && (show_unused_bound_resources || pipeline->rtvs[i]))
             {
                D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
                rtvs[i]->GetDesc(&rtv_desc);
@@ -306,6 +307,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                ASSERT_ONCE(rtv_desc.Format != DXGI_FORMAT_UNKNOWN); // Unexpected?
                com_ptr<ID3D11Resource> rt_resource;
                rtvs[i]->GetResource(&rt_resource);
+               ASSERT_ONCE(rt_resource != nullptr);
                if (rt_resource)
                {
                   // If any of the set RTs are the swapchain, set it to true
@@ -322,13 +324,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          }
          for (UINT i = 0; i < D3D11_PS_CS_UAV_REGISTER_COUNT; i++)
          {
-            if (uavs[i] != nullptr && pipeline->uavs[i])
+            if (uavs[i] != nullptr && (show_unused_bound_resources || pipeline->uavs[i]))
             {
                D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
                uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
-               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_hash[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
             }
          }
 
@@ -336,13 +338,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->PSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
-            if (srvs[i] != nullptr && pipeline->srvs[i])
+            if (srvs[i] != nullptr && (show_unused_bound_resources || pipeline->srvs[i]))
             {
                D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
                srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-              GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
             }
          }
       }
@@ -352,13 +354,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->VSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
-            if (srvs[i] != nullptr && pipeline->srvs[i])
+            if (srvs[i] != nullptr && (show_unused_bound_resources || pipeline->srvs[i]))
             {
                D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
                srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
             }
          }
       }
@@ -368,13 +370,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->CSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
-            if (srvs[i] != nullptr && pipeline->srvs[i])
+            if (srvs[i] != nullptr && (show_unused_bound_resources || pipeline->srvs[i]))
             {
                D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
                srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
             }
          }
 
@@ -382,13 +384,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->CSGetUnorderedAccessViews(0, D3D11_1_UAV_SLOT_COUNT, &uavs[0]);
          for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
          {
-            if (uavs[i] != nullptr && pipeline->uavs[i])
+            if (uavs[i] != nullptr && (show_unused_bound_resources || pipeline->uavs[i]))
             {
                D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
                uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
-               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_hash[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
             }
          }
       }

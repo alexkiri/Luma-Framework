@@ -48,12 +48,14 @@ struct TraceDrawCallData
    DXGI_FORMAT sr_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the resource
    uint3 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+   bool sr_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    // Unordered Access (Resource+Views)
 	static_assert(D3D11_1_UAV_SLOT_COUNT >= D3D11_PS_CS_UAV_REGISTER_COUNT);
    DXGI_FORMAT ua_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource
    DXGI_FORMAT uav_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
    uint3 ua_size[D3D11_1_UAV_SLOT_COUNT] = {};
    std::string ua_hash[D3D11_1_UAV_SLOT_COUNT] = {};
+   bool ua_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
 
    const char* custom_name = "Unknown";
 };

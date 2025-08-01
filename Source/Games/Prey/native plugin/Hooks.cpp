@@ -481,7 +481,7 @@ namespace Hooks
 		// We never hooked to begin with
 		if (!asmPatchHandle_swapchain.get())
 		{
-			assert(false); // Shouldn't happen
+			assert(false); // Shouldn't happen, but it might if the addon failed to load
 			return;
 		}
 

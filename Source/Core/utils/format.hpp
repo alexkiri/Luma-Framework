@@ -461,6 +461,39 @@ inline std::ostream& operator<<(std::ostream& os, const reshade::api::resource_t
    }
 }
 
+// All float, sRGB and depth formats are returned as linear here.
+// Pass in the view format if possible.
+bool IsLinearFormat(DXGI_FORMAT format)
+{
+   switch (format)
+   {
+   case DXGI_FORMAT_D32_FLOAT:
+   case DXGI_FORMAT_D16_UNORM:
+   case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+   case DXGI_FORMAT_D24_UNORM_S8_UINT:
+   case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+   case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+   case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+   case DXGI_FORMAT_R16_FLOAT:
+   case DXGI_FORMAT_R16G16_FLOAT:
+   case DXGI_FORMAT_R16G16B16A16_FLOAT:
+   case DXGI_FORMAT_R32_FLOAT:
+   case DXGI_FORMAT_R32G32_FLOAT:
+   case DXGI_FORMAT_R32G32B32_FLOAT:
+   case DXGI_FORMAT_R32G32B32A32_FLOAT:
+   case DXGI_FORMAT_R11G11B10_FLOAT:
+   case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+   case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+   case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+   case DXGI_FORMAT_BC1_UNORM_SRGB:
+   case DXGI_FORMAT_BC2_UNORM_SRGB:
+   case DXGI_FORMAT_BC3_UNORM_SRGB:
+   case DXGI_FORMAT_BC7_UNORM_SRGB:
+      return true;
+   }
+   return false;
+}
+
 const char* GetFormatName(DXGI_FORMAT format)
 {
     switch (format)
