@@ -1,51 +1,14 @@
-// Specify a define with the name of the game here (GAME_*).
-// This is optional but can be used to hardcode custom (per game) behaviours in the core library,
-// or other reasons. We can't automate it through the project define system (based on the project name) because
-// we need these defines to be upper case and space free.
 #define GAME_FF7_REMAKE 1
 
-// Define all the global "core" defines before including its files:
-// Enable this to be able to use DLSS's code
 #define ENABLE_NGX 1
-// Update samples to override the bias, based on the rendering resolution etc
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
 #define ALLOW_SHADERS_DUMPING 0
 
-// Alternative implementation in case we used "Core" as static library
-#if defined(RESHADE_EXTERNS) && 0
-#define RESHADE_EXTERNS
-extern "C" __declspec(dllexport) const char* NAME = Globals::MOD_NAME;
-extern "C" __declspec(dllexport) const char* DESCRIPTION = Globals::DESCRIPTION;
-extern "C" __declspec(dllexport) const char* WEBSITE = Globals::WEBSITE;
-extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE reshade_module)
-{
-	Init(true);
-	return true;
-}
-extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon_module, HMODULE reshade_module)
-{
-	Uninit();
-}
-#endif
-
-// Instead of "manually" including the "core" library, we simply include its main code file (which is a header).
-// The library in itself is standalone, as in, it compiles fine and could directly be used as a template addon etc if built as dll but,
-// there's a major limitation in how libraries dependencies work by nature, and that is that you can only make
-// one version of them for all other projects to use. For performance and tidiness reasons, we are interested in
-// having global defines that can be turned on and off per game, as opposed to runtime (static) parameters.
-// Hence why we specify the global defines before including the core Luma file (where near all of the generic Luma implementation is).
-// If we wanted to use a library, we'd also need to add a core "main" definition in a cpp file, to link it properly.
-// All externs that are currently defined in core would also need to be manually defined in each game's implementation (e.g. see "RESHADE_EXTERNS" above).
-// The only disadvantage of not actually including the core as a library, is that we'll have to add the same include/library dependencies in our
-// game project (e.g. add ReShade, DLSS, etc), and manually add all cpp files too.
-//
-// To compile in different modes (e.g. "DEVELOPMENT", "TEST" etc see "global_defines.h").
 #include "..\..\Core\core.hpp"
 
 #include "..\..\Core\dlss\DLSS.cpp"
 #include "includes/cbuffers.h"
-
 
 namespace
 {
@@ -68,36 +31,24 @@ struct GameDeviceDataFF7Remake final : public GameDeviceData
 
 class FF7Remake final : public Game
 {
-	// Optional helper to hide ugly casts
 	static GameDeviceDataFF7Remake& GetGameDeviceData(DeviceData& device_data)
 	{
 		return *static_cast<GameDeviceDataFF7Remake*>(device_data.game);
 	}
 
 public:
-	// You can define any data to initialize once here
 	void OnInit(bool async) override
 	{
-		// You can add shader defines that will end up in the advanced settings for users to modify here.
-		  // These will be defined in the shaders, so they can be used to do static branches in them.
-		// Ideally they should also be defined in the game's Settings.hlsl file.
-
-		// Define these according to the game's original technical details and the mod's implementation (see their declarations for more).
-		GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0'); // What space are the colors in? Was the swapchain linear (sRGB texture format)? Did we change post processing to store in linear space?
-		GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('0'); // Whether we do gamma correction and paper white scaling during post processing or we delay them until the final display composition pass
-		GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0'); // What SDR transfer curve was the game using?
-		GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1'); // What SDR transfer curve to we want to emulate? This is relevant even if we work in linear space, as there can be a gamma mismatch on it
-		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0'); // How does the UI draw in?
-
-		// Customize the cbuffers indexes here. They should be between 0 and 13 ("D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1"),
-		// set them to invalid values (e.g. -1) to not set them (they won't be uploaded to the GPU, and thus not usable in shaders). All their values need to be different if they are valid.
-		// These will be automatically sent to the GPU for every shader pass the mod overrides.
+		GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+		GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('0');
+		GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
+		GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
 
 		luma_settings_cbuffer_index = 13;
 		luma_data_cbuffer_index = 12;
 	}
 
-	// This needs to be overridden with your own "GameDeviceData" sub-class (destruction is automatically handled)
 	void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
 	{
 		device_data.game = new GameDeviceDataFF7Remake;
@@ -323,8 +274,7 @@ public:
 
 	void PrintImGuiAbout() override
 	{
-		// Remember to credit Luma developers, the game mod creators, and all third party code that is used (plus, optionally, testers too)
-		ImGui::Text("Template Luma mod - about and credits section", "");
+		ImGui::Text("Final Fantasy VII Remake Luma mod - by izueh etc", ""); // TODO
 	}
 
 	void CreateShaderObjects(DeviceData& device_data, const std::optional<std::unordered_set<uint32_t>>& shader_hashes_filter) override
@@ -339,7 +289,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
 		Globals::GAME_NAME = PROJECT_NAME;
-		Globals::DESCRIPTION = "FF7 Remake Luma mod";
+		Globals::DESCRIPTION = "Final Fantasy VII Remake Luma mod";
 		Globals::WEBSITE = "";
 		Globals::VERSION = 1;
 
@@ -365,15 +315,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 				reshade::api::format::r10g10b10a2_unorm,
 				reshade::api::format::r10g10b10a2_typeless,
 
-				//reshade::api::format::r16g16b16a16_unorm,
-
 				reshade::api::format::r11g11b10_float,
 		};
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_2D;
 
-		// Create your game sub-class instance (it will be automatically destroyed on exit).
-		// You do not need to do this if you have no custom data to store.
 		game = new FF7Remake();
 	}
 
