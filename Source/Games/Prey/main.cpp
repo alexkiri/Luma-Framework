@@ -2031,7 +2031,7 @@ public:
 #endif // DEVELOPMENT
 
 #if 1
-            if (game->UpdateGlobalCB(device_data.cb_per_view_global_buffer_map_data, device) && stop_type != 7)
+            if (game->UpdateGlobalCB(device_data.cb_per_view_global_buffer_map_data, device))
 #else
          // The whole buffer size is theoretically "CBPerViewGlobal_buffer_size" but we actually don't have the data for the excessive (padding) bytes,
          // they are never read by shaders on the GPU anyway.
