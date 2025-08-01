@@ -351,6 +351,11 @@ namespace
    std::vector<ID3D11Device*> global_native_devices; // Possibly unused
    std::vector<DeviceData*> global_devices_data;
    HWND game_window = 0; // This is fixed forever (in almost all games (e.g. Prey))
+#if DEVELOPMENT
+   HHOOK game_window_proc_hook = nullptr;
+   WNDPROC game_window_original_proc = nullptr;
+   WNDPROC game_window_custom_proc = nullptr;
+#endif
 	thread_local bool last_swapchain_linear_space = false;
    thread_local bool waiting_on_upgraded_resource_init = false;
    thread_local reshade::api::resource_desc upgraded_resource_init_desc = {};
@@ -1638,6 +1643,46 @@ namespace
       device->destroy_private_data<DeviceData>();
    }
 
+   // Prevent games from pausing when alt tabbing out of it (e.g. when editing shaders) by silencing focus loss events
+   LRESULT WINAPI CustomWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
+   {
+      if (lParam == WM_KILLFOCUS)
+      {
+         // Lost keyboard focus
+         return 0; // block it
+      }
+      else if (lParam == WM_ACTIVATE)
+      {
+         if (wParam == WA_INACTIVE)
+         {
+            // Lost foreground activation
+            return 0; // block it
+         }
+      }
+      return CallWindowProc(game_window_original_proc, hWnd, msg, wParam, lParam);
+   }
+   LRESULT CALLBACK CallWndProc(int nCode, WPARAM wParam, LPARAM lParam)
+   {
+      if (nCode >= 0)
+      {
+         CWPSTRUCT* pCwp = (CWPSTRUCT*)lParam;
+         if (pCwp->message == WM_KILLFOCUS)
+         {
+            // Lost keyboard focus
+            return 1; // block it
+         }
+         else if (pCwp->message == WM_ACTIVATE)
+         {
+            if (LOWORD(pCwp->wParam) == WA_INACTIVE)
+            {
+               // Lost foreground activation
+               return 1; // block it
+				}
+         }
+      }
+      return CallNextHookEx(NULL, nCode, wParam, lParam);
+   }
+
    bool OnCreateSwapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
    {
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
@@ -1760,7 +1805,43 @@ namespace
          const std::unique_lock lock_reshade(s_mutex_reshade);
          Display::GetHDRMaxLuminance(native_swapchain3, device_data.default_user_peak_white, srgb_white_level);
          Display::IsHDRSupportedAndEnabled(swapchain_desc.OutputWindow, hdr_supported_display, hdr_enabled_display, native_swapchain3);
+         const bool window_changed = game_window != swapchain_desc.OutputWindow;
+         if (window_changed)
+         {
          game_window = swapchain_desc.OutputWindow; // This shouldn't really need any thread safety protection
+#if DEVELOPMENT
+            if (game_window)
+            {
+#if 1
+               WNDPROC game_window_proc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(game_window, GWLP_WNDPROC));
+               if (game_window_proc != game_window_custom_proc)
+               {
+                  game_window_original_proc = game_window_proc;
+                  ASSERT_ONCE(game_window_original_proc != nullptr);
+                  WNDPROC game_window_prev_proc = reinterpret_cast<WNDPROC>(SetWindowLongPtr(game_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(CustomWndProc)));
+                  ASSERT_ONCE(game_window_prev_proc == game_window_proc); // The above returns the ptr before replacement
+                  game_window_custom_proc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(game_window, GWLP_WNDPROC));
+               }
+#else
+               if (!game_window_proc_hook)
+               {
+                  DWORD threadId = GetWindowThreadProcessId(game_window, NULL);
+                  game_window_proc_hook = SetWindowsHookEx(WH_CALLWNDPROC, CallWndProc, NULL, threadId);
+                  ASSERT_ONCE(game_window_proc_hook);
+               }
+#endif
+            }
+            else
+            {
+               game_window_custom_proc = nullptr;
+               if (game_window_proc_hook)
+               {
+                  UnhookWindowsHookEx(game_window_proc_hook);
+                  game_window_proc_hook = nullptr;
+               }
+            }
+#endif // DEVELOPMENT
+         }
 
 #if GAME_BIOSHOCK_2 //TODOFT6 (does this make the game stutter like crazy?)
          // Force borderless window:
@@ -7367,6 +7448,19 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
    }
    case DLL_PROCESS_DETACH:
    {
+#if DEVELOPMENT
+      if (game_window_original_proc && game_window != NULL && IsWindow(game_window))
+      {
+         SetWindowLongPtr(game_window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(game_window_original_proc));
+         game_window_original_proc = nullptr;
+      }
+      if (game_window_proc_hook)
+      {
+         UnhookWindowsHookEx(game_window_proc_hook);
+         game_window_proc_hook = nullptr;
+      }
+#endif
+
       // Automatically destroy this if it was instanced by a game implementation
       if (game != &default_game)
       {
