@@ -1644,6 +1644,7 @@ namespace
       device->destroy_private_data<DeviceData>();
    }
 
+#if DEVELOPMENT
    // Prevent games from pausing when alt tabbing out of it (e.g. when editing shaders) by silencing focus loss events
    LRESULT WINAPI CustomWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
    {
@@ -1683,6 +1684,7 @@ namespace
       }
       return CallNextHookEx(NULL, nCode, wParam, lParam);
    }
+#endif
 
    bool OnCreateSwapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
    {
