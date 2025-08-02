@@ -9,7 +9,7 @@ Multiple games are already in the code, and adding a new one is relatively easy.
 - Windows 11 SDK 10.0.26100.0 (older versions work, but don't support HDR as well)
 
 # Instructions
-- Set "VCPKG_ROOT" environment variable to your vcpkg installation folder if it wasn't already (download it from here "https://github.com/microsoft/vcpkg", the version integrated with Visual Studio doesn't seem to be as reliable).
+- (Prey only, optional otherwise) Set "VCPKG_ROOT" environment variable to your vcpkg installation folder if it wasn't already (download it from here "https://github.com/microsoft/vcpkg", the version integrated with Visual Studio doesn't seem to be as reliable).
 - Install the latest VC++ redist before running the code (https://aka.ms/vs/17/release/vc_redist.x64.exe), we enforced users to update to the latest versions, but "_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR" could be defined to avoid that.
 - Open "Luma.sln" and build it. Note that "Edit and Continue" build settings (\ZI) should not be used as they break the code patches generation (at least for projects that use DKUtil).
 - The code hot spots are in core.hpp and each game's main.cpp files.
@@ -27,11 +27,15 @@ Multiple games are already in the code, and adding a new one is relatively easy.
 - Build the project and run it for debugging, it should automatically run the game with the mod loaded.
 
 # Shaders development
-- The mod automatically dumps the game's shaders in development mode.
-- Luma shaders can be found in ".\Shaders\GameName". Dumped shaders will go there, and hand created ones should also go there (unless they are generic, then they should go in the generic folder).
+- The mod automatically dumps the game's shaders in development builds.
+- Luma shaders can be found in ".\Shaders\GameName" in development builds (starting from the repository root). Dumped shaders will go there, and hand created ones should also go there (unless they are generic, then they should go in the generic folder).
 - Shader are saved and replaced by (cso/binary) hash.
-- VSCode is suggested.
-- Packaging mods for now is manual and the generic and game specific shader folders need to be put in a "Luma" folder in the mod binary directory.
+- VSCode is suggested for editing them.
+- In publishing and test builds, shaders will be loaded from the ".\Luma\GameName" folder, starting from the game binary folder (where the addon is).
+
+# Releasing
+Github actions automatically build all game projects and package them with their respective shaders.
+Once your mod is ready, make a PR to the original repository.
 
 # Comparison with RenoDX
 Luma shares a lot with RenoDX (https://github.com/clshortfuse/renodx), where it got its original inspiration from, but Luma is more focused on modding games deep down, like for example adding and replacing entire rendering techniques.
@@ -41,4 +45,4 @@ The Luma Framework was born out of the modding code I originally wrote for Prey 
 Starfield and Kingdom Come Deliverance Luma mods are not based on the Luma (generic) Framework and thus should not be confused with it. They do share some of the authors, and some of the code features (e.g. HDR stuff), but they are separate entities.
 
 # Why ReShade?
-It'd be possible to achieve the same without ReShade and game specific code hooks, by only using generic DirectX hooks, but it'd be exponentially more complicated (Some engines re-use render target textures for different purposes, so we couldn't easily tell which ones to upgrade, and ReShade offers settings serialization and a bunch of other features).
+It'd be possible to achieve the same without ReShade and game specific code hooks, by only using generic DirectX hooks, but it'd be exponentially more complicated (even if more performant) (some engines re-use render target textures for different purposes, so we couldn't easily tell which ones to upgrade, and ReShade offers settings serialization and a bunch of other features).
