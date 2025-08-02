@@ -454,12 +454,13 @@ namespace
    // TODO: if this was ever too slow, given we iterate through the shader folder which also contains (possibly hundres of) dumps and our built binaries,
    // we could split it up in 3 main branches (shaders code, shaders binaries and shaders dump).
    // Alternatively we could make separate iterators for each main shaders folder.
-   bool IsValidShadersSubPath(const std::filesystem::path& shader_directory, const std::filesystem::path& entry_path)
+   bool IsValidShadersSubPath(const std::filesystem::path& shader_directory, const std::filesystem::path& entry_path, bool& out_is_global)
    {
       const std::filesystem::path entry_directory = entry_path.parent_path();
       const auto global_shader_directory = shader_directory / "Global";
       if (entry_directory == global_shader_directory)
       {
+         out_is_global = true;
          return true;
       }
       const auto game_shader_directory = shader_directory / Globals::GAME_NAME;
@@ -487,6 +488,7 @@ namespace
       {
          custom_shader->second->code.clear();
          custom_shader->second->is_hlsl = false;
+         custom_shader->second->is_global = false;
          custom_shader->second->preprocessed_hash = 0;
          custom_shader->second->file_path.clear();
          custom_shader->second->compilation_errors.clear();
@@ -552,8 +554,9 @@ namespace
       
       for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
       {
+         bool is_global = false;
          const auto& entry_path = entry.path();
-         if (!IsValidShadersSubPath(directory, entry_path))
+         if (!IsValidShadersSubPath(directory, entry_path, is_global))
          {
             continue;
          }
@@ -896,8 +899,9 @@ namespace
       std::unordered_set<uint32_t> changed_shaders_hashes;
       for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
       {
+         bool is_global = false;
          const auto& entry_path = entry.path();
-         if (!IsValidShadersSubPath(directory, entry_path))
+         if (!IsValidShadersSubPath(directory, entry_path, is_global))
          {
             continue;
          }
@@ -1048,6 +1052,7 @@ namespace
             if (!has_custom_shader)
             {
                custom_shader = new CachedCustomShader();
+               custom_shader->is_global = is_global;
 
                std::size_t preprocessed_hash = custom_shader->preprocessed_hash;
                // Note that if anybody manually changed the config hash, the data here could mismatch and end up recompiling when not needed or skipping recompilation even if needed (near impossible chance)
@@ -1320,11 +1325,12 @@ namespace
          const auto custom_shader = custom_shaders_cache[shader_hash];
 
          // Skip shaders that don't have code binaries at the moment
-         if (custom_shader == nullptr || custom_shader->code.empty()) continue;
+         if (custom_shader == nullptr || custom_shader->is_global || custom_shader->code.empty()) continue;
 
          auto pipelines_pair = device_data.pipeline_caches_by_shader_hash.find(shader_hash);
          if (pipelines_pair == device_data.pipeline_caches_by_shader_hash.end())
          {
+            // It's likely the game hasn't loaded this shader yet
             std::stringstream s;
             s << "LoadCustomShaders(Unknown hash: ";
             s << PRINT_CRC32(shader_hash);
@@ -1433,7 +1439,7 @@ namespace
 #endif
             {
                std::stringstream s;
-               s << "LoadCustomShaders(cloned ";
+               s << "LoadCustomShaders(Cloned ";
                s << reinterpret_cast<void*>(cached_pipeline->pipeline.handle);
                s << " => " << reinterpret_cast<void*>(pipeline_clone.handle);
                s << ", layout: " << reinterpret_cast<void*>(cached_pipeline->layout.handle);
@@ -2015,6 +2021,7 @@ namespace
             case reshade::api::pipeline_subobject_type::pixel_shader:
             {
                ASSERT_ONCE(subobject_count == 1);
+               ASSERT_ONCE(subobject.count == 1);
                break;
             }
             default:
@@ -2024,6 +2031,7 @@ namespace
             }
          }
       }
+
       reshade::api::pipeline_subobject* subobjects_cache = Shader::ClonePipelineSubobjects(subobject_count, subobjects);
 
       auto* cached_pipeline = new CachedPipeline{
@@ -3240,7 +3248,7 @@ namespace
          pre_draw_state_stack.Cache(native_device_context);
       }
 
-      std::function<void()> drawLambda = [&]()
+      std::function<void()> draw_lambda = [&]()
             {
                if (instance_count > 1)
                {
@@ -3281,7 +3289,7 @@ namespace
 
             if (!cancelled_or_replaced)
             {
-               drawLambda();
+               draw_lambda();
             }
             else if (!debug_draw_replaced_pass)
             {
@@ -3301,11 +3309,11 @@ namespace
       if (cancelled_or_replaced)
       {
          // Cancel the lambda as we've already drawn once, we don't want to do it further below
-         drawLambda = []() {};
+         draw_lambda = []() {};
       }
 
       const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
-      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, false, drawLambda);
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, false, draw_lambda);
 #endif
       return cancelled_or_replaced;
    }
@@ -3331,7 +3339,7 @@ namespace
          pre_draw_state_stack.Cache(native_device_context);
       }
 
-      std::function<void()> drawLambda = [&]()
+      std::function<void()> draw_lambda = [&]()
             {
                if (instance_count > 1)
                {
@@ -3356,7 +3364,7 @@ namespace
 
             if (!cancelled_or_replaced)
             {
-               drawLambda();
+               draw_lambda();
             }
             else if (!debug_draw_replaced_pass)
             {
@@ -3376,11 +3384,11 @@ namespace
       if (cancelled_or_replaced)
       {
          // Cancel the lambda as we've already drawn once, we don't want to do it further below
-         drawLambda = []() {};
+         draw_lambda = []() {};
       }
 
       const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
-      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, false, drawLambda);
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, false, draw_lambda);
 #endif
       return cancelled_or_replaced;
    }
@@ -3400,7 +3408,7 @@ namespace
          pre_draw_state_stack.Cache(native_device_context);
       }
 
-      std::function<void()> drawLambda = [&]()
+      std::function<void()> draw_lambda = [&]()
          {
             native_device_context->Dispatch(group_count_x, group_count_y, group_count_z);
          };
@@ -3417,7 +3425,7 @@ namespace
 
             if (!cancelled_or_replaced)
             {
-               drawLambda();
+               draw_lambda();
             }
             else if (!debug_draw_replaced_pass)
             {
@@ -3437,11 +3445,11 @@ namespace
       if (cancelled_or_replaced)
       {
          // Cancel the lambda as we've already drawn once, we don't want to do it further below
-         drawLambda = []() {};
+         draw_lambda = []() {};
       }
 
       const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
-      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, true, drawLambda);
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, true, draw_lambda);
 #endif
       return cancelled_or_replaced;
    }
@@ -3478,7 +3486,7 @@ namespace
             pre_draw_state_stack_graphics.Cache(native_device_context);
       }
 
-      std::function<void()> drawLambda = [&]()
+      std::function<void()> draw_lambda = [&]()
             {
                // We only support one draw for now (it couldn't be otherwise in DX11)
                ASSERT_ONCE(draw_count == 1);
@@ -3514,7 +3522,7 @@ namespace
 
             if (!cancelled_or_replaced)
             {
-               drawLambda();
+               draw_lambda();
             }
             else if (!debug_draw_replaced_pass)
             {
@@ -3545,11 +3553,11 @@ namespace
       if (cancelled_or_replaced)
       {
          // Cancel the lambda as we've already drawn once, we don't want to do it further below
-         drawLambda = []() {};
+         draw_lambda = []() {};
       }
 
       const DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
-      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, is_dispatch, drawLambda);
+      cancelled_or_replaced |= HandlePipelineRedirections(native_device_context, device_data, cmd_list_data, is_dispatch, draw_lambda);
 #endif
       return cancelled_or_replaced;
    }
