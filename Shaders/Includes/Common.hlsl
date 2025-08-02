@@ -143,6 +143,19 @@ float3 PumboAutoHDR(float3 SDRColor, float _PeakWhiteNits, float _PaperWhiteNits
 	return SDRColor * safeDivision(AutoHDRTotalRatio, SDRRatio, 1);
 }
 
+// Takes an SDR/HDR linear color (that doesn't have that much dynamic range) and expands the high midtones and highlights
+float3 FakeHDR(float3 Color, float NormalizationPoint = 1.0, float FakeHDRIntensity = 0.5, bool BoostSaturation = true, uint colorSpace = CS_DEFAULT)
+{
+  float mixedSceneColorLuminance = GetLuminance(Color, colorSpace) / NormalizationPoint;
+  // Expand highlights with a power curve
+  mixedSceneColorLuminance = mixedSceneColorLuminance > 1.0 ? pow(mixedSceneColorLuminance, 1.0 + FakeHDRIntensity) : mixedSceneColorLuminance;
+  Color = RestoreLuminance(Color, mixedSceneColorLuminance * NormalizationPoint, colorSpace);
+  // Expand saturation as well, on highlights only
+  if (BoostSaturation)
+    Color = Saturation(Color, max(mixedSceneColorLuminance, 1.0), colorSpace);
+  return Color;
+}
+
 // LUMA FT: functions to convert an SDR color (optionally in gamma space) to an HDR one (optionally linear * paper white).
 // This should be used for any color that writes on the color buffer (or back buffer) from tonemapping on.
 // The "IsAfterDisplayTransfer" flag tells this function whether we are post "PostAAComposites" (which would optionally be the first pass space to store output in gamma space based on "POST_PROCESS_SPACE_TYPE" for Luma)
