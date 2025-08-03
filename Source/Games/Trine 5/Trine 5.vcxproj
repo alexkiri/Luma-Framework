@@ -157,12 +157,7 @@
       </Command>
     </CustomBuildStep>
     <PostBuildEvent>
-	      <Command>IF EXIST "%LUMA_TRINE_5_BIN_PATH%" (
-    xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" 2&gt;nul || exit /B 0
-) ELSE (
-    echo WARNING: Directory %LUMA_TRINE_5_BIN_PATH% does not exist.
-    exit /B 0
-)</Command>
+      <Command>IF DEFINED LUMA_TRINE_5_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Publishing-Release|x64'">
@@ -210,12 +205,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-	      <Command>IF EXIST "%LUMA_TRINE_5_BIN_PATH%" (
-    xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" 2&gt;nul || exit /B 0
-) ELSE (
-    echo WARNING: Directory %LUMA_TRINE_5_BIN_PATH% does not exist.
-    exit /B 0
-)</Command>
+      <Command>IF DEFINED LUMA_TRINE_5_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Test-Release|x64'">
@@ -263,12 +253,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-	      <Command>IF EXIST "%LUMA_TRINE_5_BIN_PATH%" (
-    xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" 2&gt;nul || exit /B 0
-) ELSE (
-    echo WARNING: Directory %LUMA_TRINE_5_BIN_PATH% does not exist.
-    exit /B 0
-)</Command>
+      <Command>IF DEFINED LUMA_TRINE_5_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Development-Release|x64'">
@@ -316,12 +301,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-	      <Command>IF EXIST "%LUMA_TRINE_5_BIN_PATH%" (
-    xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" 2&gt;nul || exit /B 0
-) ELSE (
-    echo WARNING: Directory %LUMA_TRINE_5_BIN_PATH% does not exist.
-    exit /B 0
-)</Command>
+      <Command>IF DEFINED LUMA_TRINE_5_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_TRINE_5_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
