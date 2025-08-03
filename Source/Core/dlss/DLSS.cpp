@@ -6,7 +6,7 @@
 
 #include <cstring>
 #include <cassert>
-#include <set>
+#include <unordered_set>
 #include <wrl/client.h>
 #include <d3d11.h>
 
@@ -57,8 +57,8 @@ namespace NGX
 		float							sharpness = DLSS_DEFAULT_SHARPNESS; // Optimal value
 
 		DLSSInternalInstance			instance = {}; // Note that there could be more of these if we ever wished
-		std::set<NVSDK_NGX_Handle*>		uniqueHandles;
-		std::set<NVSDK_NGX_Parameter*>	uniqueParameters;
+		std::unordered_set<NVSDK_NGX_Handle*>		uniqueHandles;
+		std::unordered_set<NVSDK_NGX_Parameter*>	uniqueParameters;
 		// Current global capabilities params (independent from the current settings/res).
 		NVSDK_NGX_Parameter*			capabilitiesParams = nullptr;
 		Microsoft::WRL::ComPtr<ID3D11Device>	device;

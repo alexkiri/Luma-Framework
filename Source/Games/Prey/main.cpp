@@ -1998,6 +1998,7 @@ public:
          D3D11_BUFFER_DESC buffer_desc;
          buffer->GetDesc(&buffer_desc);
 
+         // The "size" param of ReShade doesn't match with the size of the buffer/mapping.
          // There seems to only ever be one buffer type of this size, but it's not guaranteed (we might have found more, but it doesn't matter, they are discarded later)...
          // They seemingly all happen on the same thread.
          // Some how these are not marked as "D3D11_BIND_CONSTANT_BUFFER", probably because it copies them over to some other buffer later?

@@ -169,7 +169,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    // Pointer to the current DX buffer for the "global per view" cbuffer.
    com_ptr<ID3D11Buffer> cb_per_view_global_buffer;
 #if DEVELOPMENT
-   std::set<ID3D11Buffer*> cb_per_view_global_buffers;
+   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers;
 #endif
    void* cb_per_view_global_buffer_map_data = nullptr;
 #if DEVELOPMENT

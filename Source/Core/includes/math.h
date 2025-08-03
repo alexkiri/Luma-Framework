@@ -206,7 +206,7 @@ namespace Math
       return crc ^ 0xffffffff;
    }
 
-   uint32_t FindNextUniqueNumberInRange(uint32_t value, uint32_t min_value, uint32_t max_value, std::set<uint32_t> excluded_values)
+   uint32_t FindNextUniqueNumberInRange(uint32_t value, uint32_t min_value, uint32_t max_value, std::unordered_set<uint32_t> excluded_values)
    {
       assert(value >= min_value && value <= max_value);
       if( excluded_values.contains( value ) )

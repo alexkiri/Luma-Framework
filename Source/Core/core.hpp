@@ -694,7 +694,7 @@ namespace
          // define unique indexes for each of them, but the shader compiler fails if two cbuffers have the same value,
          // so we have to find the "next" unique one.
          uint32_t luma_settings_cbuffer_define_index, luma_data_cbuffer_define_index, luma_ui_cbuffer_define_index;
-         std::set<uint32_t> excluded_values;
+         std::unordered_set<uint32_t> excluded_values;
          if (luma_settings_cbuffer_index <= D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1)
             luma_settings_cbuffer_define_index = luma_settings_cbuffer_index;
          else
@@ -5190,7 +5190,7 @@ namespace
       }
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
-         ImGui::SetTooltip("Unload all compiled and replaced shaders. The numbers shows how many shaders are being replaced at this moment in the game, from the custom loaded/compiled ones.\nYou can use ReShade's Global Effects Toggle Shortcut to toggle these on and off.");
+         ImGui::SetTooltip("Unload all compiled and replaced shaders. The numbers shows how many shaders are being replaced at this moment in the game, from the custom loaded/compiled ones.\nThis will also reset many of their debug settings to default.\nYou can use ReShade's Global Effects Toggle Shortcut to toggle these on and off.");
       }
       ImGui::SameLine();
 #endif // DEVELOPMENT || TEST
@@ -6684,6 +6684,7 @@ namespace
                         debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::InvertColors;
                      }
                   }
+                  // TODO: add a setting to detect it's one channel instead of drawing texture in red
                   ImGui::Checkbox("Debug Draw Options: Auto Gamma", &debug_draw_auto_gamma);
                   if (debug_draw_auto_gamma)
                   {
