@@ -1645,8 +1645,6 @@ public:
          return 1;
       }
 
-      timesPerFrameSucc2++;
-
 #if 0 // This happens, but it's not a problem
       char* global_buffer_data_ptr_cast = (char*)global_buffer_data_ptr;
       // Make sure that all extra memory is zero, as an extra check. This could easily be uninitialized memory though.
