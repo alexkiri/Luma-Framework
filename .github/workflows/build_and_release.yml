@@ -114,6 +114,7 @@ jobs:
           # Optional: clean up
           Remove-Item -Recurse -Force $tempDir
 
+          Write-Host "Mod packaged: $projectName"
           #"zipfile=$zipName" >> $env:GITHUB_OUTPUT
           #"skip_upload=false" >> $env:GITHUB_OUTPUT
         }
