@@ -41,8 +41,8 @@
 
 # Compiled and Dumped Shaders
 *.cso
-**/Dump/*/*.cso
-**/Dump/*/*.hlsl
+**/Dump/**/*.cso
+**/Dump/**/*.hlsl
 
 # Misc
 [Bb]uild/
