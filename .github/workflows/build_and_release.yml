@@ -50,7 +50,7 @@ jobs:
       
         # Find the addon file in the build folder (adjust path accordingly)
         $addonDir = "Binaries\${{ matrix.platform }}-${{ matrix.config }}"
-        $addonFiles = Get-ChildItem -Path $addonDir -Filter "Luma-*.addon" | Select-Object -First 1
+        $addonFiles = Get-ChildItem -Path $addonDir -Filter "Luma-*.addon"
 
         if ($addonFiles.Count -eq 0) {
           Write-Host "No addon files found."
@@ -73,7 +73,7 @@ jobs:
           Write-Host "Project name extracted: $projectName"
         
           # We don't care to publish the template project, it's just there for reference
-          if ($projectName -like '*_Template*') {
+          if ($projectName -like '*_Template*' -or $projectName -eq '*Template*') {
             Write-Host "Project is a template. Skipping ZIP creation and upload."
             continue
           }
