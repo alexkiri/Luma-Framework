@@ -32,7 +32,7 @@ jobs:
     - name: Install vcpkg packages
       run: |
         .\vcpkg\vcpkg install --triplet x64-windows --x-manifest-root=./Source/Games/Prey
-#        .\vcpkg\vcpkg install --triplet x86-windows --x-manifest-root=./Source/Games/Prey
+        #.\vcpkg\vcpkg install --triplet x86-windows --x-manifest-root=./Source/Games/Prey
       continue-on-error: true
 
     - name: Integrate vcpkg with MSBuild
@@ -119,8 +119,8 @@ jobs:
           # Optional: clean up
           Remove-Item -Recurse -Force $tempDir
 
-#          "zipfile=$zipName" >> $env:GITHUB_OUTPUT
-#          "skip_upload=false" >> $env:GITHUB_OUTPUT
+          #"zipfile=$zipName" >> $env:GITHUB_OUTPUT
+          #"skip_upload=false" >> $env:GITHUB_OUTPUT
         }
 
     - name: Upload ZIP
@@ -128,7 +128,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Package-${{ matrix.config }}-${{ matrix.platform }}
-#        path: ${{ steps.create_zip.outputs.zipfile }}
+        #path: ${{ steps.create_zip.outputs.zipfile }}
         path: |
           Luma-*.zip
 
@@ -149,6 +149,6 @@ jobs:
         with:
           tag_name: latest-${{ github.run_number }}
           name: Latest Release Build ${{ github.run_number }}
-#          body: This is an automated release of binaries.
+          #body: This is an automated release of binaries.
           files: |
             Luma-*.zip
