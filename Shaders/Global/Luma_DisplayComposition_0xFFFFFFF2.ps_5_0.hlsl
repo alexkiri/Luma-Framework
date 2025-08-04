@@ -25,6 +25,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool fullscreen = (LumaData.CustomData2 & (1 << 0)) != 0;
         bool renderResolutionScale = (LumaData.CustomData2 & (1 << 1)) != 0;
         bool showAlpha = (LumaData.CustomData2 & (1 << 2)) != 0;
+        bool redOnly = (LumaData.CustomData2 & (1 << 9)) != 0;
         bool premultiplyAlpha = (LumaData.CustomData2 & (1 << 3)) != 0;
 		bool invertColors = (LumaData.CustomData2 & (1 << 4)) != 0;
         bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
@@ -39,13 +40,19 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			float targetHeight;
 			sourceTexture.GetDimensions(targetWidth, targetHeight);
 			resolutionScale = float2(debugWidth / targetWidth, debugHeight / targetHeight);
+
+			if (flipY)
+			{
+				pos.y = targetHeight - pos.y;
 		}
-		if (renderResolutionScale) // Scale by rendering resolution
+		}
+		if (renderResolutionScale) // Scale by rendering resolution (so to stretch the used part of the image to the full texture range)
 		{
 			resolutionScale *= LumaData.RenderResolutionScale;
 		}
 		
-		if (flipY)
+		//TODO: handle if this works with "renderResolutionScale" (e.g. Prey)
+		if (!fullscreen && flipY)
 		{
 			pos.y = debugHeight - pos.y;
 		}
@@ -54,9 +61,14 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool validTexel = pos.x < debugWidth && pos.y < debugHeight;
 		float4 color = debugTexture.Load((int3)pos.xyz); // We don't have a sampler here so we just approimate to the closest texel
 
+		// Do it early so it also fixes nans
 		if (doSaturate)
 		{
 			color = saturate(color);
+		}
+		if (redOnly)
+		{
+			color.rgb = color.r;
 		}
 		if (showAlpha)
 		{
@@ -227,7 +239,6 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #if 0 // For linux support (somehow scRGB is not interpreted as linear when in SDR) //TODOFT4: expose?
 		color.rgb = linear_to_sRGB_gamma(color.rgb, GCT_NONE);
 #endif
-
 	}
 	// HDR and SDR in HDR: in this case the UI paper white would have already been mutliplied in, relatively to the game paper white, so we only apply the game paper white.
 	else if (LumaSettings.DisplayMode >= 1)
