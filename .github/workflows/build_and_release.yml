@@ -167,5 +167,7 @@ jobs:
             Extract the executable in the same folder as ReShade is (the latest version of it).
 
             Note that some mods here might not be complete, like "Prey".
+            ---
+              Last commit: ${{ github.event.head_commit.message }}
           files: |
             Luma-*.zip
