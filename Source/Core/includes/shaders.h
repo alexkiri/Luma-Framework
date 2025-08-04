@@ -24,8 +24,16 @@ namespace Shader
 #endif
 
 #if DEVELOPMENT
-      // If true, this pipeline is going to skip drawing (this might draw black or leave the previous target textures value persisting)
-      bool skip = false;
+      enum class ShaderSkipType
+      {
+         None,
+         // Skips the pixel or compute shader (this might draw black or leave the previous target textures value persisting, occasionally it can crash if the engine does weird things)
+         Skip,
+         // Tries to draw purple instead. Doesn't always work (it will probably skip the shader if it doesn't, and send some warnings due to pixel and vertex shader signatures not matching)
+         Purple
+      };
+      static constexpr const char* shader_skip_type_names[] = { "None", "Skip", "Draw Purple" };
+      ShaderSkipType skip_type = ShaderSkipType::None;
 
       struct RedirectData
       {
@@ -96,7 +104,7 @@ namespace Shader
       size_t size = 0;
       reshade::api::pipeline_subobject_type type;
       int32_t index = -1;
-      std::string disasm;
+      std::string disasm; // Disassembled shader
    };
 
    struct CachedCustomShader

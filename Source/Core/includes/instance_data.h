@@ -5,7 +5,7 @@ struct GameDeviceData;
 
 struct TraceDrawCallData
 {
-   enum TraceDrawCallType
+   enum class TraceDrawCallType
    {
       // Any type of shader (including compute)
       Shader,
@@ -32,7 +32,18 @@ struct TraceDrawCallData
    std::thread::id thread_id = {};
 
    // Depth/Stencil
-   bool depth_enabled = false;
+   enum class DepthStateType
+   {
+      Disabled,
+      TestAndWrite,
+      TestOnly,
+      WriteOnly,
+      Custom,
+      Invalid,
+   };
+   static constexpr const char* depth_state_names[] = { "Disabled", "Test and Write", "Test Only", "Write Only", "Custom" };
+
+   DepthStateType depth_state = DepthStateType::Disabled;
    bool stencil_enabled = false;
    bool scissors = false;
    float4 viewport_0 = {};
@@ -148,6 +159,8 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11VertexShader> copy_vertex_shader;
    com_ptr<ID3D11PixelShader> copy_pixel_shader;
    com_ptr<ID3D11PixelShader> display_composition_pixel_shader;
+   com_ptr<ID3D11PixelShader> draw_purple_pixel_shader;
+   com_ptr<ID3D11ComputeShader> draw_purple_compute_shader;
 
    // CBuffers
    com_ptr<ID3D11Buffer> luma_frame_settings;

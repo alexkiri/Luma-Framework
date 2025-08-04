@@ -218,6 +218,7 @@ com_ptr<ID3D11Texture2D> CloneTexture2D(ID3D11Device* native_device, ID3D11Resou
 }
 
 #if DEVELOPMENT
+// Needs to match in shader
 enum class DebugDrawTextureOptionsMask : uint32_t
 {
    None = 0,
@@ -230,6 +231,7 @@ enum class DebugDrawTextureOptionsMask : uint32_t
    GammaToLinear = 1 << 6,
    FlipY = 1 << 7,
    Saturate = 1 << 8,
+   RedOnly = 1 << 9,
 };
 // If true we are drawing the render target texture, otherwise the shader resource texture
 enum class DebugDrawMode : uint32_t
@@ -237,6 +239,13 @@ enum class DebugDrawMode : uint32_t
    RenderTarget,
    UnorderedAccessView,
    ShaderResource,
+   Depth,
+};
+static constexpr const char* debug_draw_mode_strings[] = {
+    "Render Target",
+    "Unordered Access View",
+    "Shader Resource",
+    "Depth",
 };
 
 void CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view_index, reshade::api::command_list* cmd_list, bool is_dispatch /*= false*/)
@@ -246,36 +255,38 @@ void CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
    DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
    com_ptr<ID3D11Resource> texture_resource;
-   if (debug_draw_mode == DebugDrawMode::RenderTarget)
+   if (debug_draw_mode == DebugDrawMode::RenderTarget || debug_draw_mode == DebugDrawMode::Depth)
    {
-      com_ptr<ID3D11RenderTargetView> render_target_view;
+      com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
+      com_ptr<ID3D11DepthStencilView> dsv;
+      native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv);
 
-      ID3D11RenderTargetView* rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
-      native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], nullptr);
-      render_target_view = rtvs[debug_draw_view_index];
-      for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+      if (debug_draw_mode == DebugDrawMode::RenderTarget)
       {
-         if (rtvs[i] != nullptr)
+         com_ptr<ID3D11RenderTargetView> rtv = rtvs[debug_draw_view_index];
+         if (rtv)
          {
-            rtvs[i]->Release();
-            rtvs[i] = nullptr;
+            rtv->GetResource(&texture_resource);
+            GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format); // Note: this isn't synchronized with the conditions that update "debug_draw_texture" below but it should work anyway
+            D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
+            rtv->GetDesc(&rtv_desc);
+            device_data.debug_draw_texture_format = rtv_desc.Format;
          }
       }
-
-      if (render_target_view)
+      else if (dsv) // DebugDrawMode::Depth
       {
-         render_target_view->GetResource(&texture_resource);
-         GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format); // Note: this isn't synchronized with the conditions that update "debug_draw_texture" below but it should work anyway
-         D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
-         render_target_view->GetDesc(&rtv_desc);
-         device_data.debug_draw_texture_format = rtv_desc.Format;
+         dsv->GetResource(&texture_resource);
+         GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format);
+         D3D11_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+         dsv->GetDesc(&dsv_desc);
+         device_data.debug_draw_texture_format = dsv_desc.Format;
       }
    }
    else if (debug_draw_mode == DebugDrawMode::UnorderedAccessView)
    {
       com_ptr<ID3D11UnorderedAccessView> unordered_access_view;
 
-      ID3D11UnorderedAccessView* uavs[D3D11_1_UAV_SLOT_COUNT] = {};
+      com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_1_UAV_SLOT_COUNT];
       // Not sure there's a difference between these two but probably the second one is just meant for pixel shader draw calls
       if (is_dispatch)
       {
@@ -287,14 +298,6 @@ void CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
       }
 
       unordered_access_view = uavs[debug_draw_view_index];
-      for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
-      {
-         if (uavs[i] != nullptr)
-         {
-            uavs[i]->Release();
-            uavs[i] = nullptr;
-         }
-      }
 
       if (unordered_access_view)
       {

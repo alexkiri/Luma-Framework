@@ -409,6 +409,8 @@ namespace Shader
       flags1 |= D3DCOMPILE_IEEE_STRICTNESS; // /Gis
 #else
       flags1 |= D3DCOMPILE_OPTIMIZATION_LEVEL3; // /O3
+      //flags1 |= D3DCOMPILE_SKIP_VALIDATION;
+      //flags1 |= D3DCOMPILE_SKIP_REFLECTION_DATA;
 #endif
 
       auto custom_include = FxcD3DInclude(file_read_path);

@@ -272,13 +272,53 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
       constexpr bool show_unused_bound_resources = false; // Expose if needed
       if (pipeline->HasPixelShader())
       {
+         com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
+         com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_PS_CS_UAV_REGISTER_COUNT];
+         com_ptr<ID3D11DepthStencilView> dsv;
+         native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &uavs[0]);
+
          com_ptr<ID3D11DepthStencilState> depth_stencil_state;
          native_device_context->OMGetDepthStencilState(&depth_stencil_state, nullptr);
          if (depth_stencil_state)
          {
             D3D11_DEPTH_STENCIL_DESC depth_stencil_desc;
             depth_stencil_state->GetDesc(&depth_stencil_desc);
-            trace_draw_call_data.depth_enabled = depth_stencil_desc.DepthEnable;
+            if (depth_stencil_desc.DepthEnable)
+            {
+               if (dsv.get())
+               {
+                  if (depth_stencil_desc.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ZERO)
+                  {
+                     // For now we ignore the "D3D11_COMPARISON_NEVER" as realistically it should never be used
+                     if (depth_stencil_desc.DepthFunc != D3D11_COMPARISON_ALWAYS)
+                     {
+                        trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::TestOnly;
+                     }
+                     // We neither read nor write the depth, so it's essentially disabled
+                     else
+                     {
+                        trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::Disabled;
+                     }
+                  }
+                  else //if (depth_stencil_desc.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL) // Implied
+                  {
+                     if (depth_stencil_desc.DepthFunc != D3D11_COMPARISON_ALWAYS)
+                     {
+                        trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::TestAndWrite;
+                     }
+                     else
+                     {
+                        trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::WriteOnly;
+                     }
+                  }
+               }
+               // Depth texture is missing, unknown consequence
+               else
+               {
+                  trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::Invalid;
+               }
+            }
+
             trace_draw_call_data.stencil_enabled = depth_stencil_desc.StencilEnable;
          }
 
@@ -293,10 +333,6 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
             // We don't care for the alpha blend operation (source alpha * dest alpha) as alpha is never read back from destination
          }
 
-         com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
-         com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_PS_CS_UAV_REGISTER_COUNT];
-         com_ptr<ID3D11DepthStencilView> dsv;
-         native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &uavs[0]);
          for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
          {
             if (rtvs[i] != nullptr && (show_unused_bound_resources || pipeline->rtvs[i]))
@@ -319,7 +355,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          // These would likely get ignored if they weren't set, so clear them
          if (!dsv)
          {
-            trace_draw_call_data.depth_enabled = false;
+            trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::Disabled;
             trace_draw_call_data.stencil_enabled = false;
          }
          for (UINT i = 0; i < D3D11_PS_CS_UAV_REGISTER_COUNT; i++)

@@ -87,6 +87,9 @@
 // Matches "Globals::MOD_NAME"
 #define PROJECT_NAME "Luma"
 #endif // PROJECT_NAME
+#ifndef ENABLE_GAME_PIPELINE_STATE_READBACK
+#define ENABLE_GAME_PIPELINE_STATE_READBACK 0
+#endif // ENABLE_GAME_PIPELINE_STATE_READBACK
 
 #if DX12
 constexpr bool OneShaderPerPipeline = false;
@@ -278,6 +281,8 @@ namespace
    const uint32_t shader_hash_copy_vertex = Shader::Hash_StrToNum("FFFFFFF0");
    const uint32_t shader_hash_copy_pixel = Shader::Hash_StrToNum("FFFFFFF1");
    const uint32_t shader_hash_transform_function_copy_pixel = Shader::Hash_StrToNum("FFFFFFF2");
+   const uint32_t shader_hash_draw_purple_pixel = Shader::Hash_StrToNum("FFFFFFF5");
+   const uint32_t shader_hash_draw_purple_compute = Shader::Hash_StrToNum("FFFFFFF6");
 
    // Optionally add the UI shaders to this list, to make sure they draw to a separate render target for proper HDR composition
    ShaderHashesList shader_hashes_UI;
@@ -515,7 +520,7 @@ namespace
             if (clean_custom_shader)
             {
 #if DEVELOPMENT
-               cached_pipeline->skip = false;
+               cached_pipeline->skip_type = CachedPipeline::ShaderSkipType::None;
                cached_pipeline->redirect_data = CachedPipeline::RedirectData();
 #endif
                for (auto shader_hash : cached_pipeline->shader_hashes)
@@ -640,6 +645,8 @@ namespace
       CreateShaderObject(device_data.native_device, shader_hash_copy_vertex, device_data.copy_vertex_shader, shader_hashes_filter);
       CreateShaderObject(device_data.native_device, shader_hash_copy_pixel, device_data.copy_pixel_shader, shader_hashes_filter);
       CreateShaderObject(device_data.native_device, shader_hash_transform_function_copy_pixel, device_data.display_composition_pixel_shader, shader_hashes_filter);
+      CreateShaderObject(device_data.native_device, shader_hash_draw_purple_pixel, device_data.draw_purple_pixel_shader, shader_hashes_filter);
+      CreateShaderObject(device_data.native_device, shader_hash_draw_purple_compute, device_data.draw_purple_compute_shader, shader_hashes_filter);
       game->CreateShaderObjects(device_data, shader_hashes_filter);
       device_data.created_custom_shaders = true; // Some of the shader object creations above might have failed due to filtering, but they will likely be compiled soon after anyway
       if (lock) s_mutex_shader_objects.unlock();
@@ -2100,10 +2107,13 @@ namespace
 
 #if DEVELOPMENT
                typedef HRESULT(WINAPI* pD3DReflect)(LPCVOID, SIZE_T, REFIID, void**);
+               typedef HRESULT(WINAPI* pD3DGetBlobPart)(LPCVOID, SIZE_T, D3D_BLOB_PART, UINT, ID3DBlob**);
                static HMODULE d3d_compiler;
                static pD3DReflect d3d_reflect;
+               static pD3DGetBlobPart d3d_get_blob_part;
+               static std::mutex mutex_shader_compiler;
                {
-                  //const std::lock_guard<std::mutex> lock(s_mutex_shader_compiler); //TODOFT: safe
+                  const std::lock_guard<std::mutex> lock(mutex_shader_compiler);
                   if (d3d_compiler == nullptr)
                   {
                      d3d_compiler = LoadLibraryW(L"D3DCompiler_47.dll");
@@ -2111,12 +2121,25 @@ namespace
                   if (d3d_compiler != nullptr && d3d_reflect == nullptr)
                   {
                      d3d_reflect = pD3DReflect(GetProcAddress(d3d_compiler, "D3DReflect"));
+                     d3d_get_blob_part = pD3DGetBlobPart(GetProcAddress(d3d_compiler, "D3DGetBlobPart"));
                   }
                }
-               
+
+               bool skip_reflections = false;
+               HRESULT hr;
+#if 0
+               // Optional check to avoid failure cases, it seems to be useless/redundant
+               com_ptr<ID3DBlob> reflections_blob;
+               hr = d3d_get_blob_part(new_desc->code, new_desc->code_size, D3D_BLOB_INPUT_SIGNATURE_BLOB, 0, &reflections_blob);
+               if (FAILED(hr))
+               {
+                  skip_reflections = true;
+               }
+#endif
+
                com_ptr<ID3D11ShaderReflection> shader_reflector;
-               HRESULT hr = d3d_reflect(new_desc->code, new_desc->code_size, IID_ID3D11ShaderReflection, (void**)&shader_reflector);
-               if (SUCCEEDED(hr))
+               hr = d3d_reflect(new_desc->code, new_desc->code_size, IID_ID3D11ShaderReflection, (void**)&shader_reflector);
+               if (!skip_reflections && SUCCEEDED(hr))
                {
                   D3D11_SHADER_DESC shader_desc;
                   shader_reflector->GetDesc(&shader_desc);
@@ -2133,6 +2156,7 @@ namespace
                      }
                   }
 
+                  bool found_any_bindings = false;
                   // SRVs and UAVs (it works for compute shaders too)
                   for (UINT i = 0; i < shader_desc.BoundResources; ++i)
                   {
@@ -2145,13 +2169,25 @@ namespace
                            if (bind_desc.Type == D3D_SIT_TEXTURE)
                            {
                               cached_pipeline->srvs[bind_desc.BindPoint + j] = true;
+                              found_any_bindings = true;
                            }
                            else if (bind_desc.Type == D3D_SIT_UAV_RWTYPED)
                            {
                               cached_pipeline->uavs[bind_desc.BindPoint + j] = true;
+                              found_any_bindings = true;
                            }
                         }
                      }
+                  }
+
+                  // TODO: find a way to retrieve the data anyway, by reading the disassembler or binary or something (RenoDX might have a way)
+                  // Sometimes the "GetResourceBindingDesc" above fails... It might be related to "D3DCOMPILER_STRIP_REFLECTION_DATA",
+                  // but we don't know, we wrote some heuristics to guess when it failed, then we pretend all bound resources are "valid" (to show them in the debug data)
+                  //if (!found_any_bindings && (shader_desc.Flags & D3DCOMPILE_OPTIMIZATION_LEVEL3) != 0)
+                  if (!found_any_bindings && shader_desc.FloatInstructionCount == 0)
+                  {
+                     for (bool& b : cached_pipeline->srvs) b = true;
+                     for (bool& b : cached_pipeline->uavs) b = true;
                   }
                }
                // Default all of them to true if we can't tell which ones are used
@@ -2306,7 +2342,16 @@ namespace
          }
          else
          {
-            ASSERT_ONCE(false); // Why can't we find the shader?
+#if ENABLE_GAME_PIPELINE_STATE_READBACK // Allow either game engines or other mods between the game and ReShade to read back states we had changed
+            // "Deus Ex: Human Revolution" with the golden filter restoration mod sets back customized shaders to the pipeline,
+            // as it also read back the state of DX etc, so make sure to search it from the cloned shaders list too!
+            auto pipeline_pair_2 = device_data.pipeline_cache_by_pipeline_clone_handle.find(pipeline.handle);
+            if (pipeline_pair_2 != device_data.pipeline_cache_by_pipeline_clone_handle.end())
+            {
+               cached_pipeline = pipeline_pair_2->second;
+            }
+#endif
+            ASSERT_ONCE(cached_pipeline != nullptr); // Why can't we find the shader?
          }
       }
 
@@ -2388,11 +2433,24 @@ namespace
       if (cached_pipeline)
       {
 #if DEVELOPMENT
-      if (cached_pipeline->skip)
+         if (cached_pipeline->skip_type == CachedPipeline::ShaderSkipType::Purple)
+         {
+            // TODO: automatically generate a pixel shader that has a matching input and output signature as the one the pass would have had instead,
+            // given that sometimes drawing purple fails with warnings. Or replace the vertex shader too with "copy_vertex_shader"? Though the shape will then not match, likely.
+            ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
+            DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+            if (cached_pipeline->HasComputeShader())
+            {
+               native_device_context->CSSetShader(device_data.draw_purple_compute_shader.get(), nullptr, 0);
+            }
+            else if (cached_pipeline->HasPixelShader())
+            {
+               native_device_context->PSSetShader(device_data.draw_purple_pixel_shader.get(), nullptr, 0);
+            }
+         }
+         else if (cached_pipeline->skip_type == CachedPipeline::ShaderSkipType::Skip)
       {
          // This will make the shader output black, or skip drawing, so we can easily detect it. This might not be very safe but seems to work in DX11.
-         // TODO: replace the pipeline with a shader that outputs all "SV_Target" as purple for more visibility,
-         // or return false in "reshade::addon_event::draw_or_dispatch_indirect" and similar draw calls to prevent them from being drawn.
          cmd_list->bind_pipeline(stages, reshade::api::pipeline{ 0 });
       }
       else
@@ -4883,6 +4941,8 @@ namespace
             device_data.copy_vertex_shader = nullptr;
             device_data.copy_pixel_shader = nullptr;
             device_data.display_composition_pixel_shader = nullptr;
+            device_data.draw_purple_pixel_shader = nullptr;
+            device_data.draw_purple_compute_shader = nullptr;
             static_assert(false, "Please add a function to clean up custom shader objects in game's implementations")
          }
 #endif
@@ -4969,7 +5029,7 @@ namespace
             }
             else
             {
-               cached_shader->disasm.assign("DECOMPILATION FAILED");
+               cached_shader->disasm.assign("DISASSEMBLY FAILED");
             }
          }
 
@@ -5234,6 +5294,9 @@ namespace
          else
 #endif
          {
+#if DEVELOPMENT
+            ImGui::SetTooltip("Recompile and load shaders.");
+#endif
             if (!shaders_compilation_errors.empty())
             {
                ImGui::SetTooltip(shaders_compilation_errors.c_str());
@@ -5590,7 +5653,7 @@ namespace
                               }
                               else
                               {
-                                 cache->disasm.assign("DECOMPILATION FAILED");
+                                 cache->disasm.assign("DISASSEMBLY FAILED");
                               }
                            }
                            disasm_string.assign(cache ? cache->disasm : "");
@@ -5737,13 +5800,18 @@ namespace
                            const std::unique_lock lock(s_mutex_generic);
                            if (auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle); pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr)
                            {
-                              bool skip_pipeline = pipeline_pair->second->skip;
+                              int pipeline_skip_type = (int)pipeline_pair->second->skip_type;
                               if (ImGui::BeginChild("Settings and Info"))
                               {
-                                 if (!pipeline_pair->second->HasVertexShader())
+                                 if (pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasComputeShader())
                                  {
-                                    ImGui::Checkbox("Skip Shader", &skip_pipeline);
+                                    ImGui::SliderInt("Shader Skip Type", &pipeline_skip_type, 0, IM_ARRAYSIZE(CachedPipeline::shader_skip_type_names), CachedPipeline::shader_skip_type_names[(size_t)pipeline_skip_type], ImGuiSliderFlags_NoInput);
                                  }
+                                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                 {
+                                    ImGui::SetTooltip("Note that \"Draw Purple\" might not always work, if it doesn't, it will skip the shader anyway. With compute shaders, written area might not match at all.");
+                                 }
+
                                  if (pipeline_pair->second->cloned && ImGui::Button("Unload"))
                                  {
                                     UnloadCustomShaders(device_data, { pipeline_handle }, false, false);
@@ -5752,6 +5820,16 @@ namespace
                                  {
                                     reload = true;
                                     recompile = true; // If this shader wasn't cloned, we'd need to compile it probably as it might not have already been compiled. If it was cloned, then our intent is to re-compile it anyway
+                                 }
+                                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                                 {
+                                    ImGui::SetTooltip("Recompile and/or load shaders.");
+                                 }
+
+                                 if (ImGui::Button("Copy Shader Hash to Clipboard"))
+                                 {
+                                    const std::string shader_hash = "0x" + Shader::Hash_NumToStr(pipeline_pair->second->shader_hashes[0]); // Somehow we need to add "0x" in front of it again
+                                    CopyToClipboard(shader_hash);
                                  }
 
                                  bool debug_draw_shader_enabled = false; // Whether this shader/pipeline instance is the one we are draw debugging
@@ -5801,6 +5879,10 @@ namespace
                                        debug_draw_pipeline_instance = 0;
 #if 1 // We could also let the user settings persist if we wished so, but automatically setting them is usually better
                                        debug_draw_pipeline_target_instance = debug_draw_shader_enabled ? -1 : target_instance;
+                                       if (debug_draw_mode == DebugDrawMode::Depth)
+                                       {
+                                          debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                                       }
                                        debug_draw_mode = pipeline_pair->second->HasPixelShader() ? DebugDrawMode::RenderTarget : (pipeline_pair->second->HasComputeShader() ? DebugDrawMode::UnorderedAccessView : DebugDrawMode::ShaderResource); // Do it regardless of "debug_draw_shader_enabled"
                                        debug_draw_view_index = 0;
                                        //debug_draw_replaced_pass = false;
@@ -5863,6 +5945,10 @@ namespace
 
                                        if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::ShaderResource || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))
                                        {
+                                          if (debug_draw_mode == DebugDrawMode::Depth)
+                                          {
+                                             debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                                          }
                                           debug_draw_mode = DebugDrawMode::ShaderResource;
                                           debug_draw_view_index = i;
                                        }
@@ -5926,6 +6012,10 @@ namespace
 
                                        if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::UnorderedAccessView || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))
                                        {
+                                          if (debug_draw_mode == DebugDrawMode::Depth)
+                                          {
+                                             debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                                          }
                                           debug_draw_mode = DebugDrawMode::UnorderedAccessView;
                                           debug_draw_view_index = i;
                                        }
@@ -6001,7 +6091,6 @@ namespace
                                           ImGui::Text("RV Format: %u", rtv_format);
                                        }
                                        ImGui::Text("R Size: %ux%ux%u", rt_size.x, rt_size.y, rt_size.z);
-                                       //TODOFT: test these more
                                        for (uint64_t upgraded_resource : device_data.upgraded_resources)
                                        {
                                           void* upgraded_resource_ptr = reinterpret_cast<void*>(upgraded_resource);
@@ -6090,6 +6179,10 @@ namespace
 
                                        if (debug_draw_shader_enabled && (debug_draw_mode != DebugDrawMode::RenderTarget || debug_draw_view_index != i) && ImGui::Button("Debug Draw Resource"))
                                        {
+                                          if (debug_draw_mode == DebugDrawMode::Depth)
+                                          {
+                                             debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                                          }
                                           debug_draw_mode = DebugDrawMode::RenderTarget;
                                           debug_draw_view_index = i;
                                        }
@@ -6128,8 +6221,17 @@ namespace
                                     }
 
                                     ImGui::Text("");
-                                    ImGui::Text("Depth Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).depth_enabled ? "True" : "False");
-                                    ImGui::Text("Strencil Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).stencil_enabled ? "True" : "False");
+                                    ImGui::Text("Depth State: %s", TraceDrawCallData::depth_state_names[(size_t)cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state]);
+                                    ImGui::Text("Stencil Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).stencil_enabled ? "True" : "False");
+
+                                    const bool has_valid_depth = cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Disabled
+                                       && cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Invalid;
+                                    if (has_valid_depth && debug_draw_shader_enabled && debug_draw_mode != DebugDrawMode::Depth && ImGui::Button("Debug Draw Depth Resource"))
+                                    {
+                                       debug_draw_mode = DebugDrawMode::Depth;
+                                       debug_draw_view_index = 0;
+                                       debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                                    }
                                  }
 
                                  // TODO: figure out why this doesn't return the right values if we are a vertex shader
@@ -6145,7 +6247,7 @@ namespace
                                  }
                               }
                               ImGui::EndChild(); // Settings and Info
-                              pipeline_pair->second->skip = skip_pipeline;
+                              pipeline_pair->second->skip_type = (CachedPipeline::ShaderSkipType)pipeline_skip_type;
                            }
                         }
 
@@ -6596,15 +6698,20 @@ namespace
                }
                if (debug_draw_enabled)
                {
-                  // See "DebugDrawMode"
-                  const char* debug_draw_mode_strings[3] = {
-                      "Render Target",
-                      "Unordered Access View",
-                      "Shader Resource",
-                  };
-                  if (ImGui::SliderInt("Debug Draw Mode", &(int&)debug_draw_mode, (int)DebugDrawMode::RenderTarget, (int)DebugDrawMode::ShaderResource, debug_draw_mode_strings[(uint32_t)debug_draw_mode], ImGuiSliderFlags_NoInput))
+                  auto prev_debug_draw_mode = debug_draw_mode;
+                  if (ImGui::SliderInt("Debug Draw Mode", &(int&)debug_draw_mode, 0, IM_ARRAYSIZE(debug_draw_mode_strings), debug_draw_mode_strings[(size_t)debug_draw_mode], ImGuiSliderFlags_NoInput))
                   {
+                     // Make sure to reset it to 0 when we change mode, depth only supports 1 texture etc
                      debug_draw_view_index = 0;
+                     // Automatically toggle some settings
+                     if (debug_draw_mode == DebugDrawMode::Depth)
+                     {
+                        debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                     }
+                     else if (prev_debug_draw_mode == DebugDrawMode::Depth)
+                     {
+                        debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                     }
                   }
                   if (debug_draw_mode == DebugDrawMode::RenderTarget)
                   {
@@ -6614,7 +6721,7 @@ namespace
                   {
                      ImGui::SliderInt("Debug Draw: Unordered Access View", &debug_draw_view_index, 0, D3D11_1_UAV_SLOT_COUNT - 1); // "D3D11_PS_CS_UAV_REGISTER_COUNT" is smaller (we should theoretically use that unless we are a compute shader)
                   }
-                  else /*if (debug_draw_mode == DebugDrawMode::ShaderResource)*/
+                  else if (debug_draw_mode == DebugDrawMode::ShaderResource)
                   {
                      ImGui::SliderInt("Debug Draw: Pixel Shader Resource Index", &debug_draw_view_index, 0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - 1);
                   }
@@ -6622,6 +6729,7 @@ namespace
                   ImGui::SliderInt("Debug Draw: Pipeline Instance", &debug_draw_pipeline_target_instance, -1, 100); // In case the same pipeline was run more than once by the game, we can pick one to print
                   bool debug_draw_fullscreen = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::Fullscreen) != 0;
                   bool debug_draw_rend_res_scale = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::RenderResolutionScale) != 0;
+                  bool debug_draw_red_only = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::RedOnly) != 0;
                   bool debug_draw_show_alpha = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::ShowAlpha) != 0;
                   bool debug_draw_premultiply_alpha = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::PreMultiplyAlpha) != 0;
                   bool debug_draw_invert_colors = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::InvertColors) != 0;
@@ -6662,6 +6770,23 @@ namespace
                         debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::ShowAlpha;
                      }
                   }
+                  ImGui::BeginDisabled(debug_draw_show_alpha); // Alpha takes over red in shaders, so disable red if alpha is on
+                  if (ImGui::Checkbox("Debug Draw Options: Red Only", &debug_draw_red_only))
+                  {
+                     if (debug_draw_red_only)
+                     {
+                        debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                     }
+                     else
+                     {
+                        debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                     }
+                  }
+                  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                  {
+                     ImGui::SetTooltip("Shows textures with only one channel (e.g. red, alpha, depth) as grey-scale instead of in red.");
+                  }
+                  ImGui::EndDisabled();
                   if (ImGui::Checkbox("Debug Draw Options: Premultiply Alpha", &debug_draw_premultiply_alpha))
                   {
                      if (debug_draw_premultiply_alpha)

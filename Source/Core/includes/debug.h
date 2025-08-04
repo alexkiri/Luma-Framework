@@ -1,5 +1,8 @@
 #pragma once
 
+#include <windows.h>
+#include <string>
+
 #define _STRINGIZE(x) _STRINGIZE2(x)
 #define _STRINGIZE2(x) #x
 
@@ -101,4 +104,36 @@ namespace
       return true;
    }
 #endif // DEVELOPMENT || _DEBUG
+
+   bool CopyToClipboard(const std::string& text)
+   {
+      // Convert UTF-8 to UTF-16
+      int wideSize = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+      if (wideSize <= 0) return false;
+
+      HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, wideSize * sizeof(wchar_t));
+      if (!hMem) return false;
+
+      wchar_t* wstr = static_cast<wchar_t*>(GlobalLock(hMem));
+      if (!wstr)
+      {
+         GlobalFree(hMem);
+         return false;
+      }
+
+      MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wstr, wideSize);
+      GlobalUnlock(hMem);
+
+      if (!OpenClipboard(nullptr))
+      {
+         GlobalFree(hMem);
+         return false;
+      }
+
+      EmptyClipboard();
+      SetClipboardData(CF_UNICODETEXT, hMem); // Windows owns the memory after this
+      CloseClipboard();
+
+      return true;
+   }
 }
