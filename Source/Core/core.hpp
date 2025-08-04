@@ -1390,11 +1390,8 @@ namespace
                switch (subobject.type)
                {
                case reshade::api::pipeline_subobject_type::geometry_shader:
-               [[fallthrough]];
                case reshade::api::pipeline_subobject_type::vertex_shader:
-               [[fallthrough]];
                case reshade::api::pipeline_subobject_type::compute_shader:
-               [[fallthrough]];
                case reshade::api::pipeline_subobject_type::pixel_shader:
                break;
                default:
@@ -3980,7 +3977,6 @@ namespace
          break;
       }
       default:
-      [[fallthrough]];
       case LUTDimensions::_2D:
       {
          // For 2D, "texture_format_upgrades_lut_size" is the height, usually they extend in width and that's squared
@@ -4102,7 +4098,6 @@ namespace
          break;
       }
       default:
-      [[fallthrough]];
       case LUTDimensions::_2D:
       {
          lut_dimensions = reshade::api::resource_view_type::texture_2d;
