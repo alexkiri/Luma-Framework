@@ -38,7 +38,7 @@ jobs:
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
 
-    - name: Build Luma.sln ${{ matrix.config }}|${{ matrix.platform }}
+    - name: Build Luma.sln (${{ matrix.config }}-${{ matrix.platform }})
       run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
 
     - name: Create ZIP per addon with matching shaders
