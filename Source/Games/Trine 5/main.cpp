@@ -327,7 +327,7 @@ public:
 
 #if DEVELOPMENT
       // Check what was the previous shader
-      static ShaderHashesList original_shader_hashes2;
+      static ShaderHashesList<OneShaderPerPipeline> original_shader_hashes2;
 		original_shader_hashes2 = original_shader_hashes;
 #endif
 
