@@ -70,12 +70,17 @@ jobs:
           $fileName = $addonFile.Name
           $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
           $zipName = "Luma-$projectName.zip"
+
           Write-Host "Project name extracted: $projectName"
         
           # We don't care to publish the template project, it's just there for reference
           if ($projectName -like '*_Template*' -or $projectName -eq '*Template*') {
             Write-Host "Project is a template. Skipping ZIP creation and upload."
             continue
+          }
+
+          if ($projectName -like '*Prey*') {
+            Write-Host "Note that Prey automated packaging isn't the whole Luma mod, that needs manual packaging as it comes with extra files."
           }
 
           # Create a temp directory
@@ -92,10 +97,17 @@ jobs:
           # Full path to the copied Shaders folder
           $shaderRoot = Join-Path $tempDir "Luma"
 
+          # Remove disallowed folders (e.g. shaders for other mods) immediately inside $shaderRoot
+          Get-ChildItem -Path $shaderRoot -Directory | ForEach-Object {
+              if ($allowedDirs -notcontains $_.Name) {
+                  Write-Host "Removing disallowed folder: $($_.FullName)"
+                  Remove-Item $_.FullName -Recurse -Force
+              }
+          }
+
           # Get all files under the copied Shaders folder
           Get-ChildItem -Path $shaderRoot -Recurse -File | ForEach-Object {
             $relativePath = $_.FullName.Substring($shaderRoot.Length + 1).TrimStart('\','/')
-    
             # Extract top-level directory (first segment)
             $topDir = ($relativePath -split '[\\/]', 2)[0]
 
@@ -109,7 +121,7 @@ jobs:
           Copy-Item -Path $addonFile.FullName -Destination $tempDir
 
           # Create zip with addon and renamed Shaders folder
-          Compress-Archive -Path "$tempDir/*" -DestinationPath $zipName -Force
+          Compress-Archive -Path "$tempDir/*" -DestinationPath "$zipName" -Force
 
           # Optional: clean up
           Remove-Item -Recurse -Force $tempDir
