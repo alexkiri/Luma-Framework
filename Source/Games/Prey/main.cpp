@@ -143,7 +143,6 @@ namespace
    Matrix44F reprojection_matrix;
    float2 previous_projection_jitters = { 0, 0 };
    float2 projection_jitters = { 0, 0 };
-   CBPerViewGlobal cb_per_view_global_raw = { };
    CBPerViewGlobal cb_per_view_global = { };
    CBPerViewGlobal cb_per_view_global_previous = cb_per_view_global;
 
@@ -195,10 +194,6 @@ namespace
 #if DEVELOPMENT
    std::thread::id global_cbuffer_thread_id;
 #endif
-
-   int timesPerFrame = 0;
-   int timesPerFrameSucc = 0;
-   int timesPerFrameSucc2 = 0;
 }
 
 class Prey final : public Game
@@ -1491,70 +1486,6 @@ public:
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
-      //device_data.cb_per_view_global_buffers_denied.clear(); //TODOFT: restore for safety
-
-		static int prev_stop_type = stop_type; // -1 means no previous index
-      if (prev_stop_type != stop_type)
-      {
-         if (stop_type == 1)
-         {
-            reshade::unregister_event<reshade::addon_event::map_buffer_region>(Prey::OnMapBufferRegion);
-            reshade::unregister_event<reshade::addon_event::unmap_buffer_region>(Prey::OnUnmapBufferRegion);
-         }
-         else if (prev_stop_type == 1)
-         {
-            reshade::register_event<reshade::addon_event::map_buffer_region>(Prey::OnMapBufferRegion);
-            reshade::register_event<reshade::addon_event::unmap_buffer_region>(Prey::OnUnmapBufferRegion);
-         }
-
-         if (stop_type == 2)
-         {
-            reshade::unregister_event<reshade::addon_event::bind_pipeline>(OnBindPipeline);
-         }
-         else if (prev_stop_type == 2)
-         {
-            reshade::register_event<reshade::addon_event::bind_pipeline>(OnBindPipeline);
-         }
-         if (stop_type == 10)
-         {
-            reshade::unregister_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
-         }
-         else if (prev_stop_type == 10)
-         {
-            reshade::register_event<reshade::addon_event::push_descriptors>(OnPushDescriptors);
-         }
-
-         if (stop_type == 3)
-         {
-            reshade::unregister_event<reshade::addon_event::copy_resource>(OnCopyResource);
-            reshade::unregister_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
-            reshade::unregister_event<reshade::addon_event::resolve_texture_region>(OnResolveTextureRegion);
-         }
-         else if (prev_stop_type == 3)
-         {
-            reshade::register_event<reshade::addon_event::copy_resource>(OnCopyResource);
-            reshade::register_event<reshade::addon_event::copy_texture_region>(OnCopyTextureRegion);
-            reshade::register_event<reshade::addon_event::resolve_texture_region>(OnResolveTextureRegion);
-         }
-
-         if (stop_type == 4)
-         {
-            reshade::unregister_event<reshade::addon_event::draw>(OnDraw);
-            reshade::unregister_event<reshade::addon_event::dispatch>(OnDispatch);
-            reshade::unregister_event<reshade::addon_event::draw_indexed>(OnDrawIndexed);
-            reshade::unregister_event<reshade::addon_event::draw_or_dispatch_indirect>(OnDrawOrDispatchIndirect);
-         }
-         else if (prev_stop_type == 4)
-         {
-            reshade::register_event<reshade::addon_event::draw>(OnDraw);
-            reshade::register_event<reshade::addon_event::dispatch>(OnDispatch);
-            reshade::register_event<reshade::addon_event::draw_indexed>(OnDrawIndexed);
-            reshade::register_event<reshade::addon_event::draw_or_dispatch_indirect>(OnDrawOrDispatchIndirect);
-         }
-
-         prev_stop_type = stop_type;
-      }
-
       // We should have never gotten here with this state! Maybe it could happen if we loaded/unloaded a weird combinations of shaders (e.g. in case they failed to compile or something)
       ASSERT_ONCE(!game_device_data.lens_distortion_rtv_found);
 
@@ -1679,86 +1610,29 @@ public:
       data.ReprojectionMatrix = reprojection_matrix;
    }
 
-   __forceinline static int IsValidGlobalCB(const void* global_buffer_data_ptr)
+   static bool IsValidGlobalCB(const void* global_buffer_data_ptr)
    {
       const CBPerViewGlobal& global_buffer_data = *((const CBPerViewGlobal*)global_buffer_data_ptr);
-
-      timesPerFrame++;
-
-      //bool output_resolution_matches = AlmostEqual(device_data.output_resolution.x, cb_output_resolution_x, 0.5f) && AlmostEqual(device_data.output_resolution.y, cb_output_resolution_y, 0.5f); //TODOFT: delete
-      // We don't want to directly check if the resolution is equal to our output resolution, because it might be wrong for a short while when changing resolution, and also because
-      // we can't skip editing the data of views that work on mips or other arbitrary resolutions.
-      bool is_valid_cbuffer = AlmostEqual(global_buffer_data.CV_ScreenSize.x, global_buffer_data.CV_HPosScale.x * (0.5f / global_buffer_data.CV_ScreenSize.z), 0.5f) && AlmostEqual(global_buffer_data.CV_ScreenSize.y, global_buffer_data.CV_HPosScale.y * (0.5f / global_buffer_data.CV_ScreenSize.w), 0.5f);
-      if (!is_valid_cbuffer)
-      {
-         return 2;
-      }
-
-      // Note: this might not be safe...
-      is_valid_cbuffer = !AlmostEqual(global_buffer_data.CV_ProjRatio.x, 1.f, 0.001f);
-      if (!is_valid_cbuffer)
-      {
-         return 2;
-      }
-
-      timesPerFrameSucc++;
-
-      // For shadow projection "CV_PrevViewProjMatr" is actually what its names says it is, instead of being the current projection matrix as in other passes.
-      // In other words, shadow maps and other things temporarily change some values in the global cbuffer,
-      // likely to not use inverse depth (which affects the projection matrix, and thus many other matrices?),
-      // use different render and output resolutions, etc etc.
-      // 
-      // We could also base our check on "CV_ProjRatio" (x and y) and "CV_FrustumPlaneEquation" and "CV_DecalZFightingRemedy" (nah) as these are also different for alternative views.
-      // "CV_PrevViewProjMatr" is not a raw projection matrix when rendering shadow maps, so we can easily detect that and skip early.
-      // Note: we can check if the matrix is identity to detect whether we are currently in a menu (the main menu?)
-      is_valid_cbuffer = (MatrixIsProjection(global_buffer_data.CV_PrevViewProjMatr.GetTransposed()) && MatrixIsProjection(global_buffer_data.CV_PrevViewProjNearestMatr.GetTransposed()))
-         || (MatrixIsIdentity(global_buffer_data.CV_PrevViewProjMatr) || MatrixIsIdentity(global_buffer_data.CV_PrevViewProjNearestMatr));
-      if (!is_valid_cbuffer)
-      {
-         ASSERT_ONCE(AlmostEqual(global_buffer_data.CV_ProjRatio.x, 1.f, 0.001f));
-         return 1;
-      }
-
-      ASSERT_ONCE(!AlmostEqual(global_buffer_data.CV_ProjRatio.x, 1.f, 0.001f));
-
-      static auto frame_index_copy = frame_index;
-      //DeviceData& device_data = *device->get_private_data<DeviceData>();
-      //auto& game_device_data = GetGameDeviceData(device_data);
-      //if (!game_device_data.found_per_view_globals)
-      //{
-      if (frame_index_copy != frame_index)
-      {
-         frame_index_copy = frame_index;
-      }
-      else if (cb_per_view_global.CV_FrustumPlaneEquation.m00 != 0)
-      {
-         ASSERT_ONCE(MatrixAlmostEqual(cb_per_view_global.CV_FrustumPlaneEquation, global_buffer_data.CV_FrustumPlaneEquation, 0.f));
-      }
-      //}
 
       //TODOFT: optimize and verify?
       // Is this the cbuffer we are looking for?
       // Note that even if it was, in the menu a lot of these parameters are uninitialized (usually zeroed around, with matrices being identity).
       // This check overall is a bit crazy, but there's ~0% chance that it will fail and accidentally use a buffer that isn't the global one (cb13)
-      is_valid_cbuffer = true
+      bool is_valid_cbuffer = true
          && global_buffer_data.CV_AnimGenParams.x >= 0.f && global_buffer_data.CV_AnimGenParams.y >= 0.f && global_buffer_data.CV_AnimGenParams.z >= 0.f && global_buffer_data.CV_AnimGenParams.w >= 0.f // These are either all four 0 or all four > 0
          && global_buffer_data.CV_CameraRightVector.w == 0.f
          && global_buffer_data.CV_CameraFrontVector.w == 0.f
          && global_buffer_data.CV_CameraUpVector.w == 0.f
          && global_buffer_data.CV_ScreenSize.x > 0.f && global_buffer_data.CV_ScreenSize.y > 0.f && global_buffer_data.CV_ScreenSize.z > 0.f && global_buffer_data.CV_ScreenSize.w > 0.f
-#if 0
          && AlmostEqual(global_buffer_data.CV_ScreenSize.x, global_buffer_data.CV_HPosScale.x * (0.5f / global_buffer_data.CV_ScreenSize.z), 0.5f) && AlmostEqual(global_buffer_data.CV_ScreenSize.y, global_buffer_data.CV_HPosScale.y * (0.5f / global_buffer_data.CV_ScreenSize.w), 0.5f)
-#endif
          && global_buffer_data.CV_HPosScale.x > 0.f && global_buffer_data.CV_HPosScale.y > 0.f && global_buffer_data.CV_HPosScale.z > 0.f && global_buffer_data.CV_HPosScale.w > 0.f
          && global_buffer_data.CV_HPosScale.x <= 1.f && global_buffer_data.CV_HPosScale.y <= 1.f && global_buffer_data.CV_HPosScale.z <= 1.f && global_buffer_data.CV_HPosScale.w <= 1.f
          && global_buffer_data.CV_HPosClamp.x > 0.f && global_buffer_data.CV_HPosClamp.y > 0.f && global_buffer_data.CV_HPosClamp.z > 0.f && global_buffer_data.CV_HPosClamp.w > 0.f
          && global_buffer_data.CV_HPosClamp.x <= 1.f && global_buffer_data.CV_HPosClamp.y <= 1.f && global_buffer_data.CV_HPosClamp.z <= 1.f && global_buffer_data.CV_HPosClamp.w <= 1.f
          //&& MatrixAlmostEqual(global_buffer_data.CV_InvViewProj.GetTransposed(), global_buffer_data.CV_ViewProjMatr.GetTransposed().GetInverted(), 0.001f) // These checks fail, they need more investigation
          //&& MatrixAlmostEqual(global_buffer_data.CV_InvViewMatr.GetTransposed(), global_buffer_data.CV_ViewMatr.GetTransposed().GetInverted(), 0.001f)
-#if 0
          && (MatrixIsProjection(global_buffer_data.CV_PrevViewProjMatr.GetTransposed()) || MatrixIsIdentity(global_buffer_data.CV_PrevViewProjMatr)) // For shadow projection "CV_PrevViewProjMatr" is actually what its names says it is, instead of being the current projection matrix as in other passes
          && (MatrixIsProjection(global_buffer_data.CV_PrevViewProjNearestMatr.GetTransposed()) || MatrixIsIdentity(global_buffer_data.CV_PrevViewProjNearestMatr))
-#endif
          && global_buffer_data.CV_SunLightDir.w == 1.f
          //&& global_buffer_data.CV_SunColor.w == 1.f // This is only approximately 1 (maybe not guaranteed, sometimes it's 0)
          && global_buffer_data.CV_SkyColor.w == 1.f
@@ -1779,9 +1653,21 @@ public:
       ASSERT_ONCE(IsMemoryAllZero(&global_buffer_data_ptr_cast[sizeof(CBPerViewGlobal) - 1], CBPerViewGlobal_buffer_size - sizeof(CBPerViewGlobal)));
 #endif
 
-      ASSERT_ONCE((global_buffer_data.CV_DecalZFightingRemedy.x >= 0.9f && global_buffer_data.CV_DecalZFightingRemedy.x <= 1.f) || global_buffer_data.CV_DecalZFightingRemedy.x == 0.f);
+         ASSERT_ONCE((global_buffer_data.CV_DecalZFightingRemedy.x >= 0.9f && global_buffer_data.CV_DecalZFightingRemedy.x <= 1.f) || global_buffer_data.CV_DecalZFightingRemedy.x == 0.f);
 
-      return 0;
+      // Shadow maps and other things temporarily change the values in the global cbuffer,
+      // like not use inverse depth (which affects the projection matrix, and thus many other matrices?),
+      // use different render and output resolutions, etc etc.
+      // We could also base our check on "CV_ProjRatio" (x and y) and "CV_FrustumPlaneEquation" and "CV_DecalZFightingRemedy" as these are also different for alternative views.
+      // "CV_PrevViewProjMatr" is not a raw projection matrix when rendering shadow maps, so we can easily detect that.
+      // Note: we can check if the matrix is identity to detect whether we are currently in a menu (the main menu?)
+      bool is_custom_draw_version = !MatrixIsProjection(global_buffer_data.CV_PrevViewProjMatr.GetTransposed());
+      if (is_custom_draw_version)
+      {
+         return false;
+      }
+
+      return true;
    }
 
    // Call this after reading the global cbuffer (index 13) memory (from CPU or GPU memory). This seemingly only happens in one thread.
@@ -2066,7 +1952,7 @@ public:
          }
 
          // This only needs to be calculated once, before or after G-buffers are composed, but before late post processing (TM) starts, as it's for TAA (at the end of PP), and last post processing clears the jitters from the matrices
-         //if (!game_device_data.has_drawn_composed_gbuffers)
+         if (!game_device_data.has_drawn_composed_gbuffers)
          {
             // NDC to UV space (y is flipped)
             const Matrix44D mScaleBias1 = Matrix44D(
@@ -2141,122 +2027,28 @@ public:
       ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data || is_global_cbuffer);
       if (is_global_cbuffer && device_data.cb_per_view_global_buffer_map_data != nullptr)
       {
-         bool succ = false;
-         bool skip_check = false;
-         bool skip_check_neg = false;
-#if !DEVELOPMENT // || 1
-         // Once it's successful, it never not will be
-         skip_check = device_data.cb_per_view_global_buffers_confirmed.contains(buffer);
-         skip_check_neg = device_data.cb_per_view_global_buffers_denied.contains(buffer); // It seems unnecessary, negative fails are only used once per frame? Unique...
-#endif
-
-         void* cb_per_view_global_buffer_map_data = device_data.cb_per_view_global_buffer_map_data;
-#if 1 // Make a copy to optmize cache (it might help on some CPUs?)
-         bool final_check = false;
-         if (!skip_check_neg && !skip_check)
-         {
-            // The whole buffer size is theoretically "CBPerViewGlobal_buffer_size" but we actually don't have the data for the excessive (padding) bytes,
-            // they are never read by shaders on the GPU anyway.
-#if 0
-            char global_buffer_data[CBPerViewGlobal_buffer_size];
-            std::memcpy(&global_buffer_data[0], device_data.cb_per_view_global_buffer_map_data, CBPerViewGlobal_buffer_size);
-            cb_per_view_global_buffer_map_data = &global_buffer_data[0];
-#endif
-            int final_check_int = stop_type == 5 ? 1 : IsValidGlobalCB(cb_per_view_global_buffer_map_data);
-            final_check = final_check_int == 0;
-            // Deadly fail... not mutually happens
-            if (final_check_int == 2)
-            {
-#if DEVELOPMENT
-               ASSERT_ONCE(!device_data.cb_per_view_global_buffers.contains(buffer)); // Doesn't trigger
-               device_data.cb_non_per_view_global_buffers.emplace(buffer);
-#endif // DEVELOPMENT
-               ASSERT_ONCE(!device_data.cb_per_view_global_buffers_confirmed.contains(buffer));
-               device_data.cb_per_view_global_buffers_denied.emplace(buffer);
-               device_data.cb_per_view_global_buffers_confirmed.erase(buffer);
-            }
-            else // Delete if it never happens
-            {
-               ASSERT_ONCE(!device_data.cb_per_view_global_buffers_denied.contains(buffer));
-               device_data.cb_per_view_global_buffers_denied.erase(buffer);
-               //ASSERT_ONCE(device_data.cb_per_view_global_buffers_confirmed.contains(buffer)); // Maybe not
-            }
-         }
-#else
-         bool final_check = stop_type != 5 && IsValidGlobalCB(cb_per_view_global_buffer_map_data) == 0;
-#endif
-
-         if (!skip_check_neg && (skip_check || final_check))
+         if (IsValidGlobalCB(device_data.cb_per_view_global_buffer_map_data))
          {
 #if DEVELOPMENT && 0
             cb_per_view_globals.emplace_back(global_buffer_data);
             cb_per_view_globals_last_drawn_shader.emplace_back(last_drawn_shader); // The shader hash could we unspecified if we didn't replace the shader
 #endif // DEVELOPMENT
-            bool did_it = false;
 #if 1
-            static auto frame_index_copy = frame_index;
-            if (frame_index_copy != frame_index)
-            {
-               frame_index_copy = frame_index;
-               std::memcpy(&cb_per_view_global_raw, cb_per_view_global_buffer_map_data, sizeof(CBPerViewGlobal));
-            }
-            else
-            {
-               bool equal = std::memcmp(&cb_per_view_global_raw, cb_per_view_global_buffer_map_data, CBPerViewGlobal_buffer_size) == 0;
-               if (equal)
-               {
-                  did_it = true;
-               }
-               else
-               {
-                  std::memcpy(&cb_per_view_global_raw, device_data.cb_per_view_global_buffer_map_data, CBPerViewGlobal_buffer_size);
-                  cb_per_view_global_buffer_map_data = &cb_per_view_global_raw;
-               }
-            }
-
-            if (!did_it)
-            {
-#if 0 // mmmm
-               char global_buffer_data[CBPerViewGlobal_buffer_size];
-               std::memcpy(&global_buffer_data[0], device_data.cb_per_view_global_buffer_map_data, CBPerViewGlobal_buffer_size);
-               cb_per_view_global_buffer_map_data = &global_buffer_data[0];
+            if (game->UpdateGlobalCB(device_data.cb_per_view_global_buffer_map_data, device))
+#else // TODO: delete
+         // The whole buffer size is theoretically "CBPerViewGlobal_buffer_size" but we actually don't have the data for the excessive (padding) bytes,
+         // they are never read by shaders on the GPU anyway.
+         char global_buffer_data[CBPerViewGlobal_buffer_size];
+         std::memcpy(&global_buffer_data[0], device_data.cb_per_view_global_buffer_map_data, CBPerViewGlobal_buffer_size);
+         if (game->UpdateGlobalCB(&global_buffer_data[0], device))
 #endif
-            }
-#endif
-            if (stop_type != 6 && (did_it || game->UpdateGlobalCB(cb_per_view_global_buffer_map_data, device)) && stop_type != 7)
-            {
-               // Write back the cbuffer data after we have fixed it up (we always do!)
-#if 0
-               //#include <cstddef>  // for offsetof
-               CBPerViewGlobal src;
-               size_t startOffset = offsetof(CBPerViewGlobal, CV_AnimGenParams);
-               size_t endOffset = offsetof(CBPerViewGlobal, CV_PADDING0);
-               size_t sizeToCopy = endOffset - startOffset;
-
-               memcpy(dest + startOffset, reinterpret_cast<const char*>(&src) + startOffset, sizeToCopy);
-               memcpy(dest + startOffset, &src, offsetof(CBPerViewGlobal, CV_PADDING0));
-#endif
-
-               std::memcpy(device_data.cb_per_view_global_buffer_map_data, &cb_per_view_global, sizeof(CBPerViewGlobal));
-               succ = true;
-#if DEVELOPMENT
-               ASSERT_ONCE(!device_data.cb_non_per_view_global_buffers.contains(buffer)); // Triggers
-               device_data.cb_per_view_global_buffers.emplace(buffer);
-#endif // DEVELOPMENT
-               ASSERT_ONCE(!device_data.cb_per_view_global_buffers_denied.contains(buffer)); // Triggers? Check them at least once per frame for failure
-               device_data.cb_per_view_global_buffers_confirmed.emplace(buffer);
-               device_data.cb_per_view_global_buffers_denied.erase(buffer);
-            }
-         }
-         if (!succ && false)
          {
+            // Write back the cbuffer data after we have fixed it up (we always do!)
+            std::memcpy(device_data.cb_per_view_global_buffer_map_data, &cb_per_view_global, sizeof(CBPerViewGlobal));
 #if DEVELOPMENT
-            ASSERT_ONCE(!device_data.cb_per_view_global_buffers.contains(buffer)); // Doesn't trigger
-            device_data.cb_non_per_view_global_buffers.emplace(buffer);
+            device_data.cb_per_view_global_buffers.emplace(buffer);
 #endif // DEVELOPMENT
-            ASSERT_ONCE(!device_data.cb_per_view_global_buffers_confirmed.contains(buffer));
-            device_data.cb_per_view_global_buffers_denied.emplace(buffer);
-            device_data.cb_per_view_global_buffers_confirmed.erase(buffer);
+         }
          }
          device_data.cb_per_view_global_buffer_map_data = nullptr;
          device_data.cb_per_view_global_buffer = nullptr; // No need to keep this cached
@@ -2297,22 +2089,6 @@ public:
    void DrawImGuiSettings(DeviceData& device_data) override
    {
       reshade::api::effect_runtime* runtime = nullptr;
-
-      ImGui::NewLine();
-      std::string text;
-      ImGui::Text("GlobalCBuffer Tests: ", "");
-      text = std::to_string(timesPerFrame);
-      ImGui::Text(text.c_str(), "");
-      ImGui::Text("GlobalCBuffer Tests Succeeded: ", "");
-      text = std::to_string(timesPerFrameSucc);
-      ImGui::Text(text.c_str(), "");
-      ImGui::Text("GlobalCBuffer Tests Succeeded Fully: ", "");
-      text = std::to_string(timesPerFrameSucc2);
-      ImGui::Text(text.c_str(), "");
-      timesPerFrame = 0;
-      timesPerFrameSucc = 0;
-      timesPerFrameSucc2 = 0;
-      ImGui::NewLine();
 
       if (ImGui::Checkbox("Tonemap UI Background", &tonemap_ui_background))
       {
