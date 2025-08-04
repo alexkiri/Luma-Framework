@@ -54,12 +54,11 @@ jobs:
 
         if ($addonFiles.Count -eq 0) {
           Write-Host "No addon files found."
-#          "skip_upload=true" >> $env:GITHUB_OUTPUT
-          "skip_upload=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "skip_upload=true" >> $env:GITHUB_OUTPUT
           exit 0
         }
 
-        "skip_upload=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        "skip_upload=false" >> $env:GITHUB_OUTPUT
         
         foreach ($addonFile in $addonFiles) {
           if (-not $addonFile) {
