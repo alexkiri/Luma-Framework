@@ -109,19 +109,15 @@ jobs:
 
           # Get all files under the copied Shaders folder
           Get-ChildItem -Path $shaderRoot -Recurse -File | ForEach-Object {
-            $relativePath = $_.FullName.Substring($shaderRoot.Length + 1).TrimStart('\','/')
-            Write-Host "RelativePath: '$relativePath'"
+            $relativePath = [System.IO.Path]::GetRelativePath($shaderRoot, $_.FullName)
             # Extract top-level directory (first segment)
             $topDir = ($relativePath -split '[\\/]', 2)[0]
-            Write-Host "Checking file: $($_.Name), Extension: $($_.Extension), TopDir: $topDir"
-            $relativePath = [System.IO.Path]::GetRelativePath($shaderRoot, $_.FullName)
-            Write-Host "RelativePath: '$relativePath'"
-            $topDir = ($relativePath -split '[\\/]', 2)[0]
-            Write-Host "Checking file: $($_.Name), Extension: $($_.Extension), TopDir: $topDir"
+            #Write-Host "Checking file: $($_.Name), Extension: $($_.Extension), TopDir: $topDir"
 
             # Check if it's a .hlsl file in an allowed directory
-            if ($_.Extension.ToLower() -ne ".hlsl" -or ($allowedDirs -notcontains $topDir)) {
-              Write-Host "Removing: $($_.FullName)"
+            #if ($_.Extension.ToLower() -ne ".hlsl" -or ($allowedDirs -notcontains $topDir)) {
+            if ($_.Extension.ToLower() -ne ".hlsl") {
+              #Write-Host "Removing: $($_.FullName)"
               Remove-Item $_.FullName -Force
             }
           }
