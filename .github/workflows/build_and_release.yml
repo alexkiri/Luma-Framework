@@ -110,7 +110,12 @@ jobs:
           # Get all files under the copied Shaders folder
           Get-ChildItem -Path $shaderRoot -Recurse -File | ForEach-Object {
             $relativePath = $_.FullName.Substring($shaderRoot.Length + 1).TrimStart('\','/')
+            Write-Host "RelativePath: '$relativePath'"
             # Extract top-level directory (first segment)
+            $topDir = ($relativePath -split '[\\/]', 2)[0]
+            Write-Host "Checking file: $($_.Name), Extension: $($_.Extension), TopDir: $topDir"
+            $relativePath = [System.IO.Path]::GetRelativePath($shaderRoot, $_.FullName)
+            Write-Host "RelativePath: '$relativePath'"
             $topDir = ($relativePath -split '[\\/]', 2)[0]
             Write-Host "Checking file: $($_.Name), Extension: $($_.Extension), TopDir: $topDir"
 
