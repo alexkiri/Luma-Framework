@@ -11,6 +11,14 @@ struct GameDeviceData
    // Empty by default
 };
 
+struct GameInfo
+{
+   std::string title; // Public title (e.g., "Prey (2017)")
+   std::string internal_name; // Internal short name (e.g. "White Knuckle"->"WK"), can be used by shaders etc
+   uint32_t id = 0; // Internal ID (enum like). 0 is unknown/generic
+   std::vector<std::string> mod_authors; // List of authors, in importance or aribtrary order
+};
+
 // Per game implementation
 class Game
 {

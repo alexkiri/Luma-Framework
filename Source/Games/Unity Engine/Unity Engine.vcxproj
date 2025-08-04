@@ -26,7 +26,7 @@
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <Platform>x64</Platform>
-    <ProjectName>Vertigo</ProjectName>
+    <ProjectName>Unity Engine</ProjectName>
     <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
     <VcpkgTriplet Condition="'$(Platform)'=='x64'">x64-windows</VcpkgTriplet>
   </PropertyGroup>
@@ -151,7 +151,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>IF DEFINED LUMA_VERTIGO_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_VERTIGO_BIN_PATH%" || exit /B 0 )</Command>
+      <Command>IF DEFINED LUMA_UNITY_ENGINE_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_UNITY_ENGINE_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Publishing-Release|x64'">
@@ -199,7 +199,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>IF DEFINED LUMA_VERTIGO_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_VERTIGO_BIN_PATH%" || exit /B 0 )</Command>
+      <Command>IF DEFINED LUMA_UNITY_ENGINE_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_UNITY_ENGINE_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Test-Release|x64'">
@@ -247,7 +247,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>IF DEFINED LUMA_VERTIGO_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_VERTIGO_BIN_PATH%" || exit /B 0 )</Command>
+      <Command>IF DEFINED LUMA_UNITY_ENGINE_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_UNITY_ENGINE_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Development-Release|x64'">
@@ -295,7 +295,7 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>IF DEFINED LUMA_VERTIGO_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_VERTIGO_BIN_PATH%" || exit /B 0 )</Command>
+      <Command>IF DEFINED LUMA_UNITY_ENGINE_BIN_PATH ( xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_UNITY_ENGINE_BIN_PATH%" || exit /B 0 )</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

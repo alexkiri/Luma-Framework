@@ -105,6 +105,19 @@ namespace
    }
 #endif // DEVELOPMENT || _DEBUG
 
+   std::string GetProcessExecutableName()
+   {
+      char path[MAX_PATH];
+      DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+      if (length == 0 || length == MAX_PATH)
+         return {};
+
+      std::filesystem::path exe_path = std::string(path);
+      std::string exe_name = exe_path.filename().string();
+
+      return exe_name;
+   }
+
    bool CopyToClipboard(const std::string& text)
    {
       // Convert UTF-8 to UTF-16
