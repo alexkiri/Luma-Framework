@@ -70,6 +70,8 @@ jobs:
           $fileName = $addonFile.Name
           $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
           $zipName = "Luma-$projectName.zip"
+          # Turn spaces into another nice looking character, given that the github release will replace them with a '.', which is more weird
+          $zipName = $zipName -replace ' ', '_'
 
           Write-Host "Project name extracted: $projectName"
         
