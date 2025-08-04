@@ -161,7 +161,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-${{ github.run_number }}
-          name: Latest Release Build ${{ github.run_number }}
-          #body: This is an automated release of binaries.
+          name: Release (Build ${{ github.run_number }})
+          body: |
+            The current version of all Luma mods (based on latest commit).
+            Extract the executable in the same folder as ReShade is (the latest version of it).
+
+            Note that some mods here might not be complete, like "Prey".
           files: |
             Luma-*.zip
