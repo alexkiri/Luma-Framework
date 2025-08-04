@@ -69,15 +69,28 @@ jobs:
           # Extract project name by removing prefix 'Luma-' and suffix '.addon'
           $fileName = $addonFile.Name
           $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
-          $zipName = "Luma-$projectName.zip"
-          # Turn spaces into another nice looking character, given that the github release will replace them with a '.', which is more weird
-          $zipName = $zipName -replace ' ', '_'
-          if ($env:CONFIG -eq "Test-Release") {
+          $zipName = "Luma-$projectName"
+          # Add "Test" tag for test builds
+          if ("${{ matrix.config }}" -eq "Test-Release") {
             $zipName += "-Test"
           }
+          # Add "Dev" tag for developments builds
+          if ("${{ matrix.config }}" -eq "Development-Release") {
+            $zipName += "-Dev"
+          }
+          if ("${{ matrix.config }}" -eq "Development-Debug") {
+            $zipName += "-Dev-Dbg"
+          }
+          # Avoid naming conflicts if mods have both x64 and x32 versions
+          if ("${{ matrix.platform }}" -eq "Win32") {
+            $zipName += "-x32"
+          }
+          # Turn spaces into another nice looking character, given that the github release will replace them with a '.', which is more weird
+          $zipName = $zipName -replace ' ', '_'
+          $zipName += ".zip"
 
           Write-Host "Project name extracted: $projectName"
-        
+
           # We don't care to publish the template project, it's just there for reference
           if ($projectName -like '*_Template*' -or $projectName -eq '*Template*') {
             Write-Host "Project is a template. Skipping ZIP creation and upload."
@@ -169,7 +182,6 @@ jobs:
             The current version of all Luma mods (based on latest commit).
             Extract the executable in the same folder as ReShade is (the latest version of it).
             "Test" mods are made to be tested and have tools to investigate what's going on, and help the developers gather information.
-
             Note that some mods here might not be complete, like "Prey", which misses (optional) data for the rest of the mod.
             ---
               Last commit: ${{ github.event.head_commit.message }}
