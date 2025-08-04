@@ -91,6 +91,8 @@ namespace ACES
 
    static const float3x3 AP0_TO_AP1_MAT = mul(XYZ_TO_AP1_MAT, AP0_TO_XYZ_MAT);
    static const float3x3 AP1_TO_AP0_MAT = mul(XYZ_TO_AP0_MAT, AP1_TO_XYZ_MAT);
+   
+   static const float3 AP1_RGB2Y = AP1_TO_XYZ_MAT[1].rgb;
 
    static const float3x3 RRT_SAT_MAT = float3x3(
        0.9708890, 0.0269633, 0.00214758,
@@ -240,7 +242,7 @@ namespace ACES
    float3 DarkToDim(float3 xyz, float dim_surround_gamma = DIM_SURROUND_GAMMA)
    {
        float3 xy_y = XYZToXyY(xyz);
-       xy_y.z = clamp(xy_y.z, 0.0, 65504.0f);
+       xy_y.z = clamp(xy_y.z, 0.0, 65504.0f); // Probably not very needed but it shouldn't hurt
        xy_y.z = pow(xy_y.z, DIM_SURROUND_GAMMA);
        return XyYToXYZ(xy_y);
    }
@@ -430,8 +432,6 @@ namespace ACES
    // Output AP1
    float3 RRT(float3 aces)
    {
-       static const float3 AP1_RGB2Y = AP1_TO_XYZ_MAT[1].rgb;
-
        // --- Glow module --- //
        // "Glow" module constants
        static const float RRT_GLOW_GAIN = 0.05;
@@ -467,12 +467,12 @@ namespace ACES
        // --- Global desaturation --- //
        // rgbPre = mul(RRT_SAT_MAT, rgbPre);
        static const float RRT_SAT_FACTOR = 0.96f;
-       rgb_pre = lerp(dot(rgb_pre, AP1_RGB2Y).xxx, rgb_pre, RRT_SAT_FACTOR);
+       rgb_pre = lerp(dot(rgb_pre, AP1_RGB2Y), rgb_pre, RRT_SAT_FACTOR);
 
        return rgb_pre;
    }
 
-   float3 ODTToneMap(float3 rgb_pre, float min_y, float max_y)
+   float3 ODTToneMap(float3 rgb_pre, float min_y, float max_y, bool dark_to_dim = false, bool legacy_desat = false)
    {
        const float min_lum = min_y;
        const float max_lum = max_y;
@@ -551,58 +551,68 @@ namespace ACES
            SSTS(rgb_pre.y, float3(log_min.x, log_min.y, 0), float3(LOG_MID.x, LOG_MID.y, MID_PT.z), float3(log_max.x, log_max.y, 0), coefs_low_a, coefs_low_b, coefs_high_a, coefs_high_b),
            SSTS(rgb_pre.z, float3(log_min.x, log_min.y, 0), float3(LOG_MID.x, LOG_MID.y, MID_PT.z), float3(log_max.x, log_max.y, 0), coefs_low_a, coefs_low_b, coefs_high_a, coefs_high_b));
 
-#if 0 // Broken path
+       // Apply gamma adjustment to compensate for dim surround (this isn't great, and it's only meant to be done in SDR)
+       if (dark_to_dim)
+       {
+         rgb_post = mul(XYZ_TO_AP1_MAT, DarkToDim(mul(AP1_TO_XYZ_MAT, rgb_post)));
+       }
+       
+       // Apply desaturation to compensate for luminance difference
+       // rgb_post = mul(ODT_SAT_MAT, rgb_post);
+       static const float ODT_SAT_FACTOR = 0.93f;
+       if (legacy_desat)
+       {
+         rgb_post = lerp(dot(rgb_post, AP1_RGB2Y), rgb_post, ODT_SAT_FACTOR);
+       }
+
+       // Broken deprecated path
        // Nits to Linear
-       float3 linear_cv = YToLinCV(rgb_post, max_y, min_y);
-       return clamp(linear_cv, 0.0, 65535.0f);
-#else
-       //rgb_post = clamp(rgb_post, 0.0, 65535.0f);
+       // float3 linear_cv = YToLinCV(rgb_post, max_y, min_y);
+       // return clamp(linear_cv, 0.0, 65535.0f);
+
+       // rgb_post = clamp(rgb_post, 0.0, 65535.0f);
        return rgb_post;
-#endif
    }
 
    // Input AP1
    // Output BT.709 (by default)
    // This does filmic tonemapping and adapts the brightness range and gamut to the display
-   float3 ODT(float3 rgb_pre, float min_y, float max_y, float3x3 odt_matrix = AP1_TO_BT709_MAT)
+   float3 ODT(float3 rgb_pre, float min_y, float max_y, bool dark_to_dim = false, bool legacy_desat = false, float3x3 odt_matrix = AP1_TO_BT709_MAT)
    {
-       float3 tonescaled = ODTToneMap(rgb_pre, min_y, max_y);
+       float3 tonescaled = ODTToneMap(rgb_pre, min_y, max_y, dark_to_dim, legacy_desat);
        float3 output_color = mul(odt_matrix, tonescaled);
        return output_color;
    }
 
-   // ACES for Scene-Linear BT.709 with:
+   // ACES 1.3 for Scene-Linear BT.709 (by default) with:
    // Reference Gamut Compression
    // Reference Rendering Transform
    // Output Display Transform
-	float3 RGCAndRRTAndODT(float3 color, float min_y, float max_y, bool gamut_compress = false, bool dark_to_dim = false, float3x3 input_to_ap1_matrix = BT709_TO_AP1_MAT, float3x3 ap1_to_output_matrix = AP1_TO_BT709_MAT)
+   float3 RGCAndRRTAndODT(float3 color, float min_y, float max_y, bool gamut_compress = false, bool dark_to_dim = false, bool legacy_desat = false, float3x3 input_to_ap1_matrix = BT709_TO_AP1_MAT, float3x3 ap1_to_output_matrix = AP1_TO_BT709_MAT)
    {
        color = mul(input_to_ap1_matrix, color);      // Input => AP1
        if (gamut_compress)
        {
          color = GamutCompress(color);               // Compresses to AP1
        }
-       if (dark_to_dim)
-       {
-         color = mul(AP1_TO_XYZ_MAT, color);
-         color = DarkToDim(color);
-         color = mul(XYZ_TO_AP1_MAT, color);
-       }
        color = mul(AP1_TO_AP0_MAT, color);           // AP1 => AP0
        color = RRT(color);                           // RRT + AP0 => AP1
-       color = ODT(color, min_y, max_y, ap1_to_output_matrix); // ODT AP1 => Output
+       color = ODT(color, min_y, max_y, dark_to_dim, legacy_desat, ap1_to_output_matrix); // ODT AP1 => Output
        return color;
-	}
+    }
 }
 
 struct ACESSettings
 {
-  // 0.18 input maps to 0.1 output in ACES, this can help you scale it so that mid grey isn't kept as pivot
+  // 0.18 input maps to 0.1 output in ACES, this can help you scale it so that mid grey isn't kept as pivot (it's an approximate scale, in and out aren't mirrored)
   float mid_grey;
   // Needed if your colors are beyond AP1 (rare in games)
   bool gamut_compress;
   // Adapts colors for a perfectly dark viewing environment to a dim one (some ACES implementations do this, so it might be good to replicate it)
   bool dark_to_dim;
+  // This was only a thing before they implemented SSTS in ACES 1.3 or so, though with some older approximate ACES implementations like Unity,
+  // this new version of ACES can look more similar to it. It still stays more saturated anyway!
+  bool legacy_desat;
   float3x3 input_to_ap1_matrix;
   float3x3 ap1_to_output_matrix;
 };
@@ -613,6 +623,7 @@ ACESSettings DefaultACESSettings()
   settings.mid_grey = 0.1;
   settings.gamut_compress = false;
   settings.dark_to_dim = false;
+  settings.legacy_desat = false;
   settings.input_to_ap1_matrix = ACES::BT709_TO_AP1_MAT;
   settings.ap1_to_output_matrix = ACES::AP1_TO_BT709_MAT;
   return settings;
@@ -628,12 +639,12 @@ float3 ACESTonemap(float3 color, float paper_white, float peak_white, ACESSettin
 	float aces_max = peak_white / paper_white;
 
    // Apply the inverse of the final gamma correction to the min nits parameter, to have it reliably set
-	aces_min = ColorGradingLUTTransferFunctionOutCorrected(aces_min.xxx, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE).x;
+	aces_min = ColorGradingLUTTransferFunctionOutCorrected(aces_min, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE).x;
 
 	aces_max /= mid_gray_scale;
 	aces_min /= mid_gray_scale;
 
-	color = ACES::RGCAndRRTAndODT(color, aces_min * ACES_SDR_NITS, aces_max * ACES_SDR_NITS, settings.gamut_compress, settings.dark_to_dim, settings.input_to_ap1_matrix, settings.ap1_to_output_matrix) / ACES_SDR_NITS;
+	color = ACES::RGCAndRRTAndODT(color, aces_min * ACES_SDR_NITS, aces_max * ACES_SDR_NITS, settings.gamut_compress, settings.dark_to_dim, settings.legacy_desat, settings.input_to_ap1_matrix, settings.ap1_to_output_matrix) / ACES_SDR_NITS;
 
 	color *= mid_gray_scale;
 

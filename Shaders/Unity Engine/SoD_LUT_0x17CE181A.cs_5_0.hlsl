@@ -422,7 +422,8 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
 
   ACESSettings acesSettings = DefaultACESSettings();
   acesSettings.mid_grey = MidGray;
-  acesSettings.dark_to_dim = true;
+  acesSettings.dark_to_dim = true; // Arguably more accurate to SDR reference (maybe)
+  acesSettings.legacy_desat = false; // More accurate to SDR reference, but it then looks SDRish saturation wise
   acesSettings.input_to_ap1_matrix = IdentityMatrix;
   tonemapped = ACESTonemap(untonemapped, paperWhite, peakWhite, acesSettings); // Outputs Rec.709
 
