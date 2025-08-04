@@ -72,6 +72,9 @@ jobs:
           $zipName = "Luma-$projectName.zip"
           # Turn spaces into another nice looking character, given that the github release will replace them with a '.', which is more weird
           $zipName = $zipName -replace ' ', '_'
+          if ($env:CONFIG -eq "Test-Release") {
+            $zipName += "-Test"
+          }
 
           Write-Host "Project name extracted: $projectName"
         
@@ -165,8 +168,9 @@ jobs:
           body: |
             The current version of all Luma mods (based on latest commit).
             Extract the executable in the same folder as ReShade is (the latest version of it).
+            "Test" mods are made to be tested and have tools to investigate what's going on, and help the developers gather information.
 
-            Note that some mods here might not be complete, like "Prey".
+            Note that some mods here might not be complete, like "Prey", which misses (optional) data for the rest of the mod.
             ---
               Last commit: ${{ github.event.head_commit.message }}
           files: |
