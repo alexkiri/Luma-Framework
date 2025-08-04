@@ -2736,6 +2736,7 @@ namespace
 #if DEVELOPMENT
             if (device_data.debug_draw_texture.get())
             {
+               // We might not be able to rely on SRVs automatic generation (by passing a nullptr desc), because depth resources take a custom view format etc
                D3D11_SHADER_RESOURCE_VIEW_DESC debug_srv_desc;
                debug_srv_desc.Format = device_data.debug_draw_texture_format;
                debug_srv_desc.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D;
@@ -5805,7 +5806,7 @@ namespace
                               {
                                  if (pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasComputeShader())
                                  {
-                                    ImGui::SliderInt("Shader Skip Type", &pipeline_skip_type, 0, IM_ARRAYSIZE(CachedPipeline::shader_skip_type_names), CachedPipeline::shader_skip_type_names[(size_t)pipeline_skip_type], ImGuiSliderFlags_NoInput);
+                                    ImGui::SliderInt("Shader Skip Type", &pipeline_skip_type, 0, IM_ARRAYSIZE(CachedPipeline::shader_skip_type_names) - 1, CachedPipeline::shader_skip_type_names[(size_t)pipeline_skip_type], ImGuiSliderFlags_NoInput);
                                  }
                                  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                                  {
@@ -6699,7 +6700,7 @@ namespace
                if (debug_draw_enabled)
                {
                   auto prev_debug_draw_mode = debug_draw_mode;
-                  if (ImGui::SliderInt("Debug Draw Mode", &(int&)debug_draw_mode, 0, IM_ARRAYSIZE(debug_draw_mode_strings), debug_draw_mode_strings[(size_t)debug_draw_mode], ImGuiSliderFlags_NoInput))
+                  if (ImGui::SliderInt("Debug Draw Mode", &(int&)debug_draw_mode, 0, IM_ARRAYSIZE(debug_draw_mode_strings) - 1, debug_draw_mode_strings[(size_t)debug_draw_mode], ImGuiSliderFlags_NoInput))
                   {
                      // Make sure to reset it to 0 when we change mode, depth only supports 1 texture etc
                      debug_draw_view_index = 0;

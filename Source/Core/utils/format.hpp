@@ -469,10 +469,10 @@ bool IsLinearFormat(DXGI_FORMAT format)
    {
    case DXGI_FORMAT_D32_FLOAT:
    case DXGI_FORMAT_D16_UNORM:
-   case DXGI_FORMAT_R24_UNORM_X8_TYPELESS:
+   case DXGI_FORMAT_R24_UNORM_X8_TYPELESS: // Not a depth format directly but realistically only used for depth
    case DXGI_FORMAT_D24_UNORM_S8_UINT:
    case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-   case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS:
+   case DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS: // Not a depth format directly but realistically only used for depth
    case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
    case DXGI_FORMAT_R16_FLOAT:
    case DXGI_FORMAT_R16G16_FLOAT:

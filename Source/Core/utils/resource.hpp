@@ -279,7 +279,31 @@ void CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          GetResourceInfo(texture_resource.get(), device_data.debug_draw_texture_size, device_data.debug_draw_texture_format);
          D3D11_DEPTH_STENCIL_VIEW_DESC dsv_desc;
          dsv->GetDesc(&dsv_desc);
+         // Note: this format might be exclusive to DSVs and not work with SRVs, so we adjust it
          device_data.debug_draw_texture_format = dsv_desc.Format;
+         switch (device_data.debug_draw_texture_format)
+         {
+         case DXGI_FORMAT_D16_UNORM:
+         {
+            device_data.debug_draw_texture_format = DXGI_FORMAT_R16_UNORM;
+         }
+         break;
+         case DXGI_FORMAT_D24_UNORM_S8_UINT:
+         {
+            device_data.debug_draw_texture_format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+         }
+         break;
+         case DXGI_FORMAT_D32_FLOAT:
+         {
+            device_data.debug_draw_texture_format = DXGI_FORMAT_R32_FLOAT;
+         }
+         break;
+         case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
+         {
+            device_data.debug_draw_texture_format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+         }
+         break;
+         }
       }
    }
    else if (debug_draw_mode == DebugDrawMode::UnorderedAccessView)
