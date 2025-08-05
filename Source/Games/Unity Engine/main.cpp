@@ -6,7 +6,19 @@
 
 namespace
 {
-   // Note: these are serialized in settings so avoid reordering unless necessary
+#define DEFINE_MY_ENUM(EnumName, ...)                             \
+    enum EnumName { __VA_ARGS__, EnumName##_COUNT };              \
+                                                                  \
+    inline const char* ToString(EnumName value)                   \
+    {                                                             \
+        switch (value)                                            \
+        {                                                         \
+            __VA_ARGS_TO_CASES(__VA_ARGS__)                       \
+            default: return "UNKNOWN";                            \
+        }                                                         \
+    }
+   // Note: these are serialized in settings so avoid reordering unless necessary.
+   // These names will be set in shaders as define, so you can branch on them if really necessary.
    constexpr int GAME_UNITY_ENGINE_GENERIC = 0;
    constexpr int GAME_WHITE_KNUCKLE = 1;
    constexpr int GAME_SHADOWS_OF_DOUBT = 2;
@@ -15,11 +27,12 @@ namespace
 
    // List of all the games this generic engine mod supports.
    // Other games might be supported too if they use the same shaders.
+   // These might be x32 or x64 or both, the mod will only load if the architecture matches anyway.
    const std::map<std::set<std::string>, GameInfo> games_database = {
-       { { "White Knuckle.exe" }, { "White Knuckle", "WK", GAME_WHITE_KNUCKLE, { "Pumbo" } } },
-       { { "Shadows of Doubt.exe" }, { "Shadows of Doubt", "SoD", GAME_SHADOWS_OF_DOUBT, { "Pumbo" } } },
-       { { "Vertigo.exe" }, { "Vertigo", "Vertigo", GAME_VERTIGO, { "Pumbo" } } },
-       { { "TheLostCrown.exe", "TheLostCrown_plus.exe" }, { "Prince of Persia: The Lost Crown", "PoPTLC", GAME_POPTLC, { "Ersh", "Pumbo" } } },
+       { { "White Knuckle.exe" }, MAKE_GAME_INFO("White Knuckle", "WK", GAME_WHITE_KNUCKLE, { "Pumbo" }) },
+       { { "Shadows of Doubt.exe" }, MAKE_GAME_INFO("Shadows of Doubt", "SoD", GAME_SHADOWS_OF_DOUBT, { "Pumbo" }) },
+       { { "Vertigo.exe" }, MAKE_GAME_INFO("Vertigo", "Vertigo", GAME_VERTIGO, { "Pumbo" }) },
+       { { "TheLostCrown.exe", "TheLostCrown_plus.exe" }, MAKE_GAME_INFO("Prince of Persia: The Lost Crown", "PoPTLC", GAME_POPTLC, std::vector<std::string>({ "Ersh", "Pumbo" })) },
    };
 
    // If not found, treat everything as generic (assuming default engine behaviours)
@@ -72,6 +85,17 @@ public:
          {
             game_id = GAME_UNITY_ENGINE_GENERIC;
          }
+      }
+
+      if (game_info)
+      {
+         sub_game_shader_define = game_info->shader_define.c_str(); // This data is persistent
+      }
+      // Allow to branch on behaviour for a generic mod too in shaders
+      else
+      {
+         static_assert(GAME_UNITY_ENGINE_GENERIC == 0); // Rename the string literal here too if you rename the variable
+         sub_game_shader_define = "GAME_UNITY_ENGINE_GENERIC";
       }
 
       // Games that use the ACES tonemapping LUT should go here

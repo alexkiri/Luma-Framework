@@ -16,8 +16,12 @@ struct GameInfo
    std::string title; // Public title (e.g., "Prey (2017)")
    std::string internal_name; // Internal short name (e.g. "White Knuckle"->"WK"), can be used by shaders etc
    uint32_t id = 0; // Internal ID (enum like). 0 is unknown/generic
-   std::vector<std::string> mod_authors; // List of authors, in importance or aribtrary order
+   std::string shader_define;
+   std::vector<std::string> mod_authors; // List of authors, in importance or arbitrary order
 };
+
+// Macro to take the "id" variable name and store it as a shader define name (to avoid defining them twice)
+#define MAKE_GAME_INFO(title, internal_name, id, mod_authors) { title, internal_name, id, #id, mod_authors }
 
 // Per game implementation
 class Game

@@ -278,6 +278,9 @@ namespace
    };
    LUTDimensions texture_format_upgrades_lut_dimensions = LUTDimensions::_2D;
 
+   // In case this is a generic mod for multiple games, set this to the actual game name (e.g. "GAME_ROCKET_LEAGUE")
+   const char* sub_game_shader_define = nullptr;
+
    // Game specific constants (these are not expected to be changed at runtime)
    uint32_t luma_settings_cbuffer_index = 13;
    uint32_t luma_data_cbuffer_index = -1; // Needed, unless "POST_PROCESS_SPACE_TYPE" is 0 and we don't need the final display composition pass
@@ -463,23 +466,30 @@ namespace
       return shaders_path;
    }
 
-   // TODO: if this was ever too slow, given we iterate through the shader folder which also contains (possibly hundres of) dumps and our built binaries,
+   // TODO: if this was ever too slow, given we iterate through the shader folder which also contains (possibly hundreds of) dumps and our built binaries,
    // we could split it up in 3 main branches (shaders code, shaders binaries and shaders dump).
    // Alternatively we could make separate iterators for each main shaders folder.
+   //
+   // Note: the paths here might also be hardcoded in GitHub actions (build scripts)
    bool IsValidShadersSubPath(const std::filesystem::path& shader_directory, const std::filesystem::path& entry_path, bool& out_is_global)
    {
       const std::filesystem::path entry_directory = entry_path.parent_path();
+
+      // Global shaders (game independent)
       const auto global_shader_directory = shader_directory / "Global";
       if (entry_directory == global_shader_directory)
       {
          out_is_global = true;
          return true;
       }
+      
       const auto game_shader_directory = shader_directory / Globals::GAME_NAME;
       if (entry_directory == game_shader_directory)
       {
          return true;
       }
+      // Note: we could add a sub game name path for generic mods (e.g. Unity, Unreal), but we already have an acronym in front of their shaders name, and support per game shader defines, so it's not particularly needed
+
 #if DEVELOPMENT && ALLOW_LOADING_DEV_SHADERS
       // WIP and test and unused shaders (they expect ".../" in front of their include dirs, given the nested path)
       const auto dev_directory = game_shader_directory / "Dev";
@@ -715,6 +725,12 @@ namespace
             [](unsigned char c) { return std::toupper(c); });
          shader_defines[shader_defines_index++] = "GAME_" + game_name;
          shader_defines[shader_defines_index++] = "1";
+
+         if (sub_game_shader_define != nullptr)
+         {
+            shader_defines[shader_defines_index++] = sub_game_shader_define;
+            shader_defines[shader_defines_index++] = "1";
+         }
 
          // Define 3 shader cbuffers indexes (e.g. "(b13)")
          // We automatically generate unique values for each cbuffer to make sure they don't overlap.
