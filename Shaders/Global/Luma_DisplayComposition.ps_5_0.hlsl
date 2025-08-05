@@ -5,6 +5,8 @@ Texture2D<float4> sourceTexture : register(t0);
 Texture2D<float4> uiTexture : register(t1); // Optional: Pre-multiplied UI
 Texture2D<float4> debugTexture : register(t2);
 
+SamplerState sampler0 : register(s0); //TODOFT...
+
 // Custom Luma shader to apply the display (or output) transfer function from a linear input (or apply custom gamma correction)
 float4 main(float4 pos : SV_Position0) : SV_Target0
 {
@@ -44,7 +46,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			if (flipY)
 			{
 				pos.y = targetHeight - pos.y;
-		}
+			}
 		}
 		if (renderResolutionScale) // Scale by rendering resolution (so to stretch the used part of the image to the full texture range)
 		{
@@ -105,8 +107,35 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 	pos.xy = pos.xy / scale + float2(targetWidth, targetHeight) / (scale * 2.0);
 #endif
 
-	float4 color = sourceTexture.Load((int3)pos.xyz);
+	float sizeWidth;
+	float sizeHeight;
+	sourceTexture.GetDimensions(sizeWidth, sizeHeight);
+	float2 uv = pos.xy / float2(sizeWidth, sizeHeight);
 
+	float targetHeight1 = 1080.0 * LumaSettings.DevSetting04;
+	float targetHeight2 = targetHeight1 * LumaSettings.DevSetting05;
+	float mipLevel1 = log2(sizeHeight / targetHeight1);
+	float mipLevel2 = log2(sizeHeight / targetHeight2);
+	float4 color = sourceTexture.Load((int3)pos.xyz);
+	float4 mipColor1 = sourceTexture.SampleLevel(sampler0, uv, mipLevel1);
+	float4 mipColor2 = sourceTexture.SampleLevel(sampler0, uv, mipLevel2);
+#if 0
+	int offset = 5;
+	mipColor1 = sourceTexture.Load((int3)pos.xyz + int3( offset, -offset, 0)) +
+				sourceTexture.Load((int3)pos.xyz + int3(-offset,  offset, 0)) +
+				sourceTexture.Load((int3)pos.xyz + int3(-offset, -offset, 0)) +
+				sourceTexture.Load((int3)pos.xyz + int3( offset,  offset, 0)) +
+				color;
+	mipColor1 /= 5.0;
+	offset = 30;
+	mipColor2 = sourceTexture.Load((int3)pos.xyz + int3( offset, -offset, 0)) +
+				sourceTexture.Load((int3)pos.xyz + int3(-offset,  offset, 0)) +
+				sourceTexture.Load((int3)pos.xyz + int3(-offset, -offset, 0)) +
+				sourceTexture.Load((int3)pos.xyz + int3( offset,  offset, 0)) +
+				color;
+	mipColor2 /= 5.0;
+#endif
+//return mipColor2; //TODOFT
 	// This case means the game currently doesn't have Luma custom shaders built in (fallback in case of problems), or has manually unloaded them, so the value of some macro defines do not matter
 	const bool modActive = LumaData.CustomData1 == 0;
 	if (!modActive)
@@ -132,11 +161,15 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #if GAMMA_CORRECTION_TYPE == 1
 				color.rgb = colorGammaCorrectedByChannel;
 #elif GAMMA_CORRECTION_TYPE == 2
-  				color.rgb = RestoreLuminance(color.rgb, colorGammaCorrectedByChannel);
+  				color.rgb = RestoreLuminance(color.rgb, colorGammaCorrectedByChannelMip1);
+				float3 colorGammaCorrectedByChannelMip1 = gamma_to_linear(linear_to_sRGB_gamma(mipColor1.rgb, GCT_MIRROR), GCT_MIRROR);
+				float3 colorGammaCorrectedByChannelMip2 = gamma_to_linear(linear_to_sRGB_gamma(mipColor2.rgb, GCT_MIRROR), GCT_MIRROR);
+  				mipColor1.rgb = RestoreLuminance(mipColor1.rgb, colorGammaCorrectedByChannelMip1);
+  				mipColor2.rgb = RestoreLuminance(mipColor2.rgb, colorGammaCorrectedByChannelMip2);
 #elif GAMMA_CORRECTION_TYPE == 3 //TODOFT: probably doesn't look good? It'd treat green and blue massively different
   				color.rgb = colorGammaCorrectedByLuminance;
 #elif GAMMA_CORRECTION_TYPE >= 4
-  				color.rgb = RestoreChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
+  				color.rgb = RestoreChrominanceAdvanced(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
 #endif // GAMMA_CORRECTION_TYPE == 1
 			}
 		}
@@ -153,8 +186,45 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			else
 			{
 				color.rgb = ColorGradingLUTTransferFunctionOut(color.rgb, GAMMA_CORRECTION_TYPE);
+
+				mipColor1.rgb = ColorGradingLUTTransferFunctionOut(mipColor1.rgb, GAMMA_CORRECTION_TYPE);
+				mipColor2.rgb = ColorGradingLUTTransferFunctionOut(mipColor2.rgb, GAMMA_CORRECTION_TYPE);
 			}
 		}
+		
+#if 0
+		float shoulderPow = 2.75f; // Default value, can be changed in the settings
+		float maxShoulderPow = lerp(shoulderPow, 1.f, LumaSettings.DevSetting01); // Default value, can be changed in the settings
+		float mipRatio1 = GetLuminance(mipColor1.rgb) / GetLuminance(color.rgb);
+		float mipRatio2 = GetLuminance(mipColor2.rgb) / GetLuminance(color.rgb);
+		float peak = 500.f;
+		float maxPeak = lerp(peak, 800.f, LumaSettings.DevSetting02);
+    	if (LumaSettings.DevSetting03 <= 0.0)
+		{
+			shoulderPow = lerp(shoulderPow, maxShoulderPow, saturate(mipRatio1 * mipRatio2 * GetLuminance(color.rgb)));
+			peak = lerp(peak, maxPeak, saturate(mipRatio1 * mipRatio2 * GetLuminance(color.rgb)));
+		}
+		if (LumaSettings.DevSetting03 > 0.75)
+		{
+			color.rgb = mipColor2.rgb;
+		}
+		else if (LumaSettings.DevSetting03 > 0.5)
+		{
+			color.rgb = mipColor1.rgb;
+		}
+		else if (LumaSettings.DevSetting03 > 0.25)
+		{
+		}
+		else
+		{
+			color.rgb = PumboAutoHDR(color.rgb, peak, LumaSettings.GamePaperWhiteNits, shoulderPow); // This won't multiply the paper white in, it just uses it as a modifier for the AutoHDR logic
+		}
+		if (LumaSettings.DevSetting03 <= 0.0)
+		{
+			color.rgb = Saturation(color.rgb, (saturate(mipRatio1 * mipRatio2 * GetLuminance(color.rgb))* 0.333 + 1.0));
+		}
+#endif
+
 #if DEVELOPMENT // Optionally clamp SDR and SDR on HDR modes (dev only)
 		if (LumaSettings.DisplayMode != 1)
 			color.rgb = saturate(color.rgb);
@@ -289,7 +359,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #elif GAMMA_CORRECTION_TYPE == 3
   		color.rgb = colorGammaCorrectedByLuminance;
 #elif GAMMA_CORRECTION_TYPE >= 4
-  		color.rgb = RestoreChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
+  		color.rgb = RestoreChrominanceAdvanced(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
 #endif // GAMMA_CORRECTION_TYPE == 2
 
 		color.rgb += colorInExcess;

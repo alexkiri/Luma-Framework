@@ -90,6 +90,9 @@
 #ifndef ENABLE_GAME_PIPELINE_STATE_READBACK
 #define ENABLE_GAME_PIPELINE_STATE_READBACK 0
 #endif // ENABLE_GAME_PIPELINE_STATE_READBACK
+#ifndef TEST_DUPLICATE_SHADER_HASH
+#define TEST_DUPLICATE_SHADER_HASH 0
+#endif // TEST_DUPLICATE_SHADER_HASH
 
 #if DX12
 constexpr bool OneShaderPerPipeline = false;
@@ -277,12 +280,11 @@ namespace
    uint32_t luma_data_cbuffer_index = -1; // Needed, unless "POST_PROCESS_SPACE_TYPE" is 0 and we don't need the final display composition pass
 	uint32_t luma_ui_cbuffer_index = -1; // Optional, for "UI_DRAW_TYPE" 1
 
-   // TODO: define these by name instead of by hash, it might be safer and less confusing
-   const uint32_t shader_hash_copy_vertex = Shader::Hash_StrToNum("FFFFFFF0");
-   const uint32_t shader_hash_copy_pixel = Shader::Hash_StrToNum("FFFFFFF1");
-   const uint32_t shader_hash_transform_function_copy_pixel = Shader::Hash_StrToNum("FFFFFFF2");
-   const uint32_t shader_hash_draw_purple_pixel = Shader::Hash_StrToNum("FFFFFFF5");
-   const uint32_t shader_hash_draw_purple_compute = Shader::Hash_StrToNum("FFFFFFF6");
+   const std::string shader_name_copy_vertex = "Luma_Copy";
+   const std::string shader_name_copy_pixel = "Luma_Copy";
+   const std::string shader_name_transform_function_copy_pixel = "Luma_DisplayComposition";
+   const std::string shader_name_draw_purple_pixel = "Luma_DrawPurple";
+   const std::string shader_name_draw_purple_compute = "Luma_DrawPurple";
 
    // Optionally add the UI shaders to this list, to make sure they draw to a separate render target for proper HDR composition
    ShaderHashesList shader_hashes_UI;
@@ -294,7 +296,8 @@ namespace
    std::unordered_map<uint32_t, CachedShader*> shader_cache;
    // All the shaders the user has (and has had) as custom in the live folder. By shader hash.
    // The data it contains is fully its own, so it's not by "Device".
-   std::unordered_map<uint32_t, CachedCustomShader*> custom_shaders_cache;
+   // The hash here is 64 bit instead of 32 to leave extra room for Luma native shaders, that have customly generated hashes (to not mix with the game ones).
+   std::unordered_map<uint64_t, CachedCustomShader*> custom_shaders_cache;
 
    // Newly loaded shaders that still need to be (auto) dumped, by shader hash
    std::unordered_set<uint32_t> shaders_to_dump;
@@ -341,7 +344,7 @@ namespace
    LumaFrameSettings cb_luma_frame_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_frame_settings_dirty" when changing within a frame (so it's uploaded again)
 
    bool has_init = false;
-   bool asi_loaded = true; // Whether we've been loaded from an ASI loader or ReShade Addons system
+   bool asi_loaded = true; // Whether we've been loaded from an ASI loader or ReShade Addons system (we assume true until proven otherwise)
    std::thread thread_auto_dumping;
    std::atomic<bool> thread_auto_dumping_running = false;
    std::thread thread_auto_compiling;
@@ -485,7 +488,7 @@ namespace
       return false;
    }
 
-   void ClearCustomShader(uint32_t shader_hash)
+   void ClearCustomShader(uint64_t shader_hash)
    {
       const std::unique_lock lock(s_mutex_loading);
       auto custom_shader = custom_shaders_cache.find(shader_hash);
@@ -493,7 +496,7 @@ namespace
       {
          custom_shader->second->code.clear();
          custom_shader->second->is_hlsl = false;
-         custom_shader->second->is_global = false;
+         custom_shader->second->is_luma_native = false;
          custom_shader->second->preprocessed_hash = 0;
          custom_shader->second->file_path.clear();
          custom_shader->second->compilation_errors.clear();
@@ -590,16 +593,31 @@ namespace
 
    // Expects "s_mutex_loading" and "s_mutex_shader_objects"
    template<typename T = ID3D11DeviceChild>
-   void CreateShaderObject(ID3D11Device* native_device, uint32_t shader_hash, com_ptr<T>& shader_object, const std::optional<std::unordered_set<uint32_t>>& shader_hashes_filter, bool force_delete_previous = !(bool)FORCE_KEEP_CUSTOM_SHADERS_LOADED, bool trigger_assert = false)
+   void CreateShaderObject(ID3D11Device* native_device, const std::string& shader_name, com_ptr<T>& shader_object, const std::optional<std::set<std::string>>& shader_names_filter, bool force_delete_previous = !(bool)FORCE_KEEP_CUSTOM_SHADERS_LOADED, bool trigger_assert = false)
    {
-      if (!shader_hashes_filter.has_value() || shader_hashes_filter.value().contains(shader_hash))
+      ASSERT_ONCE_MSG(shader_name.starts_with("Luma_") && !shader_name.contains("0x"), "Luma's native shaders (whether they are global or game specific) should ideally have \"Luma_\" in front of their name, and have no shader hash, otherwise they might not get detected/compiled.");
+      if (!shader_names_filter.has_value() || shader_names_filter.value().contains(shader_name))
       {
          if (force_delete_previous)
          {
             // The shader changed, so we should clear its previous version resource anyway (to avoid keeping an outdated version)
             shader_object = nullptr;
          }
-         if (custom_shaders_cache.contains(shader_hash))
+
+         reshade::api::pipeline_subobject_type shader_type = reshade::api::pipeline_subobject_type::unknown;
+         if constexpr (typeid(T) == typeid(ID3D11GeometryShader))
+            shader_type = reshade::api::pipeline_subobject_type::geometry_shader;
+         else if constexpr (typeid(T) == typeid(ID3D11VertexShader))
+            shader_type = reshade::api::pipeline_subobject_type::vertex_shader;
+         else if constexpr (typeid(T) == typeid(ID3D11PixelShader))
+            shader_type = reshade::api::pipeline_subobject_type::pixel_shader;
+         else if constexpr (typeid(T) == typeid(ID3D11ComputeShader))
+            shader_type = reshade::api::pipeline_subobject_type::compute_shader;
+         else
+            static_assert(false);
+
+         const uint64_t shader_hash_64 = Shader::ShiftHash32ToHash64(Shader::StrToHash(shader_name + "_" + std::to_string(uint32_t(shader_type))));
+         if (custom_shaders_cache.contains(shader_hash_64))
          {
             // Delay the deletition
             if (!force_delete_previous)
@@ -607,7 +625,7 @@ namespace
                shader_object = nullptr;
             }
 
-            const CachedCustomShader* custom_shader_cache = custom_shaders_cache[shader_hash];
+            const CachedCustomShader* custom_shader_cache = custom_shaders_cache[shader_hash_64];
 
             if constexpr (typeid(T) == typeid(ID3D11GeometryShader))
             {
@@ -638,16 +656,15 @@ namespace
    }
 
    // Expects "s_mutex_loading"
-   void CreateCustomDeviceShaders(DeviceData& device_data, std::optional<std::unordered_set<uint32_t>> shader_hashes_filter = std::nullopt, bool lock = true)
+   void CreateCustomDeviceShaders(DeviceData& device_data, std::optional<std::set<std::string>> shader_names_filter = std::nullopt, bool lock = true)
    {
-      // Note that the hash can be "fake" on custom shaders, as we decide it trough the file names.
       if (lock) s_mutex_shader_objects.lock();
-      CreateShaderObject(device_data.native_device, shader_hash_copy_vertex, device_data.copy_vertex_shader, shader_hashes_filter);
-      CreateShaderObject(device_data.native_device, shader_hash_copy_pixel, device_data.copy_pixel_shader, shader_hashes_filter);
-      CreateShaderObject(device_data.native_device, shader_hash_transform_function_copy_pixel, device_data.display_composition_pixel_shader, shader_hashes_filter);
-      CreateShaderObject(device_data.native_device, shader_hash_draw_purple_pixel, device_data.draw_purple_pixel_shader, shader_hashes_filter);
-      CreateShaderObject(device_data.native_device, shader_hash_draw_purple_compute, device_data.draw_purple_compute_shader, shader_hashes_filter);
-      game->CreateShaderObjects(device_data, shader_hashes_filter);
+      CreateShaderObject(device_data.native_device, shader_name_copy_vertex, device_data.copy_vertex_shader, shader_names_filter);
+      CreateShaderObject(device_data.native_device, shader_name_copy_pixel, device_data.copy_pixel_shader, shader_names_filter);
+      CreateShaderObject(device_data.native_device, shader_name_transform_function_copy_pixel, device_data.display_composition_pixel_shader, shader_names_filter);
+      CreateShaderObject(device_data.native_device, shader_name_draw_purple_pixel, device_data.draw_purple_pixel_shader, shader_names_filter);
+      CreateShaderObject(device_data.native_device, shader_name_draw_purple_compute, device_data.draw_purple_compute_shader, shader_names_filter);
+      game->CreateShaderObjects(device_data, shader_names_filter);
       device_data.created_custom_shaders = true; // Some of the shader object creations above might have failed due to filtering, but they will likely be compiled soon after anyway
       if (lock) s_mutex_shader_objects.unlock();
    }
@@ -661,7 +678,7 @@ namespace
          const std::shared_lock lock(s_mutex_shader_defines);
          constexpr uint32_t cbuffer_defines = 3;
          constexpr uint32_t game_specific_defines = LUMA_GAME_SETTINGS_NUM + 1;
-         constexpr uint32_t total_extra_defines = cbuffer_defines + game_specific_defines;
+         const uint32_t total_extra_defines = cbuffer_defines + game_specific_defines + (sub_game_shader_define != nullptr ? 1 : 0);
          shader_defines.assign((shader_defines_data.size() + total_extra_defines) * 2, "");
 
          size_t shader_defines_index = shader_defines.size() - (total_extra_defines * 2);
@@ -903,7 +920,7 @@ namespace
          }
       }
 
-      std::unordered_set<uint32_t> changed_shaders_hashes;
+      std::set<std::string> changed_luma_native_shaders_names;
       for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
       {
          bool is_global = false;
@@ -933,23 +950,49 @@ namespace
          std::vector<std::string> hash_strings;
          std::string shader_target;
 
+         bool is_luma_native = is_global;
+         std::string luma_native_name = "";
+
          if (is_hlsl)
          {
-            auto length = filename_no_extension_string.length();
-            if (length < strlen("0x12345678.xx_x_x")) continue;
-            ASSERT_ONCE(length > strlen("0x12345678.xx_x_x")); // HLSL files are expected to have a name in front of the hash. They can still be loaded, but they won't be distinguishable from raw cso files
-            shader_target = filename_no_extension_string.substr(length - strlen("xx_x_x"), strlen("xx_x_x"));
+            const bool has_hash = filename_no_extension_string.find("0x") != std::string::npos;
+            const bool is_custom_shader = filename_no_extension_string.starts_with("Luma_");
+            if (!has_hash && is_custom_shader)
+            {
+               is_luma_native = true;
+            }
+            const auto length = filename_no_extension_string.length();
+            const char* hash_sample = "0x12345678";
+            const auto hash_length = strlen(hash_sample); // HASH_CHARACTERS_LENGTH+2
+            const auto sm_length = strlen("xx_x_x"); // Shader Model
+            const auto min_expected_length = (is_luma_native ? 0 : hash_length) + 1 + sm_length; // The shader model is appended after any name, so we add 1 for a dot (e.g. "0x12345678.ps_5_0")
+            
+            if (length < min_expected_length) continue;
+            ASSERT_ONCE(length > min_expected_length); // HLSL files are expected to have a name in front of the hash or shader model. They can still be loaded, but they won't be distinguishable from raw cso files
+            shader_target = filename_no_extension_string.substr(length - sm_length, sm_length);
             if (shader_target[2] != '_') continue;
             if (shader_target[4] != '_') continue;
-            size_t next_hash_pos = filename_no_extension_string.find("0x");
-            if (next_hash_pos == std::string::npos) continue;
-            do
+            if (is_luma_native)
+            {
+               if (length <= min_expected_length) continue; // We couldn't identify it
+               luma_native_name = filename_no_extension_string.substr(0, filename_no_extension_string.size() - (sm_length + 1));
+               // Add the shader target type, to make sure the same luma native shader names can be used with different shader types (by generating a different hash for it)
+               reshade::api::pipeline_subobject_type shader_type = Shader::ShaderIdentifierToType(shader_target);
+               hash_strings.push_back(Shader::Hash_NumToStr(Shader::StrToHash(luma_native_name + "_" + std::to_string(uint32_t(shader_type)))));
+            }
+            else
+            {
+               size_t next_hash_pos = filename_no_extension_string.find("0x");
+               if (next_hash_pos == std::string::npos) continue;
+               do
             {
                hash_strings.push_back(filename_no_extension_string.substr(next_hash_pos + 2 /*0x*/, HASH_CHARACTERS_LENGTH));
-               next_hash_pos = filename_no_extension_string.find("0x", next_hash_pos + 1);
-            } while (next_hash_pos != std::string::npos);
+                  next_hash_pos = filename_no_extension_string.find("0x", next_hash_pos + 1);
+               } while (next_hash_pos != std::string::npos);
+            }
          }
-         else if (is_cso)
+         // We don't load global CSOs, given these are shaders we made ourselves (unless we wanted to ship pre-built global CSOs, but that's not wanted for now)
+         else if (is_cso && !is_global)
          {
             // As long as cso starts from "0x12345678", it's good, they don't need the shader type specified
             if (filename_no_extension_string.size() < 10)
@@ -978,7 +1021,7 @@ namespace
 
          for (const auto& hash_string : hash_strings)
          {
-            uint32_t shader_hash;
+            uint64_t shader_hash;
             try
             {
                shader_hash = Shader::Hash_StrToNum(hash_string);
@@ -988,12 +1031,23 @@ namespace
                continue;
             }
 
-            // Early out before compiling
+            // To avoid polluting the game's own shaders hashes with Luma native shaders hashes (however unlikely),
+            // shift their hash by 32 bits, to a 64 bits unique one.
+            if (is_luma_native)
+            {
+               shader_hash = Shader::ShiftHash32ToHash64(shader_hash);
+            }
+
+            // Early out before compiling (even if it's a luma native shader, yes)
             ASSERT_ONCE(pipelines_filter.empty() || optional_device_data); // We can't apply a filter if we didn't pass in the "DeviceData"
             if (!pipelines_filter.empty() && optional_device_data)
             {
                const std::shared_lock lock(s_mutex_generic);
                bool pipeline_found = false;
+               if (is_luma_native)
+               {
+                  break;
+               }
                for (const auto& pipeline_pair : optional_device_data->pipeline_cache_by_pipeline_handle)
                {
                   if (std::find(pipeline_pair.second->shader_hashes.begin(), pipeline_pair.second->shader_hashes.end(), shader_hash) == pipeline_pair.second->shader_hashes.end()) continue;
@@ -1011,8 +1065,11 @@ namespace
 
             // Add defines to specify the current "target" hash we are building the shader with (some shaders can share multiple permutations (hashes) within the same hlsl)
             std::vector<std::string> local_shader_defines = shader_defines;
-            local_shader_defines.push_back("_" + hash_string);
-            local_shader_defines.push_back("1");
+            if (!is_luma_native)
+            {
+               local_shader_defines.push_back("_" + hash_string);
+               local_shader_defines.push_back("1");
+            }
 
             char config_name[std::string_view("Shader#").size() + HASH_CHARACTERS_LENGTH + 1] = "";
             sprintf(&config_name[0], "Shader#%s", hash_string.c_str());
@@ -1026,7 +1083,6 @@ namespace
             if (is_hlsl)
             {
                std::wstring file_path_cso = entry_path.c_str();
-               std::wstring hash_wstring = std::wstring(hash_string.begin(), hash_string.end());
                if (file_path_cso.ends_with(L".hlsl"))
                {
                   file_path_cso = file_path_cso.substr(0, file_path_cso.size() - 5);
@@ -1039,7 +1095,7 @@ namespace
                original_file_path_cso = file_path_cso;
 
                size_t first_hash_pos = file_path_cso.find(L"0x");
-               if (first_hash_pos != std::string::npos)
+               if (!is_luma_native && first_hash_pos != std::string::npos)
                {
                   // Remove all the non first shader hashes in the file (and anything in between them),
                   // we then replace the first hash with our target one
@@ -1051,15 +1107,16 @@ namespace
                      prev_hash_pos = first_hash_pos;
                      next_hash_pos = file_path_cso.find(L"0x", prev_hash_pos + 1);
                   }
+                  std::wstring hash_wstring = std::wstring(hash_string.begin(), hash_string.end());
                   file_path_cso.replace(first_hash_pos + 2 /*0x*/, HASH_CHARACTERS_LENGTH, hash_wstring.c_str());
                }
                trimmed_file_path_cso = file_path_cso;
             }
 
+            // Fill up the shader data the first time it's found
             if (!has_custom_shader)
             {
                custom_shader = new CachedCustomShader();
-               custom_shader->is_global = is_global;
 
                std::size_t preprocessed_hash = custom_shader->preprocessed_hash;
                // Note that if anybody manually changed the config hash, the data here could mismatch and end up recompiling when not needed or skipping recompilation even if needed (near impossible chance)
@@ -1069,14 +1126,17 @@ namespace
                   // This will load the matching cso
                   // TODO: move these to a "Bin" sub folder called "cache"? It'd make everything cleaner (and the "CompileCustomShaders()" could simply nuke a directory then, and we could remove the restriction where hlsl files need to have a name in front of the hash),
                   // but it would make it harder to manually remove a single specific shader cso we wanted to nuke for test reasons (especially if we exclusively put the hash in their cso name).
-                  // Also it would be a problem due to the custom "native" shaders we have (e.g. "copy") that don't have a target hash they are replacing.
                   if (Shader::LoadCompiledShaderFromFile(custom_shader->code, trimmed_file_path_cso.c_str()))
                   {
                      // If both reading the pre-processor hash from config and the compiled shader from disk succeeded, then we are free to continue as if this shader was working
                      custom_shader->file_path = entry_path;
                      custom_shader->is_hlsl = is_hlsl;
+                     custom_shader->is_luma_native = is_luma_native;
                      custom_shader->preprocessed_hash = preprocessed_hash;
-                     changed_shaders_hashes.emplace(shader_hash);
+                     if (is_luma_native)
+                     {
+                        changed_luma_native_shaders_names.emplace(luma_native_name);
+                     }
                      // Theoretically at this point, the shader pre-processor below should skip re-compiling this shader unless the hash changed
                   }
                }
@@ -1151,13 +1211,17 @@ namespace
 
                if (!needs_compilation)
                {
+                  ASSERT_ONCE(custom_shader->is_luma_native == is_luma_native); // Make 100% all the branches above cached right flags
                   continue;
                }
             }
 
             // If we reached this place, we can consider this shader as "changed" even if it will fail compiling.
             // We don't care to avoid adding duplicate elements to this list.
-            changed_shaders_hashes.emplace(shader_hash);
+            if (is_luma_native)
+            {
+               changed_luma_native_shaders_names.emplace(luma_native_name);
+            }
 
             // For extra safety, just clear everything that will be re-assigned below if this custom shader already existed
             if (has_custom_shader)
@@ -1175,6 +1239,7 @@ namespace
             }
             custom_shader->file_path = entry_path;
             custom_shader->is_hlsl = is_hlsl;
+            custom_shader->is_luma_native = is_luma_native;
             // Clear these in case the compiler didn't overwrite them
             custom_shader->code.clear();
             custom_shader->compilation_errors.clear();
@@ -1189,6 +1254,8 @@ namespace
                   std::stringstream s;
                   s << "LoadCustomShaders(Compiling file: ";
                   s << entry_path.string();
+                  s << ", global: " << is_global;
+                  s << ", luma native: " << is_luma_native;
                   s << ", hash: " << PRINT_CRC32(shader_hash);
                   s << ", target: " << shader_target;
                   s << ")";
@@ -1197,7 +1264,7 @@ namespace
 #endif
 
                bool error = false;
-               // TODO: specify the name of the function to compile (e.g. "main" or HDRTonemapPS) so we could unify more shaders into a single file with multiple techniques?
+               // TODO: specify the name of the function to compile (e.g. "main" or "HDRTonemapPS") so we could unify more shaders into a single file with multiple techniques? We kinda can now already as we have shader hash defines
                Shader::CompileShaderFromFile(
                   custom_shader->code,
                   uncompiled_code_blob,
@@ -1301,7 +1368,7 @@ namespace
       // Refresh the persistent custom shaders we have.
       if (optional_device_data)
       {
-         CreateCustomDeviceShaders(*optional_device_data, changed_shaders_hashes);
+         CreateCustomDeviceShaders(*optional_device_data, changed_luma_native_shaders_names);
       }
    }
 
@@ -1331,8 +1398,8 @@ namespace
          uint32_t shader_hash = custom_shader_pair.first;
          const auto custom_shader = custom_shaders_cache[shader_hash];
 
-         // Skip shaders that don't have code binaries at the moment
-         if (custom_shader == nullptr || custom_shader->is_global || custom_shader->code.empty()) continue;
+         // Skip shaders that don't have code binaries at the moment, and luma native shaders as they aren't meant to replace game shaders
+         if (custom_shader == nullptr || custom_shader->is_luma_native || custom_shader->code.empty()) continue;
 
          auto pipelines_pair = device_data.pipeline_caches_by_shader_hash.find(shader_hash);
          if (pipelines_pair == device_data.pipeline_caches_by_shader_hash.end())
@@ -1406,9 +1473,9 @@ namespace
                new_desc->code = malloc(custom_shader->code.size());
                std::memcpy(const_cast<void*>(new_desc->code), custom_shader->code.data(), custom_shader->code.size());
 
-               const auto new_hash = compute_crc32(static_cast<const uint8_t*>(new_desc->code), new_desc->code_size);
-
 #if _DEBUG && LOG_VERBOSE
+               const auto new_hash = Shader::BinToHash(static_cast<const uint8_t*>(new_desc->code), new_desc->code_size);
+
                {
                   std::stringstream s;
                   s << "LoadCustomShaders(Injected pipeline data";
@@ -1821,8 +1888,8 @@ namespace
          const bool window_changed = game_window != swapchain_desc.OutputWindow;
          if (window_changed)
          {
-         game_window = swapchain_desc.OutputWindow; // This shouldn't really need any thread safety protection
-#if DEVELOPMENT
+            game_window = swapchain_desc.OutputWindow; // This shouldn't really need any thread safety protection
+#if DEVELOPMENT //TODOFT: test/fix/finish
             if (game_window)
             {
 #if 1
@@ -2069,13 +2136,14 @@ namespace
                ASSERT_ONCE(new_desc->code_size > 0);
                if (new_desc->code_size == 0) break;
                found_replaceable_shader = true;
-               auto shader_hash = compute_crc32(static_cast<const uint8_t*>(new_desc->code), new_desc->code_size);
+
+               auto shader_hash = Shader::BinToHash(static_cast<const uint8_t*>(new_desc->code), new_desc->code_size);
 
 #if ALLOW_SHADERS_DUMPING
                {
                   const std::unique_lock lock_dumping(s_mutex_dumping);
 
-                  // Delete any previous shader with the same hash (unlikely to happen, but safer nonetheless)
+                  // Delete any previous shader with the same hash (unlikely to happen, as games usually compile the same shader binary once, but safer nonetheless)
                   if (auto previous_shader_pair = shader_cache.find(shader_hash); previous_shader_pair != shader_cache.end() && previous_shader_pair->second != nullptr)
                   {
                      auto& previous_shader = previous_shader_pair->second;
@@ -5123,6 +5191,19 @@ namespace
          shaders_to_dump_copy = shaders_to_dump;
          shaders_to_dump.clear();
       }
+
+#if DEVELOPMENT && TEST_DUPLICATE_SHADER_HASH
+      std::unordered_set<std::filesystem::path> dumped_shaders_paths;
+      auto dump_path = GetShadersRootPath() / Globals::GAME_NAME / "Dump";
+      for (const auto& entry : std::filesystem::directory_iterator(dump_path))
+      {
+         if (entry.is_regular_file())
+         {
+            dumped_shaders_paths.emplace(entry);
+         }
+      }
+#endif
+
       for (auto shader_to_dump : shaders_to_dump_copy)
       {
          const std::lock_guard<std::recursive_mutex> lock_dumping(s_mutex_dumping);
@@ -5132,15 +5213,14 @@ namespace
          {
             DumpShader(shader_to_dump, true);
          }
-#if DEVELOPMENT && 0 // Disabled as it's extremely slow // TODO: speed up (also, check ALLOW_SHADERS_DUMPING instead?)
+#if DEVELOPMENT && TEST_DUPLICATE_SHADER_HASH // Warning: very slow
          else
          {
             // Make sure two different shaders didn't have the same hash (we only check if they start by the same name/hash)
-            auto dump_path = GetShadersRootPath() / Globals::GAME_NAME / "Dump";
-            std::string shader_name = Shader::Hash_NumToStr(shader_to_dump, true);
-            for (const auto& entry : std::filesystem::directory_iterator(dump_path))
+            std::string shader_hash_name = Shader::Hash_NumToStr(shader_to_dump, true);
+            for (const auto& entry : dumped_shaders_paths)
             {
-               if (entry.is_regular_file() && entry.path().filename().string().rfind(shader_name, 0) == 0)
+               if (entry.path().filename().string().rfind(shader_hash_name, 0) == 0)
                {
                   auto* cached_shader = shader_cache.find(shader_to_dump)->second;
                   ASSERT_ONCE(std::filesystem::file_size(entry) == cached_shader->size);
@@ -6805,7 +6885,6 @@ namespace
                         debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::InvertColors;
                      }
                   }
-                  // TODO: add a setting to detect it's one channel instead of drawing texture in red
                   ImGui::Checkbox("Debug Draw Options: Auto Gamma", &debug_draw_auto_gamma);
                   if (debug_draw_auto_gamma)
                   {

@@ -41,7 +41,7 @@ public:
       delete device_data.game;
       device_data.game = nullptr;
    }
-   virtual void CreateShaderObjects(DeviceData& native_device, const std::optional<std::unordered_set<uint32_t>>& shader_hashes_filter) {}
+   virtual void CreateShaderObjects(DeviceData& native_device, const std::optional<std::set<std::string>>& shader_names_filter) {}
    // Called for every game's valid draw call (any type),
    // this is where you can override passes, add new ones, cancel other ones etc.
    // Return true to cancel the call.
