@@ -248,7 +248,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
    if (is_valid)
    {
       const auto pipeline = pipeline_pair->second;
-      if (pipeline->HasPixelShader() || pipeline->HasComputeShader())
+      if (pipeline->HasPixelShader())
       {
          UINT scissor_viewport_num = 0;
          native_device_context->RSGetScissorRects(&scissor_viewport_num, nullptr); // This will get the number of scissor rects used
