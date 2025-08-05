@@ -94,7 +94,7 @@ float3 Tonemap_ACES(float3 color, float peakWhite, float paperWhite = 1.0)
 	return ACESTonemap(color, paperWhite, peakWhite, settings);
 }
 
-
+// From RenoDX, by ShortFuse
 float3 UpgradeToneMap(
     float3 color_untonemapped,
     float3 color_tonemapped,
@@ -103,9 +103,9 @@ float3 UpgradeToneMap(
     float auto_correction = 0.f) {
   float ratio = 1.f;
 
-  float y_untonemapped = GetLuminance(abs(color_untonemapped), CS_BT709);
-  float y_tonemapped = GetLuminance(abs(color_tonemapped), CS_BT709);
-  float y_tonemapped_graded = GetLuminance(abs(color_tonemapped_graded), CS_BT709);
+  float y_untonemapped = GetLuminance(color_untonemapped, CS_BT709);
+  float y_tonemapped = GetLuminance(color_tonemapped, CS_BT709);
+  float y_tonemapped_graded = GetLuminance(color_tonemapped_graded, CS_BT709);
 
   if (y_untonemapped < y_tonemapped) {
     // If substracting (user contrast or paperwhite) scale down instead
@@ -127,6 +127,5 @@ float3 UpgradeToneMap(
   color_scaled = RestoreHue(color_scaled, color_tonemapped_graded, 1.f, false, CS_BT709);
   return lerp(color_untonemapped, color_scaled, post_process_strength);
 }
-
 
 #endif // SRC_TONEMAP_HLSL
