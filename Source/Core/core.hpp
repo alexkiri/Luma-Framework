@@ -1567,10 +1567,27 @@ namespace
       game->OnDisplayModeChanged();
    }
 
+   bool OnCreateDevice(reshade::api::device_api api, uint32_t& api_version)
+   {
+      ASSERT_ONCE_MSG(api == reshade::api::device_api::d3d11, "Luma only supports DirectX 11 at the moment");
+
+#if DEVELOPMENT && 0 // Test: force the latest version to access all the latest features
+      api_version = D3D_FEATURE_LEVEL_12_2;
+      return true;
+#endif
+#if ENABLE_NGX
+      // Required by FSR 3 on DX11
+      if (api_version == D3D_FEATURE_LEVEL_11_0)
+      {
+         api_version = D3D_FEATURE_LEVEL_11_1;
+         return true;
+      }
+#endif
+      return false;
+   }
+
    void OnInitDevice(reshade::api::device* device)
    {
-      ASSERT_ONCE(device->get_api() == reshade::api::device_api::d3d11);
-
       ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
       DeviceData& device_data = *device->create_private_data<DeviceData>();
       device_data.native_device = native_device;
@@ -1649,6 +1666,8 @@ namespace
       assert(SUCCEEDED(hr));
 
       game->OnInitDevice(native_device, device_data);
+
+      assert(native_device->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_1);
 
 #if ENABLE_NGX
       com_ptr<IDXGIDevice> native_dxgi_device;
@@ -7630,6 +7649,7 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       if (asi_loaded) return TRUE;
 #endif // DISABLE_RESHADE
 
+      reshade::register_event<reshade::addon_event::create_device>(OnCreateDevice);
       reshade::register_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::register_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
       reshade::register_event<reshade::addon_event::create_swapchain>(OnCreateSwapchain);
@@ -7718,6 +7738,7 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
          game = nullptr;
       }
 
+      reshade::unregister_event<reshade::addon_event::create_device>(OnCreateDevice);
       reshade::unregister_event<reshade::addon_event::init_device>(OnInitDevice);
       reshade::unregister_event<reshade::addon_event::destroy_device>(OnDestroyDevice);
       reshade::unregister_event<reshade::addon_event::create_swapchain>(OnCreateSwapchain);
