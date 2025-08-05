@@ -21,7 +21,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Mafia III", "Source\Games\M
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Trine 5", "Source\Games\Trine 5\Trine 5.vcxproj", "{163BA26C-1EA0-EB05-F492-C8AF046A1F46}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FF7 Remake", "Source\Games\FF7 Remake\FF7 Remake.vcxproj", "{32621FBE-EECA-480C-B110-57D73246398A}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Final Fantasy VII Remake", "Source\Games\Final Fantasy VII Remake\Final Fantasy VII Remake.vcxproj", "{32621FBE-EECA-480C-B110-57D73246398A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
