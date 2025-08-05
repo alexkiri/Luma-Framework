@@ -1,12 +1,10 @@
-
- 
 #include "Color.hlsl"
 
 // Erik Reinhard, Michael Stark, Peter Shirley, and James Ferwerda.
 // "Photographic Tone Reproduction for Digital Images."
 // ACM Transactions on Graphics (SIGGRAPH), 2002.
-namespace Reinhard  {
-
+namespace Reinhard 
+{
   float ReinhardSimple(float x, float peak = 1.f) {
     return x / (x / peak + 1.f);
   }
@@ -59,7 +57,6 @@ namespace Reinhard  {
 
 }
 
-
 struct ReinhardSettings
 {
   float mid_grey_value;
@@ -81,15 +78,13 @@ ReinhardSettings DefaultReinhardSettings()
   return settings;
 }
 
-
-
+// TODO: align with other tonemappers mode and add call to Tonemap.hlsl
 float3 ReinhardTonemap(float3 color, float peak_nits, float diffuse_nits, ReinhardSettings settings)   {
 
     // this equation should also involve reference white 
     float peak = (peak_nits / diffuse_nits); 
 
     if (settings.by_luminance)  {
-
       float y = GetLuminance(color, CS_BT709);
       float peak = (peak_nits / diffuse_nits); 
 
@@ -106,9 +101,7 @@ float3 ReinhardTonemap(float3 color, float peak_nits, float diffuse_nits, Reinha
       float3 color_output = color * (y > 0 ? (y_new / y) : 0);
 
       return color_output;
-
     } else {
-      
       float3 color_output = color;
       
       float3 signs = sign(color);
@@ -127,6 +120,4 @@ float3 ReinhardTonemap(float3 color, float peak_nits, float diffuse_nits, Reinha
 
       return color_output;
     };
-
 }
-
