@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 Texture2D<unorm float4> t3 : register(t3); // Film grain / noise / dither
 Texture2D<unorm float> t2 : register(t2); // Y (luminance)

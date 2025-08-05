@@ -1,6 +1,6 @@
 #define LUT_3D 1
 
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
 
 Texture2D<float4> sceneTexture : register(t6); // HDR scene (non bloomed)
@@ -83,8 +83,8 @@ void main(
 {
   outColor.a = 1;
 
-  const float hdrHighlightsStrength = LumaSettings.HDRHighlights; // Good values are between 0.25 and 0.3 (higher means weaker highlights)
-  const float hdrDesaturation = LumaSettings.HDRDesaturation; // 1 for SDR like highlights hues (it feels too desaturated in HDR, it looks like AutoHDR), 0 for extremely deep fried saturated colors. Good range 0.7-1
+  const float hdrHighlightsStrength = LumaSettings.GameSettings.HDRHighlights; // Good values are between 0.25 and 0.3 (higher means weaker highlights)
+  const float hdrDesaturation = LumaSettings.GameSettings.HDRDesaturation; // 1 for SDR like highlights hues (it feels too desaturated in HDR, it looks like AutoHDR), 0 for extremely deep fried saturated colors. Good range 0.7-1
 
   float3 bloomHDRColor = bloomTexture.SampleLevel(s1_s, vUV.xy, 0).rgb;
   float3 overlayColor = overlayTexture.Sample(s1_s, vUV.xy).rgb; // Whatever overlay (for some reason it's added before bloom)

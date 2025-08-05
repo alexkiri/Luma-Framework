@@ -69,5 +69,8 @@
     <ClInclude Include="includes\game.h">
       <Filter>Includes</Filter>
     </ClInclude>
+    <ClInclude Include="includes\shader_types.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

@@ -2,7 +2,7 @@
 #define SRC_GAME_SETTINGS_HLSL
 
 /////////////////////////////////////////
-// Vertigo LUMA advanced settings
+// Unity Engine LUMA advanced settings
 // (note that the defaults might be mirrored in cpp, the shader values will be overridden anyway)
 /////////////////////////////////////////
 

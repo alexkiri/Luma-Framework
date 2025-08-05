@@ -3,8 +3,6 @@
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 1
 
-#define LUMA_GAME_SETTING_01 uint LensDistortion
-
 #include "..\..\Core\core.hpp"
 
 // Hack: we need to include this cpp file here because it's part of the core library but we actually don't include it as a library, due to limitations (see the game template for more)
@@ -811,7 +809,7 @@ public:
          uint32_t custom_data = 0;
 
          // Do lens distortion just before the post AA composition, which draws film grain and other screen space effects
-         if (is_custom_pass && cb_luma_frame_settings.LensDistortion && game_device_data.lens_distortion_pixel_shader.get())
+         if (is_custom_pass && cb_luma_global_settings.GameSettings.LensDistortion && game_device_data.lens_distortion_pixel_shader.get())
          {
             com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
             com_ptr<ID3D11DepthStencilView> dsv;
@@ -1097,7 +1095,7 @@ public:
 
       // Native TAA
       // This pass always runs before our lens distortion, so mark the lens distortion RTV as found here to avoid having to find it again later
-      if (game_device_data.has_drawn_composed_gbuffers && cb_luma_frame_settings.LensDistortion && original_shader_hashes.Contains(shader_hashes_PostAA) && device_data.cloned_pipeline_count != 0 && game_device_data.lens_distortion_pixel_shader.get())
+      if (game_device_data.has_drawn_composed_gbuffers && cb_luma_global_settings.GameSettings.LensDistortion && original_shader_hashes.Contains(shader_hashes_PostAA) && device_data.cloned_pipeline_count != 0 && game_device_data.lens_distortion_pixel_shader.get())
       {
          com_ptr<ID3D11RenderTargetView> rtv;
          native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
@@ -1411,9 +1409,9 @@ public:
                if (dlss_use_paper_white_pre_exposure)
                {
 #if 1 // Alternative that considers a value of 1 in the DLSS color textures to match the SDR output nits range (whatever that is)
-                  dlss_pre_exposure = cb_luma_frame_settings.ScenePaperWhite / default_paper_white;
+                  dlss_pre_exposure = cb_luma_global_settings.ScenePaperWhite / default_paper_white;
 #else // Alternative that considers a value of 1 in the DLSS color textures to match 203 nits
-                  dlss_pre_exposure = cb_luma_frame_settings.ScenePaperWhite / srgb_white_level;
+                  dlss_pre_exposure = cb_luma_global_settings.ScenePaperWhite / srgb_white_level;
 #endif
                   dlss_pre_exposure *= device_data.dlss_scene_pre_exposure;
                }
@@ -1465,8 +1463,8 @@ public:
                else
                {
                   ASSERT_ONCE(false);
-                  cb_luma_frame_settings.DLSS = 0;
-                  device_data.cb_luma_frame_settings_dirty = true;
+                  cb_luma_global_settings.DLSS = 0;
+                  device_data.cb_luma_global_settings_dirty = true;
                   device_data.dlss_sr_suppressed = true;
                   device_data.force_reset_dlss_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
                }
@@ -1528,10 +1526,10 @@ public:
          device_data.taa_detected = false;
          // Theoretically we turn this flag off one frame late (or well, at the end of the frame),
          // but then again, if no scene rendered, this flag wouldn't have been used for anything.
-         if (cb_luma_frame_settings.DLSS)
+         if (cb_luma_global_settings.DLSS)
          {
-            cb_luma_frame_settings.DLSS = 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
-            device_data.cb_luma_frame_settings_dirty = true;
+            cb_luma_global_settings.DLSS = 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
+            device_data.cb_luma_global_settings_dirty = true;
          }
          device_data.dlss_sr_suppressed = false;
          // Reset DRS related values if there's a scene cut or loading screen or a menu, we have no way of telling if it's actually still enabled in the user settings.
@@ -1599,7 +1597,7 @@ public:
 #endif // ENABLE_NGX && ENABLE_NATIVE_PLUGIN
    }
 
-   void UpdateLumaInstanceDataCB(LumaInstanceData& data) override
+   void UpdateLumaInstanceDataCB(CB::LumaInstanceData& data) override
    {
       data.CameraJitters = projection_jitters; // TODO: pre-multiply these by float2(0.5, -0.5) (NDC to UV space) given that they are always used in UV space by shaders. It doesn't really matter as they end up as "mad" single instructions
       data.PreviousCameraJitters = previous_projection_jitters;
@@ -1883,11 +1881,11 @@ public:
             bool middle_value_different = (game_device_data.prey_taa_active == game_device_data.previous_prey_taa_active[0]) != (game_device_data.prey_taa_active == game_device_data.previous_prey_taa_active[1]);
             ASSERT_ONCE(!middle_value_different);
          }
-         bool drew_dlss = cb_luma_frame_settings.DLSS; // If this was true, DLSS would have been enabled and probably drew
+         bool drew_dlss = cb_luma_global_settings.DLSS; // If this was true, DLSS would have been enabled and probably drew
          device_data.taa_detected = game_device_data.prey_taa_active || game_device_data.previous_prey_taa_active[0]; // This one has a two frames tolerance. We let it persist even if the game stopped drawing the 3D scene.
-         cb_luma_frame_settings.DLSS = (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected) ? 1 : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
-         device_data.cb_luma_frame_settings_dirty |= (bool)cb_luma_frame_settings.DLSS != drew_dlss;
-         if (cb_luma_frame_settings.DLSS && !drew_dlss)
+         cb_luma_global_settings.DLSS = (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected) ? 1 : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
+         device_data.cb_luma_global_settings_dirty |= (bool)cb_luma_global_settings.DLSS != drew_dlss;
+         if (cb_luma_global_settings.DLSS && !drew_dlss)
          {
             // Reset DLSS history when we toggle DLSS on and off manually, or when the user in the game changes the AA mode,
             // otherwise the history from the last time DLSS was active will be kept (DLSS doesn't know time passes since it was last used).
@@ -2057,7 +2055,7 @@ public:
    {
       reshade::api::effect_runtime* runtime = nullptr;
       reshade::get_config_value(runtime, NAME, "TonemapUIBackground", tonemap_ui_background);
-      reshade::get_config_value(runtime, NAME, "PerspectiveCorrection", cb_luma_frame_settings.LensDistortion);
+      reshade::get_config_value(runtime, NAME, "PerspectiveCorrection", cb_luma_global_settings.GameSettings.LensDistortion);
       int HDR_textures_upgrade_requested_format_int = (HDR_textures_upgrade_requested_format == RE::ETEX_Format::eTF_R11G11B10F) ? 0 : 1;
       reshade::get_config_value(runtime, NAME, "HDRPostProcessQuality", HDR_textures_upgrade_requested_format_int);
       HDR_textures_upgrade_requested_format = HDR_textures_upgrade_requested_format_int == 0 ? RE::ETEX_Format::eTF_R11G11B10F : RE::ETEX_Format::eTF_R16G16B16A16F;
@@ -2065,7 +2063,7 @@ public:
 
    void OnDisplayModeChanged() override
    {
-      GetShaderDefineData(AUTO_HDR_VIDEOS_HASH).editable = cb_luma_frame_settings.DisplayMode == 1;
+      GetShaderDefineData(AUTO_HDR_VIDEOS_HASH).editable = cb_luma_global_settings.DisplayMode == 1;
    }
 
    void OnShaderDefinesChanged() override
@@ -2116,11 +2114,11 @@ public:
          ImGui::InvisibleButton("", ImVec2(size.x, size.y));
       }
 
-      bool lens_distortion = cb_luma_frame_settings.LensDistortion;
+      bool lens_distortion = cb_luma_global_settings.GameSettings.LensDistortion;
       if (ImGui::Checkbox("Perspective Correction", &lens_distortion))
       {
-         cb_luma_frame_settings.LensDistortion = lens_distortion;
-         device_data.cb_luma_frame_settings_dirty = true;
+         cb_luma_global_settings.GameSettings.LensDistortion = lens_distortion;
+         device_data.cb_luma_global_settings_dirty = true;
          reshade::set_config_value(runtime, NAME, "PerspectiveCorrection", lens_distortion);
       }
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -2134,8 +2132,8 @@ public:
          if (ImGui::SmallButton(ICON_FK_UNDO))
          {
             bool lens_distortion = false;
-            cb_luma_frame_settings.LensDistortion = lens_distortion;
-            device_data.cb_luma_frame_settings_dirty = true;
+            cb_luma_global_settings.GameSettings.LensDistortion = lens_distortion;
+            device_data.cb_luma_global_settings_dirty = true;
             reshade::set_config_value(runtime, NAME, "PerspectiveCorrection", lens_distortion);
          }
          ImGui::PopID();

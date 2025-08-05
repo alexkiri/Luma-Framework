@@ -152,7 +152,7 @@ public:
    }
 
    //TODOFT: delete?
-   void UpdateLumaInstanceDataCB(LumaInstanceData& data) override
+   void UpdateLumaInstanceDataCB(CB::LumaInstanceData& data) override
    {
    }
 
@@ -308,11 +308,11 @@ public:
             bool middle_value_different = (game_device_data.prey_taa_active == game_device_data.previous_prey_taa_active[0]) != (game_device_data.prey_taa_active == game_device_data.previous_prey_taa_active[1]);
             ASSERT_ONCE(!middle_value_different);
          }
-         bool drew_dlss = cb_luma_frame_settings.DLSS; // If this was true, DLSS would have been enabled and probably drew
+         bool drew_dlss = cb_luma_global_settings.DLSS; // If this was true, DLSS would have been enabled and probably drew
          device_data.taa_detected = game_device_data.prey_taa_active || game_device_data.previous_prey_taa_active[0]; // This one has a two frames tolerance. We let it persist even if the game stopped drawing the 3D scene.
-         cb_luma_frame_settings.DLSS = (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected) ? 1 : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
-         device_data.cb_luma_frame_settings_dirty |= (bool)cb_luma_frame_settings.DLSS != drew_dlss;
-         if (cb_luma_frame_settings.DLSS && !drew_dlss)
+         cb_luma_global_settings.DLSS = (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected) ? 1 : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
+         device_data.cb_luma_global_settings_dirty |= (bool)cb_luma_global_settings.DLSS != drew_dlss;
+         if (cb_luma_global_settings.DLSS && !drew_dlss)
          {
             // Reset DLSS history when we toggle DLSS on and off manually, or when the user in the game changes the AA mode,
             // otherwise the history from the last time DLSS was active will be kept (DLSS doesn't know time passes since it was last used).
@@ -630,9 +630,9 @@ public:
                if (dlss_use_paper_white_pre_exposure)
                {
    #if 1 // Alternative that considers a value of 1 in the DLSS color textures to match the SDR output nits range (whatever that is)
-                  dlss_pre_exposure = cb_luma_frame_settings.ScenePaperWhite / default_paper_white;
+                  dlss_pre_exposure = cb_luma_global_settings.ScenePaperWhite / default_paper_white;
    #else // Alternative that considers a value of 1 in the DLSS color textures to match 203 nits
-                  dlss_pre_exposure = cb_luma_frame_settings.ScenePaperWhite / srgb_white_level;
+                  dlss_pre_exposure = cb_luma_global_settings.ScenePaperWhite / srgb_white_level;
    #endif
                   dlss_pre_exposure *= device_data.dlss_scene_pre_exposure;
                }
@@ -686,8 +686,8 @@ public:
                else if (!delay_dlss)
                {
                   ASSERT_ONCE(false);
-                  cb_luma_frame_settings.DLSS = 0;
-                  device_data.cb_luma_frame_settings_dirty = true;
+                  cb_luma_global_settings.DLSS = 0;
+                  device_data.cb_luma_global_settings_dirty = true;
                   device_data.dlss_sr_suppressed = true;
                   device_data.force_reset_dlss_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
                }
@@ -834,8 +834,8 @@ public:
             else
             {
                ASSERT_ONCE(false);
-               cb_luma_frame_settings.DLSS = 0;
-               device_data.cb_luma_frame_settings_dirty = true;
+               cb_luma_global_settings.DLSS = 0;
+               device_data.cb_luma_global_settings_dirty = true;
                device_data.dlss_sr_suppressed = true;
                device_data.force_reset_dlss_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
             }

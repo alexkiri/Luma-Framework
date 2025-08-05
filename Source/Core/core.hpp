@@ -104,28 +104,6 @@ constexpr bool OneShaderPerPipeline = true;
 #define DEFINE_NAME_AS_STRING(x) #x
 #define DEFINE_VALUE_AS_STRING(x) DEFINE_NAME_AS_STRING(x)
 
-#define LUMA_GAME_SETTINGS_NUM 0
-// There's no proper way to do incremental defines (like "#define LUMA_GAME_SETTINGS_NUM (LUMA_GAME_SETTINGS_NUM)+(1)"),
-// so we have to do it manually, which means the settings always need to be defined in order (e.g. you can't define setting 4 without setting 1).
-#pragma warning(push)
-#pragma warning(disable: 4005)
-#ifdef LUMA_GAME_SETTING_01
-#define LUMA_GAME_SETTINGS_NUM 1
-#endif
-#ifdef LUMA_GAME_SETTING_02
-#define LUMA_GAME_SETTINGS_NUM 2
-#endif
-#ifdef LUMA_GAME_SETTING_03
-#define LUMA_GAME_SETTINGS_NUM 3
-#endif
-#ifdef LUMA_GAME_SETTING_04
-#define LUMA_GAME_SETTINGS_NUM 4
-#endif
-#ifdef LUMA_GAME_SETTING_05
-#define LUMA_GAME_SETTINGS_NUM 5
-#endif
-#pragma warning(pop)
-
 // This might not disable all shaders dumping related code, but it disables enough to remove any performance cost
 #ifndef ALLOW_SHADERS_DUMPING
 #define ALLOW_SHADERS_DUMPING (DEVELOPMENT || TEST)
@@ -141,6 +119,7 @@ constexpr bool OneShaderPerPipeline = true;
 #include "includes/cbuffers.h"
 #include "includes/math.h"
 #include "includes/matrix.h"
+#include "includes/shader_types.h"
 #include "includes/recursive_shared_mutex.h"
 #include "includes/shaders.h"
 #include "includes/shader_define.h"
@@ -198,7 +177,7 @@ namespace
    std::shared_mutex s_mutex_shader_objects;
    // Mutex for shader defines ("shader_defines_data", "code_shaders_defines", "shader_defines_data_index")
    std::shared_mutex s_mutex_shader_defines;
-   // Mutex to deal with data shader with ReShade, like ini/config saving and loading (including "cb_luma_frame_settings" and "cb_luma_frame_settings_dirty")
+   // Mutex to deal with data shader with ReShade, like ini/config saving and loading (including "cb_luma_global_settings" and "cb_luma_global_settings_dirty")
    std::shared_mutex s_mutex_reshade;
    // For "custom_sampler_by_original_sampler" and "texture_mip_lod_bias_offset"
    std::shared_mutex s_mutex_samplers;
@@ -346,8 +325,7 @@ namespace
    // Global data (not device dependent really):
 
    // Directly from cbuffer
-   uint32_t frame_index = 0; // Frame counter, no need for this to be by device or swapchain
-   LumaFrameSettings cb_luma_frame_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_frame_settings_dirty" when changing within a frame (so it's uploaded again)
+   CB::LumaGlobalSettings cb_luma_global_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_global_settings_dirty" when changing within a frame (so it's uploaded again)
 
    bool has_init = false;
    bool asi_loaded = true; // Whether we've been loaded from an ASI loader or ReShade Addons system (we assume true until proven otherwise)
@@ -399,10 +377,10 @@ namespace
    uint32_t debug_draw_options = (uint32_t)DebugDrawTextureOptionsMask::Fullscreen | (uint32_t)DebugDrawTextureOptionsMask::RenderResolutionScale;
    bool debug_draw_auto_clear_texture = false;
 
-   LumaFrameDevSettings cb_luma_frame_dev_settings_default_value(0.f);
-   LumaFrameDevSettings cb_luma_frame_dev_settings_min_value(0.f);
-   LumaFrameDevSettings cb_luma_frame_dev_settings_max_value(1.f);
-   std::array<std::string, LumaFrameDevSettings::SettingsNum> cb_luma_frame_dev_settings_names;
+   CB::LumaDevSettings cb_luma_dev_settings_default_value(0.f);
+   CB::LumaDevSettings cb_luma_dev_settings_min_value(0.f);
+   CB::LumaDevSettings cb_luma_dev_settings_max_value(1.f);
+   std::array<std::string, CB::LumaDevSettings::SettingsNum> cb_luma_dev_settings_names;
 #endif
 
    // Forward declares:
@@ -691,33 +669,12 @@ namespace
       {
          const std::shared_lock lock(s_mutex_shader_defines);
          constexpr uint32_t cbuffer_defines = 3;
-         constexpr uint32_t game_specific_defines = LUMA_GAME_SETTINGS_NUM + 1;
+         constexpr uint32_t game_specific_defines = 1;
          const uint32_t total_extra_defines = cbuffer_defines + game_specific_defines + (sub_game_shader_define != nullptr ? 1 : 0);
          shader_defines.assign((shader_defines_data.size() + total_extra_defines) * 2, "");
 
          size_t shader_defines_index = shader_defines.size() - (total_extra_defines * 2);
          
-#ifdef LUMA_GAME_SETTING_01
-         shader_defines[shader_defines_index++] = "LUMA_GAME_SETTING_01";
-         shader_defines[shader_defines_index++] = DEFINE_VALUE_AS_STRING(LUMA_GAME_SETTING_01);
-#endif
-#ifdef LUMA_GAME_SETTING_02
-         shader_defines[shader_defines_index++] = "LUMA_GAME_SETTING_02";
-         shader_defines[shader_defines_index++] = DEFINE_VALUE_AS_STRING(LUMA_GAME_SETTING_02);
-#endif
-#ifdef LUMA_GAME_SETTING_03
-         shader_defines[shader_defines_index++] = "LUMA_GAME_SETTING_03";
-         shader_defines[shader_defines_index++] = DEFINE_VALUE_AS_STRING(LUMA_GAME_SETTING_03);
-#endif
-#ifdef LUMA_GAME_SETTING_04
-         shader_defines[shader_defines_index++] = "LUMA_GAME_SETTING_04";
-         shader_defines[shader_defines_index++] = DEFINE_VALUE_AS_STRING(LUMA_GAME_SETTING_04);
-#endif
-#ifdef LUMA_GAME_SETTING_05
-         shader_defines[shader_defines_index++] = "LUMA_GAME_SETTING_05";
-         shader_defines[shader_defines_index++] = DEFINE_VALUE_AS_STRING(LUMA_GAME_SETTING_05);
-#endif
-
          // Clean up the game name from non letter characters (including spaces), and make it all upper case
          std::string game_name = Globals::GAME_NAME;
 			RemoveNonLetterOrNumberCharacters(game_name.data(), '_'); // Ideally we should remove all weird characters and turn spaces into underscores
@@ -806,11 +763,11 @@ namespace
 
          code_shaders_defines.clear();
 #if DEVELOPMENT
-         const auto prev_cb_luma_frame_dev_settings_default_value = cb_luma_frame_dev_settings_default_value;
-         cb_luma_frame_dev_settings_default_value = LumaFrameDevSettings(0.f);
-         cb_luma_frame_dev_settings_min_value = LumaFrameDevSettings(0.f);
-         cb_luma_frame_dev_settings_max_value = LumaFrameDevSettings(1.f);
-         cb_luma_frame_dev_settings_names = {};
+         const auto prev_cb_luma_dev_settings_default_value = cb_luma_dev_settings_default_value;
+         cb_luma_dev_settings_default_value = CB::LumaDevSettings(0.f);
+         cb_luma_dev_settings_min_value = CB::LumaDevSettings(0.f);
+         cb_luma_dev_settings_max_value = CB::LumaDevSettings(1.f);
+         cb_luma_dev_settings_names = {};
 #endif
 
          // Add the global (generic) include and the game specific one
@@ -872,7 +829,7 @@ namespace
                      // They can have a comment like "// Default, Min, Max, Name" next to them (e.g. "// 0.5, 0, 1.3, Custom Name").
                      if (is_global_settings && str_view.find("float DevSetting") != std::string::npos)
                      {
-                        if (settings_count >= LumaFrameDevSettings::SettingsNum) continue;
+                        if (settings_count >= CB::LumaDevSettings::SettingsNum) continue;
                         settings_count++;
                         const auto meta_data_pos = str_view.find("//");
                         if (meta_data_pos == std::string::npos) continue;
@@ -893,9 +850,9 @@ namespace
                         // Float heading spaces are automatically ignored.
                         while (!reached_end && ss.peek() >= '0' && ss.peek() <= '9' && ss >> str_float)
                         {
-                           if (settings_float_count == 0) cb_luma_frame_dev_settings_default_value[settings_count - 1] = str_float;
-                           else if (settings_float_count == 1) cb_luma_frame_dev_settings_min_value[settings_count - 1] = str_float;
-                           else if (settings_float_count == 2) cb_luma_frame_dev_settings_max_value[settings_count - 1] = str_float;
+                           if (settings_float_count == 0) cb_luma_dev_settings_default_value[settings_count - 1] = str_float;
+                           else if (settings_float_count == 1) cb_luma_dev_settings_min_value[settings_count - 1] = str_float;
+                           else if (settings_float_count == 2) cb_luma_dev_settings_max_value[settings_count - 1] = str_float;
                            settings_float_count++;
                            if (!ss.good()) { reached_end = true; break; };
                            // Remove known (supported) characters to ignore (spaces are already ignored above anyway)
@@ -911,8 +868,8 @@ namespace
                         // If we found a string, read the whole remaining stream buffer, otherwise the "str" string would end at the first space
                         if (!reached_end && ss >> str)
                         {
-                           cb_luma_frame_dev_settings_names[settings_count - 1] = ss.str();
-                           cb_luma_frame_dev_settings_names[settings_count - 1] = cb_luma_frame_dev_settings_names[settings_count - 1].substr(ss_pos, cb_luma_frame_dev_settings_names[settings_count - 1].length() - ss_pos);
+                           cb_luma_dev_settings_names[settings_count - 1] = ss.str();
+                           cb_luma_dev_settings_names[settings_count - 1] = cb_luma_dev_settings_names[settings_count - 1].substr(ss_pos, cb_luma_dev_settings_names[settings_count - 1].length() - ss_pos);
                         }
                      }
    #endif
@@ -925,10 +882,10 @@ namespace
                }
 #if DEVELOPMENT
                // Re-apply the default settings if they changed
-               if (is_global_settings && memcmp(&cb_luma_frame_dev_settings_default_value, &prev_cb_luma_frame_dev_settings_default_value, sizeof(cb_luma_frame_dev_settings_default_value)) != 0)
+               if (is_global_settings && memcmp(&cb_luma_dev_settings_default_value, &prev_cb_luma_dev_settings_default_value, sizeof(cb_luma_dev_settings_default_value)) != 0)
                {
                   const std::unique_lock lock_reshade(s_mutex_reshade);
-                  cb_luma_frame_settings.DevSettings = cb_luma_frame_dev_settings_default_value;
+                  cb_luma_global_settings.DevSettings = cb_luma_dev_settings_default_value;
                }
 #endif
             }
@@ -1091,6 +1048,9 @@ namespace
                local_shader_defines.push_back("1");
             }
 
+            // Note that we "shader_hash" might have been modified in the "is_luma_native" case,
+            // so it'd be outdated here, but it shouldn't really matter, as the chances of conflict are ~0,
+            // and even then, this is just the procompilation phase hash.
             char config_name[std::string_view("Shader#").size() + HASH_CHARACTERS_LENGTH + 1] = "";
             sprintf(&config_name[0], "Shader#%s", hash_string.c_str());
 
@@ -1562,7 +1522,7 @@ namespace
    void OnDisplayModeChanged()
    {
       // s_mutex_reshade should already be locked here, it's not necessary anyway
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).editable = cb_luma_frame_settings.DisplayMode != 0; //TODOFT4: necessary to disable this in SDR?
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).editable = cb_luma_global_settings.DisplayMode != 0; //TODOFT4: necessary to disable this in SDR?
 
       game->OnDisplayModeChanged();
    }
@@ -1617,28 +1577,28 @@ namespace
 
       D3D11_BUFFER_DESC buffer_desc = {};
       // From MS docs: you must set the ByteWidth value of D3D11_BUFFER_DESC in multiples of 16, and less than or equal to D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT.
-      buffer_desc.ByteWidth = sizeof(LumaFrameSettings);
+      buffer_desc.ByteWidth = sizeof(CB::LumaGlobalSettings);
       buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
       buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
       buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
       D3D11_SUBRESOURCE_DATA data = {};
       {
          const std::unique_lock lock_reshade(s_mutex_reshade);
-         data.pSysMem = &cb_luma_frame_settings;
-         hr = native_device->CreateBuffer(&buffer_desc, &data, &device_data.luma_frame_settings);
-         device_data.cb_luma_frame_settings_dirty = false;
+         data.pSysMem = &cb_luma_global_settings;
+         hr = native_device->CreateBuffer(&buffer_desc, &data, &device_data.luma_global_settings);
+         device_data.cb_luma_global_settings_dirty = false;
       }
       assert(SUCCEEDED(hr));
       if (luma_data_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT)
       {
-         buffer_desc.ByteWidth = sizeof(LumaInstanceData);
+         buffer_desc.ByteWidth = sizeof(CB::LumaInstanceData);
          data.pSysMem = &device_data.cb_luma_instance_data;
          hr = native_device->CreateBuffer(&buffer_desc, &data, &device_data.luma_instance_data);
          assert(SUCCEEDED(hr));
       }
       if (luma_ui_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT)
       {
-         buffer_desc.ByteWidth = sizeof(LumaUIData);
+         buffer_desc.ByteWidth = sizeof(CB::LumaUIData);
          data.pSysMem = &device_data.cb_luma_ui_data;
          hr = native_device->CreateBuffer(&buffer_desc, &data, &device_data.luma_ui_data);
          assert(SUCCEEDED(hr));
@@ -1666,8 +1626,6 @@ namespace
       assert(SUCCEEDED(hr));
 
       game->OnInitDevice(native_device, device_data);
-
-      assert(native_device->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_1);
 
 #if ENABLE_NGX
       com_ptr<IDXGIDevice> native_dxgi_device;
@@ -1986,18 +1944,18 @@ namespace
          if (!hdr_enabled_display)
          {
             // Force the display mode to SDR if HDR is not engaged
-            cb_luma_frame_settings.DisplayMode = 0;
+            cb_luma_global_settings.DisplayMode = 0;
             OnDisplayModeChanged();
-            cb_luma_frame_settings.ScenePeakWhite = srgb_white_level;
-            cb_luma_frame_settings.ScenePaperWhite = srgb_white_level;
-            cb_luma_frame_settings.UIPaperWhite = srgb_white_level;
+            cb_luma_global_settings.ScenePeakWhite = srgb_white_level;
+            cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
+            cb_luma_global_settings.UIPaperWhite = srgb_white_level;
          }
          // Avoid increasing the peak if the user has SDR mode set, SDR mode might still rely on the peak white value
-         else if (cb_luma_frame_settings.DisplayMode > 0 && cb_luma_frame_settings.DisplayMode < 2)
+         else if (cb_luma_global_settings.DisplayMode > 0 && cb_luma_global_settings.DisplayMode < 2)
          {
-            cb_luma_frame_settings.ScenePeakWhite = device_data.default_user_peak_white;
+            cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
          }
-         device_data.cb_luma_frame_settings_dirty = true;
+         device_data.cb_luma_global_settings_dirty = true;
 
          if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
          {
@@ -2562,7 +2520,9 @@ namespace
 
    enum class LumaConstantBufferType
    {
+      // Global/frame settings
       LumaSettings,
+      // Per draw/instance data
       LumaData,
       LumaUIData
    };
@@ -2581,9 +2541,9 @@ namespace
 
          {
             const std::shared_lock lock_reshade(s_mutex_reshade);
-            if (force_update || device_data.cb_luma_frame_settings_dirty)
+            if (force_update || device_data.cb_luma_global_settings_dirty)
             {
-               device_data.cb_luma_frame_settings_dirty = false;
+               device_data.cb_luma_global_settings_dirty = false;
                // My understanding is that "Map" doesn't immediately copy the memory to the GPU, but simply stores it on the side (in the command list),
                // and then copies it to the GPU when the command list is executed, so the resource is updated with deterministic order.
                // From our point of view, we don't really know what command list is currently running and what it is doing,
@@ -2594,15 +2554,15 @@ namespace
                // but then again, that would cross pollute the buffer across thread (plus, a command list is not guaranteed to ever be executed, it could be cleared before executing),
                // so the best solution would be to have these cbuffers per thread or per pass, or to not change them within a frame (or to always write the buffer again!)!
                if (D3D11_MAPPED_SUBRESOURCE mapped_buffer;
-                  SUCCEEDED(native_device_context->Map(device_data.luma_frame_settings.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_buffer)))
+                  SUCCEEDED(native_device_context->Map(device_data.luma_global_settings.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_buffer)))
                {
-                  std::memcpy(mapped_buffer.pData, &cb_luma_frame_settings, sizeof(cb_luma_frame_settings));
-                  native_device_context->Unmap(device_data.luma_frame_settings.get(), 0);
+                  std::memcpy(mapped_buffer.pData, &cb_luma_global_settings, sizeof(cb_luma_global_settings));
+                  native_device_context->Unmap(device_data.luma_global_settings.get(), 0);
                }
             }
          }
 
-         ID3D11Buffer* const buffer = device_data.luma_frame_settings.get();
+         ID3D11Buffer* const buffer = device_data.luma_global_settings.get();
          if ((stages & reshade::api::shader_stage::vertex) == reshade::api::shader_stage::vertex)
             native_device_context->VSSetConstantBuffers(luma_settings_cbuffer_index, 1, &buffer);
          if ((stages & reshade::api::shader_stage::geometry) == reshade::api::shader_stage::geometry)
@@ -2617,11 +2577,11 @@ namespace
       {
          if (luma_data_cbuffer_index >= D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT) break;
 
-         LumaInstanceData cb_luma_instance_data;
+         CB::LumaInstanceData cb_luma_instance_data;
          cb_luma_instance_data.CustomData1 = custom_data_1;
          cb_luma_instance_data.CustomData2 = custom_data_2;
-         cb_luma_instance_data.CustomData3 = 0; // Used as padding for now (unused)
-         cb_luma_instance_data.FrameIndex = frame_index; // TODO: move this to "LumaConstantBufferType::LumaSettings" and rename it to "Globals"?
+         cb_luma_instance_data.CustomData3 = 0.f; // Used as padding for now (unused)
+         cb_luma_instance_data.CustomData4 = 0.f; // Used as padding for now (unused)
 
          cb_luma_instance_data.RenderResolutionScale.x = device_data.render_resolution.x / device_data.output_resolution.x;
          cb_luma_instance_data.RenderResolutionScale.y = device_data.render_resolution.y / device_data.output_resolution.y;
@@ -2655,7 +2615,7 @@ namespace
       }
       case LumaConstantBufferType::LumaUIData:
       {
-         ASSERT_ONCE(false); // Not implemented (yet?)
+         ASSERT_ONCE_MSG(false, "Luma UI Data is not implemented (yet?)");
          break;
       }
       }
@@ -2744,7 +2704,7 @@ namespace
 #endif // GAME_BIOSHOCK_2
 
       // Allow to tank performance to test auto rendering resolution scaling etc
-      if (frame_sleep_ms > 0 && frame_index % frame_sleep_interval == 0)
+      if (frame_sleep_ms > 0 && cb_luma_global_settings.FrameIndex % frame_sleep_interval == 0)
          Sleep(frame_sleep_ms);
 #endif  // DEVELOPMENT
 
@@ -2767,12 +2727,12 @@ namespace
       // Note that not all these combinations might be handled by the shader
       bool needs_reencoding = output_linear != input_linear;
       bool early_display_encoding = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1 && GetShaderDefineCompiledNumericalValue(EARLY_DISPLAY_ENCODING_HASH) >= 1;
-      bool needs_scaling = mod_active ? !early_display_encoding : (cb_luma_frame_settings.DisplayMode >= 1);
+      bool needs_scaling = mod_active ? !early_display_encoding : (cb_luma_global_settings.DisplayMode >= 1);
       bool early_gamma_correction = early_display_encoding && GetShaderDefineCompiledNumericalValue(GAMMA_CORRECTION_TYPE_HASH) < 2;
       // If the vanilla game was already doing post processing in linear space, it would have used sRGB buffers, hence it needs a sRGB<->2.2 gamma mismatch fix (we assume the vanilla game was running in SDR, not scRGB HDR).
       bool in_out_gamma_different = GetShaderDefineCompiledNumericalValue(VANILLA_ENCODING_TYPE_HASH) != GetShaderDefineCompiledNumericalValue(GAMMA_CORRECTION_TYPE_HASH);
       // If we are outputting SDR on SDR Display on a scRGB HDR swapchain, we might need Gamma 2.2/sRGB mismatch correction, because Windows would encode the scRGB buffer with sRGB (instead of Gamma 2.2, which the game would likely have expected)
-      bool display_mode_needs_gamma_correction = swapchain_data.vanilla_was_linear_space ? false : (cb_luma_frame_settings.DisplayMode == 0);
+      bool display_mode_needs_gamma_correction = swapchain_data.vanilla_was_linear_space ? false : (cb_luma_global_settings.DisplayMode == 0);
       bool needs_gamma_correction = (mod_active ? (!early_gamma_correction && in_out_gamma_different) : in_out_gamma_different) || display_mode_needs_gamma_correction;
       // If this is true, the UI and Scene were both drawn with a brightness that is relative to each other, so we need to normalize it back to the scene brightness range
       bool ui_needs_scaling = mod_active && GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) == 2;
@@ -2898,7 +2858,7 @@ namespace
             {
                DeviceData& device_data = *queue->get_device()->get_private_data<DeviceData>();
                const std::shared_lock lock(device_data.mutex); //TODOFT: is this needed right here?
-               const auto cb_luma_frame_settings_copy = cb_luma_frame_settings;
+               const auto cb_luma_global_settings_copy = cb_luma_global_settings;
                // Force a custom display mode in case we have no game custom shaders loaded, so the custom linearization shader can linearize anyway, independently of "POST_PROCESS_SPACE_TYPE"
                bool force_reencoding_or_gamma_correction = !mod_active; // We ignore "s_mutex_generic", it doesn't matter
                if (force_reencoding_or_gamma_correction)
@@ -3032,11 +2992,8 @@ namespace
       }
 #endif // DEVELOPMENT
 
-#if 0 // We do this only when ImGUI is on screen now, restore this if ever needed
-      device_data.cb_luma_frame_settings_dirty = true; // Force re-upload the frame settings buffer at least once per frame, just to make sure to catch any user (or dev) settings changes, it should be fast enough
-#endif
-
-      frame_index++;
+      cb_luma_global_settings.FrameIndex++;
+      device_data.cb_luma_global_settings_dirty = true;
 
 #if RESHADE_API_VERSION >= 18
       return false;
@@ -3157,7 +3114,7 @@ namespace
       // Skip the rest in cases where the UI isn't passing through our custom linear blends that emulate SDR gamma->gamma blends.
       if (GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) != 1) return false;
 
-      LumaUIData ui_data = {};
+      CB::LumaUIData ui_data = {};
 
       com_ptr<ID3D11RenderTargetView> render_target_view;
       // Theoretically we should also retrieve the UAVs and all other RTs but in reality it doesn't ever really matter
@@ -3191,9 +3148,9 @@ namespace
          render_target_view = nullptr;
       }
 
-      // No need to lock "s_mutex_reshade" for "cb_luma_frame_settings" here, it's not relevant
+      // No need to lock "s_mutex_reshade" for "cb_luma_global_settings" here, it's not relevant
       // We could use "has_drawn_composed_gbuffers" here instead of "has_drawn_main_post_processing", but then again, they should always match (pp should always be run)
-      ui_data.background_tonemapping_amount = (cb_luma_frame_settings.DisplayMode == 1 && device_data.has_drawn_main_post_processing_previous && ui_data.targeting_swapchain) ? game->GetTonemapUIBackgroundAmount(device_data) : 0.0;
+      ui_data.background_tonemapping_amount = (cb_luma_global_settings.DisplayMode == 1 && device_data.has_drawn_main_post_processing_previous && ui_data.targeting_swapchain) ? game->GetTonemapUIBackgroundAmount(device_data) : 0.0;
 
       com_ptr<ID3D11BlendState> blend_state;
       native_device_context->OMGetBlendState(&blend_state, nullptr, nullptr);
@@ -5296,7 +5253,7 @@ namespace
       DeviceData& device_data = *runtime->get_device()->get_private_data<DeviceData>();
 
       // Always do this in case a user changed the settings through ImGUI
-      device_data.cb_luma_frame_settings_dirty = true;
+      device_data.cb_luma_global_settings_dirty = true;
 
 #if DEVELOPMENT
       const bool refresh_cloned_pipelines = device_data.cloned_pipelines_changed.exchange(false);
@@ -6442,7 +6399,7 @@ namespace
 
          if (ImGui::BeginTabItem("Settings"))
          {
-            const std::unique_lock lock_reshade(s_mutex_reshade); // Lock the entire scope for extra safety, though we are mainly only interested in keeping "cb_luma_frame_settings" safe
+            const std::unique_lock lock_reshade(s_mutex_reshade); // Lock the entire scope for extra safety, though we are mainly only interested in keeping "cb_luma_global_settings" safe
 
 #if ENABLE_NGX
             ImGui::BeginDisabled(!device_data.dlss_sr_supported);
@@ -6498,7 +6455,7 @@ namespace
             auto ChangeDisplayMode = [&](int display_mode, bool enable_hdr_on_display = true, IDXGISwapChain3* swapchain = nullptr)
                {
                   reshade::set_config_value(runtime, NAME, "DisplayMode", display_mode);
-                  cb_luma_frame_settings.DisplayMode = display_mode;
+                  cb_luma_global_settings.DisplayMode = display_mode;
                   OnDisplayModeChanged();
                   if (display_mode >= 1)
                   {
@@ -6508,31 +6465,31 @@ namespace
                         bool dummy_bool;
                         Display::IsHDRSupportedAndEnabled(game_window, dummy_bool, hdr_enabled_display, swapchain); // This should always succeed, so we don't fallback to SDR in case it didn't
                      }
-                     if (!reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_frame_settings.ScenePeakWhite) || cb_luma_frame_settings.ScenePeakWhite <= 0.f)
+                     if (!reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_global_settings.ScenePeakWhite) || cb_luma_global_settings.ScenePeakWhite <= 0.f)
                      {
-                        cb_luma_frame_settings.ScenePeakWhite = device_data.default_user_peak_white;
+                        cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
                      }
-                     if (!reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_frame_settings.ScenePaperWhite))
+                     if (!reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite))
                      {
-                        cb_luma_frame_settings.ScenePaperWhite = default_paper_white;
+                        cb_luma_global_settings.ScenePaperWhite = default_paper_white;
                      }
-                     if (!reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_frame_settings.UIPaperWhite))
+                     if (!reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite))
                      {
-                        cb_luma_frame_settings.UIPaperWhite = default_paper_white;
+                        cb_luma_global_settings.UIPaperWhite = default_paper_white;
                      }
                      // Align all the parameters for the SDR on HDR mode (the game paper white can still be changed)
                      if (display_mode >= 2)
                      {
                         // For now we don't default to 203 nits game paper white when changing to this mode
-                        cb_luma_frame_settings.UIPaperWhite = cb_luma_frame_settings.ScenePaperWhite;
-                        cb_luma_frame_settings.ScenePeakWhite = cb_luma_frame_settings.ScenePaperWhite; // No, we don't want "default_peak_white" here
+                        cb_luma_global_settings.UIPaperWhite = cb_luma_global_settings.ScenePaperWhite;
+                        cb_luma_global_settings.ScenePeakWhite = cb_luma_global_settings.ScenePaperWhite; // No, we don't want "default_peak_white" here
                      }
                   }
                   else
                   {
-                     cb_luma_frame_settings.ScenePeakWhite = display_mode == 0 ? srgb_white_level : (display_mode >= 2 ? default_paper_white : default_peak_white);
-                     cb_luma_frame_settings.ScenePaperWhite = display_mode == 0 ? srgb_white_level : default_paper_white;
-                     cb_luma_frame_settings.UIPaperWhite = display_mode == 0 ? srgb_white_level : default_paper_white;
+                     cb_luma_global_settings.ScenePeakWhite = display_mode == 0 ? srgb_white_level : (display_mode >= 2 ? default_paper_white : default_peak_white);
+                     cb_luma_global_settings.ScenePaperWhite = display_mode == 0 ? srgb_white_level : default_paper_white;
+                     cb_luma_global_settings.UIPaperWhite = display_mode == 0 ? srgb_white_level : default_paper_white;
                   }
                };
 
@@ -6540,23 +6497,23 @@ namespace
                {
                   static const char* scene_paper_white_name = "Scene Paper White";
                   static const char* paper_white_name = "Paper White";
-                  if (ImGui::SliderFloat(has_separate_ui_paper_white ? scene_paper_white_name : paper_white_name, &cb_luma_frame_settings.ScenePaperWhite, srgb_white_level, 500.f, "%.f"))
+                  if (ImGui::SliderFloat(has_separate_ui_paper_white ? scene_paper_white_name : paper_white_name, &cb_luma_global_settings.ScenePaperWhite, srgb_white_level, 500.f, "%.f"))
                   {
-                     cb_luma_frame_settings.ScenePaperWhite = max(cb_luma_frame_settings.ScenePaperWhite, 0.0);
-                     reshade::set_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_frame_settings.ScenePaperWhite);
+                     cb_luma_global_settings.ScenePaperWhite = max(cb_luma_global_settings.ScenePaperWhite, 0.0);
+                     reshade::set_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite);
                   }
                   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                   {
                      ImGui::SetTooltip("The \"average\" brightness of the game scene.\nChange this to your liking, just don't get too close to the peak white.\nHigher does not mean better (especially if you struggle to read UI text), the brighter the image is, the lower the dynamic range (contrast) is.\nThe in game settings brightness is best left at default.");
                   }
                   ImGui::SameLine();
-                  if (cb_luma_frame_settings.ScenePaperWhite != default_paper_white)
+                  if (cb_luma_global_settings.ScenePaperWhite != default_paper_white)
                   {
                      ImGui::PushID(has_separate_ui_paper_white ? scene_paper_white_name : paper_white_name);
                      if (ImGui::SmallButton(ICON_FK_UNDO))
                      {
-                        cb_luma_frame_settings.ScenePaperWhite = default_paper_white;
-                        reshade::set_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_frame_settings.ScenePaperWhite);
+                        cb_luma_global_settings.ScenePaperWhite = default_paper_white;
+                        reshade::set_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite);
                      }
                      ImGui::PopID();
                   }
@@ -6575,7 +6532,7 @@ namespace
                Display::IsHDRSupportedAndEnabled(game_window, hdr_supported_display, hdr_enabled_display, device_data.GetMainNativeSwapchain().get());
             }
 
-            int display_mode = cb_luma_frame_settings.DisplayMode;
+            int display_mode = cb_luma_global_settings.DisplayMode;
             int display_mode_max = 1;
             if (hdr_supported_display)
             {
@@ -6625,15 +6582,15 @@ namespace
             {
                ImGui::BeginDisabled(!mod_active);
                // We should this even if "device_data.cloned_pipeline_count" is 0
-               if (ImGui::SliderFloat("Scene Peak White", &cb_luma_frame_settings.ScenePeakWhite, 400.0, 10000.f, "%.f"))
+               if (ImGui::SliderFloat("Scene Peak White", &cb_luma_global_settings.ScenePeakWhite, 400.0, 10000.f, "%.f"))
                {
-                  if (cb_luma_frame_settings.ScenePeakWhite == device_data.default_user_peak_white)
+                  if (cb_luma_global_settings.ScenePeakWhite == device_data.default_user_peak_white)
                   {
                      reshade::set_config_value(runtime, NAME, "ScenePeakWhite", 0.f); // Store it as 0 to highlight that it's default (whatever the current or next display peak white is)
                   }
                   else
                   {
-                     reshade::set_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_frame_settings.ScenePeakWhite);
+                     reshade::set_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_global_settings.ScenePeakWhite);
                   }
                }
                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -6641,12 +6598,12 @@ namespace
                   ImGui::SetTooltip("Set this to the brightest nits value your display (TV/Monitor) can emit.\nDirectly calibrating in Windows is suggested.");
                }
                ImGui::SameLine();
-               if (cb_luma_frame_settings.ScenePeakWhite != device_data.default_user_peak_white)
+               if (cb_luma_global_settings.ScenePeakWhite != device_data.default_user_peak_white)
                {
                   ImGui::PushID("Scene Peak White");
                   if (ImGui::SmallButton(ICON_FK_UNDO))
                   {
-                     cb_luma_frame_settings.ScenePeakWhite = device_data.default_user_peak_white;
+                     cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
                      reshade::set_config_value(runtime, NAME, "ScenePeakWhite", 0.f);
                   }
                   ImGui::PopID();
@@ -6665,16 +6622,16 @@ namespace
                if (has_separate_ui_paper_white)
                {
                   ImGui::BeginDisabled(!supports_custom_ui_paper_white_scaling || !mod_active);
-                  if (ImGui::SliderFloat("UI Paper White", supports_custom_ui_paper_white_scaling ? &cb_luma_frame_settings.UIPaperWhite : &cb_luma_frame_settings.ScenePaperWhite, srgb_white_level, 500.f, "%.f"))
+                  if (ImGui::SliderFloat("UI Paper White", supports_custom_ui_paper_white_scaling ? &cb_luma_global_settings.UIPaperWhite : &cb_luma_global_settings.ScenePaperWhite, srgb_white_level, 500.f, "%.f"))
                   {
-                     cb_luma_frame_settings.UIPaperWhite = max(cb_luma_frame_settings.UIPaperWhite, 0.0);
-                     reshade::set_config_value(runtime, NAME, "UIPaperWhite", cb_luma_frame_settings.UIPaperWhite);
+                     cb_luma_global_settings.UIPaperWhite = max(cb_luma_global_settings.UIPaperWhite, 0.0);
+                     reshade::set_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite);
 
                      // This is not safe to do, so let's rely on users manually setting this instead.
-                     // Also note that this is a test implementation, it doesn't react to all places that change "cb_luma_frame_settings.UIPaperWhite", and does not restore the user original value on exit.
+                     // Also note that this is a test implementation, it doesn't react to all places that change "cb_luma_global_settings.UIPaperWhite", and does not restore the user original value on exit.
 #if 0
                      // This makes the game cursor have the same brightness as the game's UI
-                     SetSDRWhiteLevel(game_window, std::clamp(cb_luma_frame_settings.UIPaperWhite, 80.f, 480.f));
+                     SetSDRWhiteLevel(game_window, std::clamp(cb_luma_global_settings.UIPaperWhite, 80.f, 480.f));
 #endif
                   }
                   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -6682,13 +6639,13 @@ namespace
                      ImGui::SetTooltip("The peak brightness of the User Interface (with the exception of the 2D cursor, which is driven by the Windows SDR White Level).\nHigher does not mean better, change this to your liking.");
                   }
                   ImGui::SameLine();
-                  if (cb_luma_frame_settings.UIPaperWhite != default_paper_white)
+                  if (cb_luma_global_settings.UIPaperWhite != default_paper_white)
                   {
                      ImGui::PushID("UI Paper White");
                      if (ImGui::SmallButton(ICON_FK_UNDO))
                      {
-                        cb_luma_frame_settings.UIPaperWhite = default_paper_white;
-                        reshade::set_config_value(runtime, NAME, "UIPaperWhite", cb_luma_frame_settings.UIPaperWhite);
+                        cb_luma_global_settings.UIPaperWhite = default_paper_white;
+                        reshade::set_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite);
                      }
                      ImGui::PopID();
                   }
@@ -6706,8 +6663,8 @@ namespace
             else if (display_mode >= 2)
             {
                DrawScenePaperWhite(has_separate_ui_paper_white);
-               cb_luma_frame_settings.UIPaperWhite = cb_luma_frame_settings.ScenePaperWhite;
-               cb_luma_frame_settings.ScenePeakWhite = cb_luma_frame_settings.ScenePaperWhite;
+               cb_luma_global_settings.UIPaperWhite = cb_luma_global_settings.ScenePaperWhite;
+               cb_luma_global_settings.ScenePeakWhite = cb_luma_global_settings.ScenePaperWhite;
             }
 
             game->DrawImGuiSettings(device_data);
@@ -6716,20 +6673,20 @@ namespace
 				ImGui::SetNextItemOpen(true, ImGuiCond_Once);
             if (ImGui::TreeNode("Developer Settings"))
             {
-               static std::string DevSettingsNames[LumaFrameDevSettings::SettingsNum];
-               for (size_t i = 0; i < LumaFrameDevSettings::SettingsNum; i++)
+               static std::string DevSettingsNames[CB::LumaDevSettings::SettingsNum];
+               for (size_t i = 0; i < CB::LumaDevSettings::SettingsNum; i++)
                {
                   // These strings need to persist
                   if (DevSettingsNames[i].empty())
                   {
                      DevSettingsNames[i] = "Developer Setting " + std::to_string(i + 1);
                   }
-                  float& value = cb_luma_frame_settings.DevSettings[i];
-                  float& min_value = cb_luma_frame_dev_settings_min_value[i];
-                  float& max_value = cb_luma_frame_dev_settings_max_value[i];
-                  float& default_value = cb_luma_frame_dev_settings_default_value[i];
+                  float& value = cb_luma_global_settings.DevSettings[i];
+                  float& min_value = cb_luma_dev_settings_min_value[i];
+                  float& max_value = cb_luma_dev_settings_max_value[i];
+                  float& default_value = cb_luma_dev_settings_default_value[i];
                   // Note: this will "fail" if we named two devs settings with the same name!
-                  ImGui::SliderFloat(cb_luma_frame_dev_settings_names[i].empty() ? DevSettingsNames[i].c_str() : cb_luma_frame_dev_settings_names[i].c_str(), &value, min_value, max_value);
+                  ImGui::SliderFloat(cb_luma_dev_settings_names[i].empty() ? DevSettingsNames[i].c_str() : cb_luma_dev_settings_names[i].c_str(), &value, min_value, max_value);
                   ImGui::SameLine();
                   if (value != default_value)
                   {
@@ -7448,11 +7405,11 @@ void Init(bool async)
    assert(luma_settings_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT);
    assert(luma_data_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT);
 
-   cb_luma_frame_settings.DisplayMode = 1; // Default to HDR in case we had no prior config, it will be automatically disabled if the current display doesn't support it (when the swapchain is created, which should be guaranteed to be after)
-   cb_luma_frame_settings.ScenePeakWhite = default_peak_white;
-   cb_luma_frame_settings.ScenePaperWhite = default_paper_white;
-   cb_luma_frame_settings.UIPaperWhite = default_paper_white;
-   cb_luma_frame_settings.DLSS = 0; // We can't set this to 1 until we verified DLSS engaged correctly and is running
+   cb_luma_global_settings.DisplayMode = 1; // Default to HDR in case we had no prior config, it will be automatically disabled if the current display doesn't support it (when the swapchain is created, which should be guaranteed to be after)
+   cb_luma_global_settings.ScenePeakWhite = default_peak_white;
+   cb_luma_global_settings.ScenePaperWhite = default_paper_white;
+   cb_luma_global_settings.UIPaperWhite = default_paper_white;
+   cb_luma_global_settings.DLSS = 0; // We can't set this to 1 until we verified DLSS engaged correctly and is running
 
    // Load settings
    {
@@ -7479,32 +7436,32 @@ void Init(bool async)
 #if ENABLE_NGX
       reshade::get_config_value(runtime, NAME, "DLSSSuperResolution", dlss_sr);
 #endif
-      reshade::get_config_value(runtime, NAME, "DisplayMode", cb_luma_frame_settings.DisplayMode);
+      reshade::get_config_value(runtime, NAME, "DisplayMode", cb_luma_global_settings.DisplayMode);
 #if !DEVELOPMENT && !TEST // Don't allow "SDR in HDR for HDR" mode (there's no strong reason not to, but it avoids permutations exposed to users)
-      if (cb_luma_frame_settings.DisplayMode >= 2)
+      if (cb_luma_global_settings.DisplayMode >= 2)
       {
-         cb_luma_frame_settings.DisplayMode = 0;
+         cb_luma_global_settings.DisplayMode = 0;
       }
 #endif
 
       // If we read an invalid value from the config, reset it
-      if (reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_frame_settings.ScenePeakWhite) && cb_luma_frame_settings.ScenePeakWhite <= 0.f)
+      if (reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_global_settings.ScenePeakWhite) && cb_luma_global_settings.ScenePeakWhite <= 0.f)
       {
          const std::shared_lock lock(s_mutex_device); // This is not completely safe as the write to "default_user_peak_white" isn't protected by this mutex but it's fine, it shouldn't have been written yet when we get here
-         cb_luma_frame_settings.ScenePeakWhite = global_devices_data.empty() ? default_peak_white : global_devices_data[0]->default_user_peak_white;
+         cb_luma_global_settings.ScenePeakWhite = global_devices_data.empty() ? default_peak_white : global_devices_data[0]->default_user_peak_white;
       }
-      reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_frame_settings.ScenePaperWhite);
-      reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_frame_settings.UIPaperWhite);
-      if (cb_luma_frame_settings.DisplayMode == 0)
+      reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite);
+      reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite);
+      if (cb_luma_global_settings.DisplayMode == 0)
       {
-         cb_luma_frame_settings.ScenePeakWhite = srgb_white_level;
-         cb_luma_frame_settings.ScenePaperWhite = srgb_white_level;
-         cb_luma_frame_settings.UIPaperWhite = srgb_white_level;
+         cb_luma_global_settings.ScenePeakWhite = srgb_white_level;
+         cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
+         cb_luma_global_settings.UIPaperWhite = srgb_white_level;
       }
-      else if (cb_luma_frame_settings.DisplayMode >= 2)
+      else if (cb_luma_global_settings.DisplayMode >= 2)
       {
-         cb_luma_frame_settings.UIPaperWhite = cb_luma_frame_settings.ScenePaperWhite;
-         cb_luma_frame_settings.ScenePeakWhite = cb_luma_frame_settings.ScenePaperWhite;
+         cb_luma_global_settings.UIPaperWhite = cb_luma_global_settings.ScenePaperWhite;
+         cb_luma_global_settings.ScenePeakWhite = cb_luma_global_settings.ScenePaperWhite;
       }
 
       const std::unique_lock lock_shader_defines(s_mutex_shader_defines);

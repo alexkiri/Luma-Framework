@@ -37,7 +37,7 @@ void main(
   
 #if ENABLE_SCREEN_DISTORTION
   // Inverse lens distortion
-  if (LumaUIData.TargetingSwapchain && !LumaUIData.FullscreenMenu && LumaSettings.LensDistortion && isLinearProjectionMatrix(cCompositeMat))
+  if (LumaUIData.TargetingSwapchain && !LumaUIData.FullscreenMenu && LumaSettings.GameSettings.LensDistortion && isLinearProjectionMatrix(cCompositeMat))
   {
     o0.xyz /= o0.w; // From clip to NDC space
     o0.w = 1; // no need to convert it back to clip space, the GPU would do it again anyway

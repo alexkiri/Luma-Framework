@@ -144,6 +144,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <EnforceTypeConversionRules>true</EnforceTypeConversionRules>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
+      <ForcedIncludeFiles>../../../Shaders/$(ProjectName)/Includes/GameCBSettings.hlsl;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);_DEBUG;_WINDOWS</PreprocessorDefinitions>
@@ -193,6 +194,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
       <WholeProgramOptimization>true</WholeProgramOptimization>
+      <ForcedIncludeFiles>../../../Shaders/$(ProjectName)/Includes/GameCBSettings.hlsl;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);_WINDOWS;NDEBUG</PreprocessorDefinitions>
@@ -240,6 +242,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
       <WholeProgramOptimization>true</WholeProgramOptimization>
+      <ForcedIncludeFiles>../../../Shaders/$(ProjectName)/Includes/GameCBSettings.hlsl;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);_WINDOWS;NDEBUG</PreprocessorDefinitions>
@@ -287,6 +290,7 @@
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard_C>stdclatest</LanguageStandard_C>
       <WholeProgramOptimization>true</WholeProgramOptimization>
+      <ForcedIncludeFiles>../../../Shaders/$(ProjectName)/Includes/GameCBSettings.hlsl;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <ResourceCompile>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);_WINDOWS;NDEBUG</PreprocessorDefinitions>

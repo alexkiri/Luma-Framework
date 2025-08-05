@@ -163,12 +163,12 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11ComputeShader> draw_purple_compute_shader;
 
    // CBuffers
-   com_ptr<ID3D11Buffer> luma_frame_settings;
+   com_ptr<ID3D11Buffer> luma_global_settings;
    com_ptr<ID3D11Buffer> luma_instance_data;
    com_ptr<ID3D11Buffer> luma_ui_data;
-   LumaInstanceData cb_luma_instance_data = {};
-   LumaUIData cb_luma_ui_data = {};
-   bool cb_luma_frame_settings_dirty = true;
+   CB::LumaInstanceData cb_luma_instance_data = {};
+   CB::LumaUIData cb_luma_ui_data = {};
+   bool cb_luma_global_settings_dirty = true;
 
    // UI
    com_ptr<ID3D11Texture2D> ui_texture;

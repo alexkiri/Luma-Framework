@@ -1,6 +1,7 @@
 #pragma once
 
 #include "math.h"
+#include "shader_types.h"
 
 #if !defined(DEBUG)
 #define M_INLINE __forceinline

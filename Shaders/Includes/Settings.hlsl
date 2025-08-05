@@ -145,27 +145,20 @@
 // LUMA user settings
 /////////////////////////////////////////
 
-// These can be defined in c++, in each game's code
-// For now we don't need to automatically define them in shaders, as they are optional
-#if 0
-#ifndef LUMA_GAME_SETTING_01
-#define LUMA_GAME_SETTING_01 float GameSetting01
-#endif
-#ifndef LUMA_GAME_SETTING_02
-#define LUMA_GAME_SETTING_02 float GameSetting02
-#endif
-#ifndef LUMA_GAME_SETTING_03
-#define LUMA_GAME_SETTING_03 float GameSetting03
-#endif
-#ifndef LUMA_GAME_SETTING_04
-#define LUMA_GAME_SETTING_04 float GameSetting04
-#endif
-#ifndef LUMA_GAME_SETTING_05
-#define LUMA_GAME_SETTING_05 float GameSetting05
-#endif
+// In case the per game code had not defined a custom struct, define a generic empty one. This behaviour is matched in c++.
+#ifndef LUMA_GAME_SETTINGS_CB_STRUCT
+#define LUMA_GAME_SETTINGS_CB_STRUCT
+namespace CB
+{
+	struct LumaGameSettings
+	{
+		float Dummy; // hlsl doesn't support empty structs
+	};
+}
 #endif
 
-// Most engines (e.g. CryEngine, Unreal, Unity) push the registers that are used by each shader again for every draw, so it's generally safe to overridden them anyway (they are all reset between frames).
+// Luma global settings (usually, but not necessarily, changed a maximum of once per frame)
+// Regarding "LUMA_SETTINGS_CB_INDEX", most engines (e.g. CryEngine, Unreal, Unity) push the registers that are used by each shader again for every draw, so it's generally safe to overridden them anyway (they are all reset between frames).
 cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
 {
   struct
@@ -178,21 +171,10 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float GamePaperWhiteNits; // Access this through the global variables below (this either applies to the game scene colors, or to the whole final image)
     float UIPaperWhiteNits; // Access this through the global variables below (only usable in certain "UI_DRAW_TYPE" modes)
     uint DLSS; // Is DLSS enabled (implies it engaged and it's compatible) (this is on even in fullscreen UI menus that don't use upscaling)
-#ifdef LUMA_GAME_SETTING_01
-    LUMA_GAME_SETTING_01;
-#endif
-#ifdef LUMA_GAME_SETTING_02
-    LUMA_GAME_SETTING_02;
-#endif
-#ifdef LUMA_GAME_SETTING_03
-    LUMA_GAME_SETTING_03;
-#endif
-#ifdef LUMA_GAME_SETTING_04
-    LUMA_GAME_SETTING_04;
-#endif
-#ifdef LUMA_GAME_SETTING_05
-    LUMA_GAME_SETTING_05;
-#endif
+    uint FrameIndex; // Frame counter, no need for this to be by device or swapchain
+
+    CB::LumaGameSettings GameSettings; // Custom games setting, with a per game struct. This is here to avoid taking too many cbuffer slots.
+
 #if DEVELOPMENT
     // These are reflected in ImGui (the number of them is hardcoded in c++).
     // You can add up to 3 numbers as comment to their right to define the UI settings sliders default, min and max values, and their name.

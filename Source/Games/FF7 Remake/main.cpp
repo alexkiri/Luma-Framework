@@ -250,8 +250,8 @@ public:
 					else
 					{
 						//ASSERT_ONCE(false);
-						//cb_luma_frame_settings.DLSS = 0;
-						//device_data.cb_luma_frame_settings_dirty = true;
+						//cb_luma_global_settings.DLSS = 0;
+						//device_data.cb_luma_global_settings_dirty = true;
 						//device_data.dlss_sr_suppressed = true;
 						device_data.force_reset_dlss_sr = true;
 					}

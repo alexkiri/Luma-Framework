@@ -10,11 +10,6 @@
 // Update samples to override the bias, based on the rendering resolution etc
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
-// Define the game specific cbuffer settings here (up to a fixed limited number), these are automatically compiled into shaders without editing them, and can be read in game specific shaders.
-// You can call them however they want, and make them of any types.
-// Avoid types that are not mutliples of 64 bits (with the exception of 32 bit types, which can be used).
-#define LUMA_GAME_SETTING_01 float GameSetting01
-#define LUMA_GAME_SETTING_02 uint GameSetting02
 
 // Alternative implementation in case we used "Core" as static library
 #if defined(RESHADE_EXTERNS) && 0
@@ -87,9 +82,14 @@ public:
       luma_data_cbuffer_index = 12; // Needed for debugging textures and having custom per pass data (including handling the final pass properly).
       luma_ui_cbuffer_index = -1; // Optional, see "UI_DRAW_TYPE" (this is for type 1)
 
-      // Init the game settings here, you could also load them from ini in "LoadConfigs()"
-      cb_luma_frame_settings.GameSetting01 = 0.5f;
-      cb_luma_frame_settings.GameSetting02 = 33;
+      // Init the game settings here, you could also load them from ini in "LoadConfigs()".
+      // These can be defined in a header shared between shaders and c++, and are sent to the GPU every time they change.
+      // It should be in "Shaders/Game/Includes/GameCBSettings.hlsl", you can either add that to your Visual Studio project as forced include as some projects do,
+      // or manually add it to the project files and include that at the top (before anything else, as the game cb settings struct needs to be defined), or make a copy of it in c++ (making sure it's mirrored to hlsl),
+      // and define "LUMA_GAME_SETTINGS_CB_STRUCT" to avoid it being re-defined.
+      // Set "device_data.cb_luma_global_settings_dirty" to true when you change them (if you care for them being re-uploaded to the GPU).
+      cb_luma_global_settings.GameSettings.GameSetting01 = 0.5f;
+      cb_luma_global_settings.GameSettings.GameSetting02 = 33;
    }
 
    // This needs to be overridden with your own "GameDeviceData" sub-class (destruction is automatically handled)
