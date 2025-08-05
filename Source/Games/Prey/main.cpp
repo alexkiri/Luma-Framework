@@ -188,8 +188,8 @@ namespace
    constexpr uint32_t DLSS_RELATIVE_PRE_EXPOSURE_HASH = char_ptr_crc32("DLSS_RELATIVE_PRE_EXPOSURE"); // "DEVELOPMENT" only
    constexpr uint32_t FORCE_MOTION_VECTORS_JITTERED_HASH = char_ptr_crc32("FORCE_MOTION_VECTORS_JITTERED"); // "DEVELOPMENT" only
 
-   const uint32_t shader_hash_draw_exposure = std::stoul("FFFFFFF3", nullptr, 16);
-   const uint32_t shader_hash_lens_distortion_pixel = std::stoul("FFFFFFF5", nullptr, 16);
+   const std::string shader_name_draw_exposure = "Luma_DrawFinalExposure";
+   const std::string shader_name_lens_distortion_pixel = "Luma_PerfectPerspective";
 
 #if DEVELOPMENT
    std::thread::id global_cbuffer_thread_id;
@@ -2375,11 +2375,11 @@ public:
       game_device_data.exposure_buffer_rtv = nullptr;
    }
 
-   void CreateShaderObjects(DeviceData& device_data, const std::optional<std::unordered_set<uint32_t>>& shader_hashes_filter) override
+   void CreateShaderObjects(DeviceData& device_data, const std::optional<std::set<std::string>>& shader_names_filter) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
-      CreateShaderObject(device_data.native_device, shader_hash_draw_exposure, game_device_data.draw_exposure_pixel_shader, shader_hashes_filter);
-      CreateShaderObject(device_data.native_device, shader_hash_lens_distortion_pixel, game_device_data.lens_distortion_pixel_shader, shader_hashes_filter);
+      CreateShaderObject(device_data.native_device, shader_name_draw_exposure, game_device_data.draw_exposure_pixel_shader, shader_names_filter);
+      CreateShaderObject(device_data.native_device, shader_name_lens_distortion_pixel, game_device_data.lens_distortion_pixel_shader, shader_names_filter);
    }
 
    float GetTonemapUIBackgroundAmount(const DeviceData& device_data) const override { return tonemap_ui_background ? tonemap_ui_background_amount : 0.f; }

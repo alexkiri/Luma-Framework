@@ -2922,7 +2922,7 @@ namespace
          else
          {
 #if DEVELOPMENT
-            ASSERT_ONCE(false); // The custom shaders failed to be found (they have either been unloaded or failed to compile, or simply missing in the files)
+            ASSERT_ONCE_MSG(false, "The display composition Luma native shaders failed to be found (they have either been unloaded or failed to compile, or simply missing in the files)");
 #else
             static bool warning_sent = false;
             if (!warning_sent)
@@ -4141,7 +4141,7 @@ namespace
             }
             default:
             {
-               ASSERT_ONCE(false); // TODO: add support
+               ASSERT_ONCE_MSG(false, "Unsupported resource initial data format (due to texture upgrades)"); // TODO: add support
                break;
             }
             }
@@ -5089,7 +5089,7 @@ namespace
       }
       else if (!std::filesystem::is_directory(dump_path))
       {
-         ASSERT_ONCE(false); // The target path is already taken by a file
+         ASSERT_ONCE_MSG(false, "The target path is already taken by a file");
          return;
       }
 

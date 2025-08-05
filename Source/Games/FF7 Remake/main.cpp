@@ -13,7 +13,7 @@
 namespace
 {
 	float2 projection_jitters = { 0, 0 };
-	const uint32_t shader_hash_mvec_pixel = std::stoul("FFFFFFF3", nullptr, 16);
+	const std::string shader_name_mvec_pixel = "Luma_MotionVec_UE4_Decode";
 	ShaderHashesList shader_hashes_TAA;
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
@@ -277,10 +277,10 @@ public:
 		ImGui::Text("Final Fantasy VII Remake Luma mod - by izueh etc", ""); // TODO
 	}
 
-	void CreateShaderObjects(DeviceData& device_data, const std::optional<std::unordered_set<uint32_t>>& shader_hashes_filter) override
+	void CreateShaderObjects(DeviceData& device_data, const std::optional<std::set<std::string>>& shader_names_filter) override
 	{
 		auto& game_device_data = GetGameDeviceData(device_data);
-		CreateShaderObject(device_data.native_device, shader_hash_mvec_pixel, game_device_data.motion_vectors_ps, shader_hashes_filter);
+		CreateShaderObject(device_data.native_device, shader_name_mvec_pixel, game_device_data.motion_vectors_ps, shader_names_filter);
 	}
 };
 

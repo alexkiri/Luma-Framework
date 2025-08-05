@@ -6,7 +6,8 @@
 #define _STRINGIZE(x) _STRINGIZE2(x)
 #define _STRINGIZE2(x) #x
 
-#if defined(NDEBUG) && DEVELOPMENT
+// In non debug builds, replace asserts with a message box
+#if defined(NDEBUG) && (DEVELOPMENT || TEST)
 #undef assert
 #define assert(expression) ((void)(                                                       \
             (!!(expression)) ||                                                               \
@@ -14,11 +15,36 @@
         )
 #endif
 
-#if DEVELOPMENT || _DEBUG || TEST
-#define ASSERT_ONCE(x) { static bool asserted_once = false; \
-if (!asserted_once && !(x)) { assert(x); asserted_once = true; } }
+#if DEVELOPMENT || TEST || _DEBUG
+// "do while" is to avoid some edge cases with indentation
+#define ASSERT_MSG(expression, msg)                                     \
+    do {                                                                \
+        if (!(expression)) {                                            \
+            std::string full_msg = std::string("Assertion failed:\n\n") \
+                + #expression + "\n\n"                                  \
+                + msg + "\n\n"                                          \
+                + "File: " + __FILE__ + "\n"                            \
+                + "Line: " + std::to_string(__LINE__) + "\n\n"          \
+                + "Press Yes to break into debugger.\n"                 \
+                + "Press No to continue.";                              \
+                                                                        \
+            int result = MessageBoxA(nullptr,                           \
+                full_msg.c_str(),                                       \
+                "Assertion Failed",                                     \
+                MB_ICONERROR | MB_YESNO);                               \
+                                                                        \
+            if (result == IDYES) { __debugbreak(); }                    \
+        }                                                               \
+    } while (false)
+#define ASSERT_ONCE(expression) do { { static bool asserted_once = false; \
+if (!asserted_once && !(expression)) { assert(expression); asserted_once = true; } } } while (false)
+#define ASSERT_ONCE_MSG(expression, msg) do { { static bool asserted_once = false; \
+if (!asserted_once && !(expression)) { ASSERT_MSG(expression, msg); asserted_once = true; } } } while (false)
+
 #else
-#define ASSERT_ONCE(x)
+#define ASSERT_MSG(expression, msg)
+#define ASSERT_ONCE(expression)
+#define ASSERT_ONCE_MSG(expression, msg)
 #endif
 
 namespace

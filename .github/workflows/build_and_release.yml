@@ -39,7 +39,7 @@ jobs:
       run: .\vcpkg\vcpkg integrate install
 
     - name: Build Luma.sln ${{ matrix.config }}-${{ matrix.platform }}
-      run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }}
+      run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }} /p:DefineConstants="REMOTE_BUILD=1"
 
     - name: Create ZIP per addon with matching shaders
       id: create_zip
@@ -97,9 +97,9 @@ jobs:
             continue
           }
 
-          if ($projectName -like '*Prey*') {
-            Write-Host "Note that Prey automated packaging isn't the whole Luma mod, that needs manual packaging as it comes with extra files."
-          }
+          #if ($projectName -like '*Prey*') {
+          #  Write-Host "Note that Prey automated packaging isn't the whole Luma mod, that needs manual packaging as it comes with extra files."
+          #}
 
           # Create a temp directory
           $tempDir = "temp_package"
@@ -117,10 +117,20 @@ jobs:
 
           # Remove disallowed folders (e.g. shaders for other mods) immediately inside $shaderRoot
           Get-ChildItem -Path $shaderRoot -Directory | ForEach-Object {
-              if ($allowedDirs -notcontains $_.Name) {
-                  Write-Host "Removing disallowed folder: $($_.FullName)"
-                  Remove-Item $_.FullName -Recurse -Force
+            if ($allowedDirs -notcontains $_.Name) {
+                Write-Host "Removing disallowed folder: $($_.FullName)"
+                Remove-Item $_.FullName -Recurse -Force
+            } elseif (-not "${{ matrix.config }}".StartsWith("Development")) {
+              # Inside allowed folders, delete specific subfolders that we don't need for non dev builds
+              $foldersToDelete = @("Unused", "Dev", "Samples")
+              foreach ($folder in $foldersToDelete) {
+                $target = Join-Path $_.FullName $folder
+                if (Test-Path $target) {
+                  Write-Host "Removing subfolder from allowed dir: $target"
+                  Remove-Item $target -Recurse -Force
+                }
               }
+            }
           }
 
           # Get all files under the copied Shaders folder

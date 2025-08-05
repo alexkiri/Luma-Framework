@@ -191,7 +191,7 @@ com_ptr<ID3D11Texture2D> CloneTexture2D(ID3D11Device* native_device, ID3D11Resou
             }
             else
             {
-               ASSERT_ONCE(false); // Unsupported format
+               ASSERT_ONCE_MSG(false, "Unsupported CloneTexture2D format");
                black_initial_data = false;
             }
 
