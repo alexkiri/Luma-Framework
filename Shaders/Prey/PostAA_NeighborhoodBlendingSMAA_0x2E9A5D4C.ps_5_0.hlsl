@@ -73,8 +73,8 @@ void main(
       float4 C = _tex1.SampleLevel(_tex1_s, inBaseTC.xy, 0);
       inBaseTC.xy += sign(offset) * scaledInverseScreenSize;
       float4 Cop = _tex1.SampleLevel(_tex1_s, inBaseTC.xy, 0);
-			
-			// convert to linear
+
+      // convert to linear
       // LUMA FT: improved linearization and gammification code
 			C.rgb = DecodeBackBufferToLinearSDRRange(C.rgb);
 			Cop.rgb = DecodeBackBufferToLinearSDRRange(Cop.rgb);
@@ -85,6 +85,4 @@ void main(
 			// convert back to gamma
 			outColor.rgb = EncodeBackBufferFromLinearSDRRange(outColor.rgb);
   }
-
-	return;
 }

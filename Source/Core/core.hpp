@@ -1656,6 +1656,23 @@ namespace
       dlss_sr = false;
 #endif // ENABLE_NGX
 
+      game->OnInitDevice(native_device, device_data);
+
+      // If we upgrade textures, make sure that MSAA DXGI_FORMAT_R16G16B16A16_FLOAT is supported on our GPU, given that it's optional.
+      // Most games don't have MSAA, but it might be enforced at driver level.
+      if (enable_texture_format_upgrades)
+      {
+         UINT quality_levels = 0;
+         HRESULT hr;
+         // We could go up to "D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT" but realistically no game ever does more than 8x (and odd values are not supported)
+         hr = native_device->CheckMultisampleQualityLevels(DXGI_FORMAT_R16G16B16A16_FLOAT, 2, &quality_levels);
+         ASSERT_ONCE(SUCCEEDED(hr) && quality_levels > 0);
+         hr = native_device->CheckMultisampleQualityLevels(DXGI_FORMAT_R16G16B16A16_FLOAT, 4, &quality_levels);
+         ASSERT_ONCE(SUCCEEDED(hr) && quality_levels > 0);
+         hr = native_device->CheckMultisampleQualityLevels(DXGI_FORMAT_R16G16B16A16_FLOAT, 8, &quality_levels);
+         ASSERT_ONCE(SUCCEEDED(hr) && quality_levels > 0);
+      }
+
       // If all custom shaders from boot already loaded/compiled, but the custom device shaders weren't created, create them
       if (precompile_custom_shaders && block_draw_until_device_custom_shaders_creation)
       {
@@ -1853,6 +1870,7 @@ namespace
       ASSERT_ONCE(SUCCEEDED(hr));
       if (SUCCEEDED(hr))
       {
+         ASSERT_ONCE_MSG(swapchain_desc.SampleDesc.Count == 1, "MSAA is unexpectedly enabled on the Swapchain, Luma might not be compatible with it");
          device_data.output_resolution.x = swapchain_desc.BufferDesc.Width;
          device_data.output_resolution.y = swapchain_desc.BufferDesc.Height;
          device_data.render_resolution.x = device_data.output_resolution.x;
@@ -2836,7 +2854,7 @@ namespace
             com_ptr<ID3D11RenderTargetView> target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
             // If we already had a render target view (set by the game), we can assume it was already set to the swapchain,
             // but it's good to make sure of it nonetheless, it might have been changed already.
-            if (draw_state_stack.render_target_views[0] != nullptr)
+            if (draw_state_stack.render_target_views[0] != nullptr && draw_state_stack.render_target_views[0] != swapchain_data.display_composition_rtvs[back_buffer_index])
             {
                com_ptr<ID3D11Resource> render_target_resource;
                draw_state_stack.render_target_views[0]->GetResource(&render_target_resource);
@@ -4620,6 +4638,24 @@ namespace
       }
 #endif
 
+      DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+      bool upgraded_resources = false;
+#if !GAME_PREY // Prey upgrades resources with native hooks
+      if (!enable_swapchain_upgrade && !enable_texture_format_upgrades)
+         return false;
+
+      // Skip if none of the resources match our upgraded ones.
+      // This should always be fine, unless the game used the upgraded resource desc to automatically determine other textures (so we try to catch for that in development)
+      const std::shared_lock lock(device_data.mutex);
+      if (!device_data.upgraded_resources.contains(source.handle) && !device_data.upgraded_resources.contains(dest.handle))
+      {
+#if !DEVELOPMENT
+         return false;
+#endif
+         upgraded_resources = true;
+      }
+#endif
+
       ID3D11Resource* source_resource = reinterpret_cast<ID3D11Resource*>(source.handle);
       com_ptr<ID3D11Texture2D> source_resource_texture;
       HRESULT hr = source_resource->QueryInterface(&source_resource_texture);
@@ -4635,7 +4671,7 @@ namespace
             source_resource_texture->GetDesc(&source_desc);
             target_resource_texture->GetDesc(&target_desc);
 
-            if (source_desc.Width != target_desc.Width || source_desc.Height != target_desc.Height)
+            if (source_desc.Width != target_desc.Width || source_desc.Height != target_desc.Height || source_desc.SampleDesc.Count != target_desc.SampleDesc.Count)
                return false;
 
             auto isUnorm8 = [](DXGI_FORMAT format)
@@ -4688,20 +4724,23 @@ namespace
                   return false;
                };
 
-            DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
-
             // If we detected incompatible formats that were likely caused by Luma upgrading texture formats (of render targets only...),
-            // do the copy in shader
+            // do the copy in shader. It should currently cover all texture formats upgradable with "texture_upgrade_formats".
+            // If we ever made a new type of "swapchain_upgrade_type", this should be updated for that.
+            // Note that generally, formats of the same size might be supported as it simply does a byte copy,
+            // like DXGI_FORMAT_R16G16B16A16_TYPELESS, DXGI_FORMAT_R16G16B16A16_UNORM and DXGI_FORMAT_R16G16B16A16_FLOAT are all mutually compatible.
             // TODO: add gamma to linear support (e.g. non sRGB views into sRGB views)?
-            //TODOFT3: this doesn't fully work, this triggers once when a level loads in Prey? So we should make sure it works. Is it fixed now?
-            if (((isUnorm8(target_desc.Format) || isUnorm16(target_desc.Format) || isFloat11(target_desc.Format)) && isFloat16(source_desc.Format))
-               || ((isUnorm8(source_desc.Format) || isUnorm16(source_desc.Format) || isFloat11(source_desc.Format)) && isFloat16(target_desc.Format)))
+            //TODOFT3: this doesn't fully work? Test it!
+            if (((isUnorm8(target_desc.Format) || isFloat11(target_desc.Format)) && isFloat16(source_desc.Format))
+               || ((isUnorm8(source_desc.Format) || isFloat11(source_desc.Format)) && isFloat16(target_desc.Format)))
             {
+               ASSERT_ONCE_MSG(upgraded_resources, "The game seeengly tried to copy incompatible resource formats for resources that were not upgraded by us");
+
                const std::shared_lock lock(s_mutex_shader_objects);
                if (device_data.copy_vertex_shader == nullptr || device_data.copy_pixel_shader == nullptr)
                {
-                  ASSERT_ONCE(false); // The custom shaders failed to be found (they have either been unloaded or failed to compile, or simply missing in the files)
-                  // We can't continue, drawing with emtpy shaders would crash or skip the call
+                  ASSERT_ONCE_MSG(false, "The Copy Resource Luma native shaders failed to be found (they have either been unloaded or failed to compile, or simply missing in the files)");
+                  // We can't continue, drawing with empty shaders would crash or skip the call
                   return false;
                }
 

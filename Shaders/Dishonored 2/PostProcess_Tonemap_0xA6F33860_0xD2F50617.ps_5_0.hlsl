@@ -105,14 +105,18 @@ static const float bloomStrength = 1.0;
 static const float lensDirtStrength = 1.0;
 static const float colorGradeLUTStrength = 1.0;
 
-float3 applyUserTonemap(float3 inputColor) {
-  if (LumaSettings.DisplayMode == 1) {
+float3 applyUserTonemap(float3 inputColor)
+{
+  if (LumaSettings.DisplayMode == 1)
+  {
     //float3 gammaCorrectedColor = renodx::color::correct::GammaSafe(inputColor);
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
 		return Tonemap_DICE(inputColor * paperWhite, peakWhite) / paperWhite;
     //tonemapped = renodx::color::correct::GammaSafe(tonemapped, true);
-  } else {
+  }
+  else
+  {
     //const float peakWhite = renodx::color::correct::GammaSafe(injectedData.toneMapPeakNits / injectedData.toneMapGameNits, true);
     //return renodx::tonemap::ReinhardScalable(inputColor, peakWhite);
     return inputColor;
@@ -217,7 +221,8 @@ void main(
   r0.w = cb_view_white_level * r0.w;
   r1.xyz = r0.xyz * r0.www;
   r0.xyz = cb_usecompressedhdrbuffers ? r1.xyz : r0.xyz;
-  if (cb_postfx_bloom_enabled != 0) {
+  if (cb_postfx_bloom_enabled != 0)
+  {
     r1.xy = cb_resolutionscale.xy * v0.xy;
     r1.z = cmp(0 < cb_postfx_lensdirt_usedefault.x);
     
@@ -226,10 +231,12 @@ void main(
       r1.z = false; // skip dirty lens effect
     }
     
-    if (r1.z != 0) {
+    if (r1.z != 0)
+    {
       r1.zw = cb_subpixeloffset.xy + v0.xy;
       r2.xyz = ro_postfx_bloom_lensdirt_from.SampleLevel(smp_linearclamp_s, r1.zw, 0).xyz;
-    } else {
+    } else
+    {
       r1.zw = cb_subpixeloffset.xy + v0.xy;
       r3.xyz = ro_postfx_bloom_lensdirt_from.SampleLevel(smp_linearclamp_s, r1.zw, 0).xyz;
       r4.xyz = ro_postfx_bloom_lensdirt_to.SampleLevel(smp_linearclamp_s, r1.zw, 0).xyz;
@@ -237,7 +244,8 @@ void main(
       r2.xyz = cb_postfx_bloom_lensdirt_blendweight * r4.xyz * lensDirtStrength + r3.xyz;
     }
     r1.z = cmp(0 < cb_env_bloom_veil_strength);
-    if (r1.z != 0) {
+    if (r1.z != 0)
+    {
       r3.xyz = ro_postfx_bloom_texbloom.SampleLevel(smp_linearclamp_s, r1.xy, 0).xyz;
       r4.xyz = r3.xyz * r0.www;
       r3.xyz = cb_usecompressedhdrbuffers ? r4.xyz : r3.xyz;
@@ -245,7 +253,8 @@ void main(
       float3 vanillaBloom = cb_env_bloom_veil_strength * r3.xyz;
       r3.xyz = bloomStrength * cb_env_bloom_veil_strength * r3.xyz;  // bloom strength
 
-      if (bloomStrength != 1) {
+      if (bloomStrength != 1)
+      {
         float vanillaBloomLum = GetLuminance(vanillaBloom);
         r3.xyz = lerp(vanillaBloom.rgb, r3.xyz, saturate(vanillaBloomLum/0.18f));
       }
@@ -396,7 +405,8 @@ void main(
     float3 hdrColor = applyUserTonemap(hdrLUTOutput);
 
 #if FIX_RAISED_BLACKS && 0
-    if (injectedData.blackFloor) {  // blend back lower black floor from hdrColor
+    if (injectedData.blackFloor)
+    {  // blend back lower black floor from hdrColor
       float3 hdrLab = renodx::color::oklab::from::BT709(hdrColor);
       float3 sdrLab = renodx::color::oklab::from::BT709(sdrColor);
 
