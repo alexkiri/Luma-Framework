@@ -4,6 +4,7 @@
 #include "Common.hlsl"
 #include "ACES.hlsl"
 #include "DICE.hlsl"
+#include "ColorGradingLUT.hlsl"
 
 static const float HableShoulderScale = 4.0;
 static const float HableLinearScale = 1.0;
@@ -91,6 +92,40 @@ float3 Tonemap_ACES(float3 color, float peakWhite, float paperWhite = 1.0)
 {
 	ACESSettings settings = DefaultACESSettings();
 	return ACESTonemap(color, paperWhite, peakWhite, settings);
+}
+
+// From RenoDX, by ShortFuse
+float3 UpgradeToneMap(
+    float3 color_untonemapped,
+    float3 color_tonemapped,
+    float3 color_tonemapped_graded,
+    float post_process_strength = 1.f,
+    float auto_correction = 0.f) {
+  float ratio = 1.f;
+
+  float y_untonemapped = GetLuminance(color_untonemapped, CS_BT709);
+  float y_tonemapped = GetLuminance(color_tonemapped, CS_BT709);
+  float y_tonemapped_graded = GetLuminance(color_tonemapped_graded, CS_BT709);
+
+  if (y_untonemapped < y_tonemapped) {
+    // If substracting (user contrast or paperwhite) scale down instead
+    // Should only apply on mismatched HDR
+    ratio = y_untonemapped / y_tonemapped;
+  } else {
+    float y_delta = y_untonemapped - y_tonemapped;
+    y_delta = max(0, y_delta);  // Cleans up NaN
+    const float y_new = y_tonemapped_graded + y_delta;
+
+    const bool y_valid = (y_tonemapped_graded > 0);  // Cleans up NaN and ignore black
+    ratio = y_valid ? (y_new / y_tonemapped_graded) : 0;
+  }
+  float auto_correct_ratio = lerp(1.f, ratio, saturate(y_untonemapped));
+  ratio = lerp(ratio, auto_correct_ratio, auto_correction);
+
+  float3 color_scaled = color_tonemapped_graded * ratio;
+  // Match hue
+  color_scaled = RestoreHue(color_scaled, color_tonemapped_graded, 1.f, false, CS_BT709);
+  return lerp(color_untonemapped, color_scaled, post_process_strength);
 }
 
 #endif // SRC_TONEMAP_HLSL
