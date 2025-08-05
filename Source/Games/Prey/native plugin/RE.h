@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 #include <d3d11_1.h>
+#include <vector>
+#include <wrl/client.h>
 
 namespace RE
 {
@@ -188,6 +190,8 @@ namespace RE
 		ID3D11Device* m_pDevice;
 		ID3D11DeviceContext1* m_pContext;
 		IDXGISwapChain* m_pSwapChain;
+		std::vector<Microsoft::WRL::ComPtr<ID3D11RenderTargetView>> m_pBackbufferRTVs; // Note: this was a "_smart_ptr", some CryEngine internal smart pointer, but it seems to be the same size as com ptr
+		void*                 m_pBackbufferRTV; // D3DSurface* (ID3D11RenderTargetView likely)
 		unsigned int          m_pCurrentBackBufferRTVIndex;
 		DXGI_ADAPTER_DESC1    m_adapterDesc;
 		DXGI_SWAP_CHAIN_DESC  m_swapChainDesc;

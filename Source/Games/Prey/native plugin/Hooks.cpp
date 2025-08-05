@@ -537,7 +537,7 @@ namespace Hooks
 	{
 		// set colorspace
 		IDXGISwapChain3* swapChain3 = nullptr;
-		assert(Offsets::pCD3D9Renderer->m_devInfo.m_pSwapChain != nullptr); // TODO: the other data in "m_devInfo" seems wrong? Either way we never use it.
+		assert(Offsets::pCD3D9Renderer->m_devInfo.m_pSwapChain != nullptr);
 		Offsets::pCD3D9Renderer->m_devInfo.m_pSwapChain->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void**>(&swapChain3));
 
 		if (swapChain3) {
