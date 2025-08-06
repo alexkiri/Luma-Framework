@@ -1597,15 +1597,15 @@ public:
 #endif // ENABLE_NGX && ENABLE_NATIVE_PLUGIN
    }
 
-   void UpdateLumaInstanceDataCB(CB::LumaInstanceData& data) override
+   void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data) override
    {
-      data.CameraJitters = projection_jitters; // TODO: pre-multiply these by float2(0.5, -0.5) (NDC to UV space) given that they are always used in UV space by shaders. It doesn't really matter as they end up as "mad" single instructions
-      data.PreviousCameraJitters = previous_projection_jitters;
+      data.GameData.CameraJitters = projection_jitters; // TODO: pre-multiply these by float2(0.5, -0.5) (NDC to UV space) given that they are always used in UV space by shaders. It doesn't really matter as they end up as "mad" single instructions
+      data.GameData.PreviousCameraJitters = previous_projection_jitters;
 #if 0
-      data.ViewProjectionMatrix = cb_per_view_global.CV_ViewProjMatr; // Note that this is not 100% thread safe as "CV_ViewProjMatr" is written from another thread
-      data.PreviousViewProjectionMatrix = cb_per_view_global_previous.CV_ViewProjMatr;
+      data.GameData.ViewProjectionMatrix = cb_per_view_global.CV_ViewProjMatr; // Note that this is not 100% thread safe as "CV_ViewProjMatr" is written from another thread
+      data.GameData.PreviousViewProjectionMatrix = cb_per_view_global_previous.CV_ViewProjMatr;
 #endif
-      data.ReprojectionMatrix = reprojection_matrix;
+      data.GameData.ReprojectionMatrix = reprojection_matrix;
    }
 
    static bool IsValidGlobalCB(const void* global_buffer_data_ptr)
@@ -2489,6 +2489,32 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       };
       shader_defines_data.append_range(game_shader_defines_data);
       assert(shader_defines_data.size() < MAX_SHADER_DEFINES);
+
+#if !ENABLE_NATIVE_PLUGIN && DEVELOPMENT
+      // Test path to upgrade textures directly through classic Luma code, though this has major issues yet (later in rendering, some stuff is too dark and things flicker)
+      enable_swapchain_upgrade = true;
+      swapchain_upgrade_type = 1;
+      enable_texture_format_upgrades = true;
+      texture_upgrade_formats = {
+            reshade::api::format::r8g8b8a8_unorm,
+            reshade::api::format::r8g8b8a8_unorm_srgb,
+            reshade::api::format::r8g8b8a8_typeless,
+            reshade::api::format::r8g8b8x8_unorm,
+            reshade::api::format::r8g8b8x8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_unorm,
+            reshade::api::format::b8g8r8a8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_typeless,
+            reshade::api::format::b8g8r8x8_unorm,
+            reshade::api::format::b8g8r8x8_unorm_srgb,
+            reshade::api::format::b8g8r8x8_typeless,
+
+            reshade::api::format::r10g10b10a2_unorm,
+            reshade::api::format::r10g10b10a2_typeless,
+
+            reshade::api::format::r11g11b10_float,
+      };
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio;
+#endif
 
       game = new Prey();
    }

@@ -177,10 +177,16 @@ float3 RestoreHue(float3 targetColor, float3 sourceColor, float strength = 0.5, 
 #endif
 }
 
-float3 RestoreChrominance(float3 targetColor, float3 sourceColor, float strength = 1.0, uint colorSpace = CS_DEFAULT)
+float3 RestoreChrominanceAdvanced(float3 targetColor, float3 sourceColor, float strength = 1.0, uint colorSpace = CS_DEFAULT)
 {
   if (strength == 0.f) // Static optimization (useful if the param is const)
     return targetColor;
+
+#if 0 // More optimized path, and it generates less invalid xy colors, though it barely does anything and hue shifts more than it should
+  return lerp(targetColor, RestoreSaturation(targetColor, sourceColor, colorSpace), strength);
+#elif 0
+  return lerp(targetColor, RestoreChrominance(targetColor, sourceColor, colorSpace), strength);
+#else
   
   float3 sourceOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(sourceColor);
   float3 targetOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(targetColor);
@@ -199,6 +205,7 @@ float3 RestoreChrominance(float3 targetColor, float3 sourceColor, float strength
   targetOklab.yz *= chrominanceScale;
 
 	return colorSpace == CS_BT2020 ? oklab_to_linear_bt2020(targetOklab) : oklab_to_linear_srgb(targetOklab);
+#endif
 }
 
 // Not 100% hue conservering but better than just max(color, 0.f), this maps the color on the closest humanly visible xy location on th CIE graph.
@@ -409,7 +416,7 @@ float3 ColorGradingLUTTransferFunctionOut(float3 col, uint transferFunction, boo
   }
   else //if (transferFunction == LUT_EXTRAPOLATION_TRANSFER_FUNCTION_SRGB_WITH_GAMMA_2_2_BY_LUMINANCE_CORRECTION_LUMINANCE_AND_GAMMA_2_2_BY_CHANNEL_CORRECTION_CHROMA)
   {
-    return RestoreChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
+    return RestoreChrominanceAdvanced(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
   }
 }
 

@@ -61,6 +61,7 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       texture_2d->GetDesc(&texture_2d_desc);
       size = uint3{ texture_2d_desc.Width, texture_2d_desc.Height, 0 };
       format = texture_2d_desc.Format;
+      ASSERT_ONCE_MSG(format != DXGI_FORMAT_UNKNOWN, "Texture format unknwon?");
       if (render_target_flag)
       {
          *render_target_flag = (texture_2d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
@@ -79,6 +80,7 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       texture_3d->GetDesc(&texture_3d_desc);
       size = uint3{ texture_3d_desc.Width, texture_3d_desc.Height, texture_3d_desc.Depth };
       format = texture_3d_desc.Format;
+      ASSERT_ONCE_MSG(format != DXGI_FORMAT_UNKNOWN, "Texture format unknwon?");
       if (render_target_flag)
       {
          *render_target_flag = (texture_3d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
@@ -97,6 +99,7 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       texture_1d->GetDesc(&texture_1d_desc);
       size = uint3{ texture_1d_desc.Width, 0, 0 };
       format = texture_1d_desc.Format;
+      ASSERT_ONCE_MSG(format != DXGI_FORMAT_UNKNOWN, "Texture format unknwon?");
       if (render_target_flag)
       {
          *render_target_flag = (texture_1d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
@@ -107,6 +110,21 @@ void GetResourceInfo(ID3D11Resource* resource, uint3& size, DXGI_FORMAT& format,
       }
       return;
    }
+   // TODO: add some kind of flag to tell it was a buffer!
+   com_ptr<ID3D11Buffer> buffer;
+   hr = resource->QueryInterface(&buffer);
+   if (SUCCEEDED(hr) && buffer)
+   {
+      D3D11_BUFFER_DESC buffer_desc;
+      buffer->GetDesc(&buffer_desc);
+      size = uint3{ buffer_desc.ByteWidth, 0, 0 }; // A bit random, but it shall work
+      if (hash)
+      {
+         *hash = std::to_string(std::hash<void*>{}(resource));
+      }
+      return;
+   }
+   ASSERT_ONCE_MSG(false, "Unknwon texture type");
 }
 void GetResourceInfo(ID3D11View* view, uint3& size, DXGI_FORMAT& format, std::string* hash = nullptr, bool* render_target_flag = nullptr)
 {

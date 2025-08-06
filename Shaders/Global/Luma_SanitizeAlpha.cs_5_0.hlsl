@@ -10,7 +10,9 @@ void main(uint3 vDispatchThreadId : SV_DispatchThreadID)
 	if (pixelPos.x >= width || pixelPos.y >= height)
 		return;
 
-	float4 color = sourceTargetTexture.Load(pixelPos);
+#pragma warning( disable : 3206 ) // Not sure why it's needed
+	float4 color = sourceTargetTexture.Load(int3(pixelPos));
+#pragma warning( default : 3206 )
 
 	color.a = saturate(color.a);
 

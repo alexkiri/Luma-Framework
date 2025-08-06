@@ -500,7 +500,7 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
   // Do a second DICE pass by PQ channel and then restore that chrominance, to smoothly desaturate highlights
   diceSettings.Type = DICE_TYPE_BY_CHANNEL_PQ;
 	float3 tonemappedAlt = DICETonemap(untonemapped * paperWhite, peakWhite, diceSettings) / paperWhite;
-	tonemapped = RestoreChrominance(tonemapped, tonemappedAlt);
+	tonemapped = RestoreChrominanceAdvanced(tonemapped, tonemappedAlt);
 #endif // TONEMAP_TYPE == 4
 
 #else // TONEMAP_TYPE > 4

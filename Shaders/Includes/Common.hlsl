@@ -121,7 +121,13 @@ float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
 // https://github.com/Filoppi/PumboAutoHDR
 float3 PumboAutoHDR(float3 SDRColor, float _PeakWhiteNits, float _PaperWhiteNits, float ShoulderPow = 2.75f)
 {
+#if 0 // This might disproportionally brighten up pure colors
+	const float SDRRatio = max3(SDRColor);
+#elif 1
+	const float SDRRatio = average(SDRColor);
+#else // This nearly ignores blue!
 	const float SDRRatio = max(GetLuminance(SDRColor), 0.f);
+#endif
 	// Limit AutoHDR brightness, it won't look good beyond a certain level.
 	// The paper white multiplier is applied later so we account for that.
 	const float AutoHDRMaxWhite = max(min(_PeakWhiteNits, PeakWhiteNits) / _PaperWhiteNits, 1.f);

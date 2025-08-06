@@ -6004,6 +6004,12 @@ namespace
                                           debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
                                        }
                                        debug_draw_mode = pipeline_pair->second->HasPixelShader() ? DebugDrawMode::RenderTarget : (pipeline_pair->second->HasComputeShader() ? DebugDrawMode::UnorderedAccessView : DebugDrawMode::ShaderResource); // Do it regardless of "debug_draw_shader_enabled"
+                                       // Fall back on depth if there main RT isn't valid
+                                       if (debug_draw_mode == DebugDrawMode::RenderTarget && cmd_list_data.trace_draw_calls_data.at(selected_index).rt_format[0] == DXGI_FORMAT_UNKNOWN && cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Disabled)
+                                       {
+                                          debug_draw_mode = DebugDrawMode::Depth;
+                                          debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::RedOnly;
+                                       }
                                        debug_draw_view_index = 0;
                                        //debug_draw_replaced_pass = false;
 #endif
