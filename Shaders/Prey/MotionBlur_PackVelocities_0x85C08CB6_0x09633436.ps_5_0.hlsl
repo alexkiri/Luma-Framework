@@ -86,13 +86,13 @@ pixout main(vtxOut IN)
 	float2 jitters = 0;
 	if (!noVelocityObj && MVsNeedDejittering)
 	{
-        jitters -= LumaData.CameraJitters.xy;
-        jitters += LumaData.PreviousCameraJitters.xy;
+        jitters -= LumaData.GameData.CameraJitters.xy;
+        jitters += LumaData.GameData.PreviousCameraJitters.xy;
 	}
 	// This helps on camera/depth generated MVs, and possibly also helps the dynamic objects MVs (it doesn't seem to do much, but it doesn't hurt them)
 	else
 	{
-        jitters -= LumaData.CameraJitters.xy;
+        jitters -= LumaData.GameData.CameraJitters.xy;
 	}
 	// Convert from NDC space to UV space (y is flipped)
 	jitters *= float2(0.5, -0.5);

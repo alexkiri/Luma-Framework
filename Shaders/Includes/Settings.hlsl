@@ -3,7 +3,9 @@
 
 /////////////////////////////////////////
 // LUMA advanced settings
-// (note that the defaults might be mirrored in c++, the shader values will be overridden anyway)
+// 
+// Note that the defaults might be mirrored in c++, the shader values will be overridden anyway.
+// Include the game cbuffer structs define before this ("LUMA_GAME_CB_STRUCTS") if you have one.
 /////////////////////////////////////////
 
 // Whether we store the post process buffers in linear space scRGB or gamma space (sRGB under normal circumstances) (like in the vanilla game, though now we use FP16 textures as opposed to UNORM8 ones).
@@ -146,19 +148,28 @@
 /////////////////////////////////////////
 
 // In case the per game code had not defined a custom struct, define a generic empty one. This behaviour is matched in c++.
-#ifndef LUMA_GAME_SETTINGS_CB_STRUCT
-#define LUMA_GAME_SETTINGS_CB_STRUCT
+#ifndef LUMA_GAME_CB_STRUCTS
+#define LUMA_GAME_CB_STRUCTS
+#if REQUIRES_LUMA_GAME_CB_STRUCTS
+#error "Settings.hlsl has not been included after the per game CB structs definitions"
+#endif
 namespace CB
 {
+	// hlsl doesn't support empty structs, so add a dummy variable (ideally it'd be empty or optional but it won't realistically affect performance)
 	struct LumaGameSettings
 	{
-		float Dummy; // hlsl doesn't support empty structs
+		float Dummy;
+	};
+	struct LumaGameData
+	{
+		float Dummy;
 	};
 }
 #endif
 
 // Luma global settings (usually, but not necessarily, changed a maximum of once per frame)
 // Regarding "LUMA_SETTINGS_CB_INDEX", most engines (e.g. CryEngine, Unreal, Unity) push the registers that are used by each shader again for every draw, so it's generally safe to overridden them anyway (they are all reset between frames).
+// Game and Dev settings should only be accessed outside of global shaders and includes, given the struct isn't guaranteed to be fully defined there.
 cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
 {
   struct
@@ -172,8 +183,6 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float UIPaperWhiteNits; // Access this through the global variables below (only usable in certain "UI_DRAW_TYPE" modes)
     uint DLSS; // Is DLSS enabled (implies it engaged and it's compatible) (this is on even in fullscreen UI menus that don't use upscaling)
     uint FrameIndex; // Frame counter, no need for this to be by device or swapchain
-
-    CB::LumaGameSettings GameSettings; // Custom games setting, with a per game struct. This is here to avoid taking too many cbuffer slots.
 
 #if DEVELOPMENT
     // These are reflected in ImGui (the number of them is hardcoded in c++).
@@ -189,6 +198,9 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float DevSetting09; // 0, 0, 1
     float DevSetting10; // 0, 0, 1
 #endif
+
+    // This is here to avoid taking too many cbuffer slots for separate buffers. It's at the end to avoid alignment issues with non game specific data in case the game specific includes were missing.
+    CB::LumaGameSettings GameSettings; // Custom games setting, with a per game struct.
   } LumaSettings : packoffset(c0);
 }
 

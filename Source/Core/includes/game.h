@@ -53,7 +53,7 @@ public:
    // This is called every frame just before sending out the final image to the display (the swapchain).
    // You can reliable reset any per frame setting here.
    virtual void OnPresent(ID3D11Device* native_device, DeviceData& device_data) {}
-   virtual void UpdateLumaInstanceDataCB(CB::LumaInstanceData& data) {}
+   virtual void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data) {}
    // Retrieves the game's "global" (main, per view, ...) cbuffer data
    virtual bool UpdateGlobalCB(const void* global_buffer_data_ptr, reshade::api::device* device) { return false; }
 

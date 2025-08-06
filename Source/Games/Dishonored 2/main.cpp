@@ -152,7 +152,7 @@ public:
    }
 
    //TODOFT: delete?
-   void UpdateLumaInstanceDataCB(CB::LumaInstanceData& data) override
+   void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data) override
    {
    }
 

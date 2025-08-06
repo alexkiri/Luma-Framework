@@ -53,7 +53,7 @@ void main(
 	_tex0_D3D11.GetDimensions(inputResolution.x, inputResolution.y); // We can't use "CV_ScreenSize" here as that's for the output resolution
 	float2 sampleUVClamp = CV_HPosScale.xy - (0.5 / inputResolution);
 	
-	float2 jitters = LumaData.CameraJitters.xy * float2(0.5, -0.5);
+	float2 jitters = LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5);
 	inBaseTC.xy -= jitters;
 
 	// LUMA FT: fixed bad UVs DRS scaling and added dejittering to make it more temporally stable

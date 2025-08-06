@@ -7,6 +7,12 @@
 
 #include <cmath>
 #include <array>
+#include <limits>
+#include <algorithm>
+#include <string_view>
+#include <unordered_set>
+#include <cctype>
+#include "assert.h"
 
 // Not everything in here is exactly math, there's also util and logic stuff, but it's close enough!
 namespace Math

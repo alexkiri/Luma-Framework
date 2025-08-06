@@ -325,7 +325,7 @@ namespace
    // Global data (not device dependent really):
 
    // Directly from cbuffer
-   CB::LumaGlobalSettings cb_luma_global_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_global_settings_dirty" when changing within a frame (so it's uploaded again)
+   CB::LumaGlobalSettingsPadded cb_luma_global_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_global_settings_dirty" when changing within a frame (so it's uploaded again)
 
    bool has_init = false;
    bool asi_loaded = true; // Whether we've been loaded from an ASI loader or ReShade Addons system (we assume true until proven otherwise)
@@ -669,8 +669,12 @@ namespace
       {
          const std::shared_lock lock(s_mutex_shader_defines);
          constexpr uint32_t cbuffer_defines = 3;
-         constexpr uint32_t game_specific_defines = 1;
-         const uint32_t total_extra_defines = cbuffer_defines + game_specific_defines + (sub_game_shader_define != nullptr ? 1 : 0);
+         uint32_t game_specific_defines = 1;
+         if (sub_game_shader_define != nullptr)
+         {
+            game_specific_defines++;
+         }
+         const uint32_t total_extra_defines = cbuffer_defines + game_specific_defines;
          shader_defines.assign((shader_defines_data.size() + total_extra_defines) * 2, "");
 
          size_t shader_defines_index = shader_defines.size() - (total_extra_defines * 2);
@@ -1046,6 +1050,15 @@ namespace
             {
                local_shader_defines.push_back("_" + hash_string);
                local_shader_defines.push_back("1");
+            }
+            if (!is_global)
+            {
+#if defined(LUMA_GAME_CB_STRUCTS) && DEVELOPMENT && 0 // Disabled as it's not particularly useful, if the CB struct is missing, shaders won't compile anyway
+               // Highlight that the luma game settings struct (nested into the global luma cb) is required by all includes,
+               // making sure it wasn't accidentally left out, which would leave the cb definition off.
+               local_shader_defines.push_back("REQUIRES_LUMA_GAME_CB_STRUCTS");
+               local_shader_defines.push_back("1");
+#endif
             }
 
             // Note that we "shader_hash" might have been modified in the "is_luma_native" case,
@@ -1577,7 +1590,7 @@ namespace
 
       D3D11_BUFFER_DESC buffer_desc = {};
       // From MS docs: you must set the ByteWidth value of D3D11_BUFFER_DESC in multiples of 16, and less than or equal to D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT.
-      buffer_desc.ByteWidth = sizeof(CB::LumaGlobalSettings);
+      buffer_desc.ByteWidth = sizeof(CB::LumaGlobalSettingsPadded);
       buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
       buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
       buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -1591,14 +1604,14 @@ namespace
       assert(SUCCEEDED(hr));
       if (luma_data_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT)
       {
-         buffer_desc.ByteWidth = sizeof(CB::LumaInstanceData);
+         buffer_desc.ByteWidth = sizeof(CB::LumaInstanceDataPadded);
          data.pSysMem = &device_data.cb_luma_instance_data;
          hr = native_device->CreateBuffer(&buffer_desc, &data, &device_data.luma_instance_data);
          assert(SUCCEEDED(hr));
       }
       if (luma_ui_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT)
       {
-         buffer_desc.ByteWidth = sizeof(CB::LumaUIData);
+         buffer_desc.ByteWidth = sizeof(CB::LumaUIDataPadded);
          data.pSysMem = &device_data.cb_luma_ui_data;
          hr = native_device->CreateBuffer(&buffer_desc, &data, &device_data.luma_ui_data);
          assert(SUCCEEDED(hr));
@@ -2595,7 +2608,7 @@ namespace
       {
          if (luma_data_cbuffer_index >= D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT) break;
 
-         CB::LumaInstanceData cb_luma_instance_data;
+         CB::LumaInstanceDataPadded cb_luma_instance_data;
          cb_luma_instance_data.CustomData1 = custom_data_1;
          cb_luma_instance_data.CustomData2 = custom_data_2;
          cb_luma_instance_data.CustomData3 = 0.f; // Used as padding for now (unused)
@@ -3132,7 +3145,7 @@ namespace
       // Skip the rest in cases where the UI isn't passing through our custom linear blends that emulate SDR gamma->gamma blends.
       if (GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) != 1) return false;
 
-      CB::LumaUIData ui_data = {};
+      CB::LumaUIDataPadded ui_data = {};
 
       com_ptr<ID3D11RenderTargetView> render_target_view;
       // Theoretically we should also retrieve the UAVs and all other RTs but in reality it doesn't ever really matter

@@ -140,10 +140,10 @@ float2 CalcPreviousTC(float2 _baseTC, float _depth)
 #if FORCE_MOTION_VECTORS_JITTERED
 	// LUMA FT: in this case, always used the jittered reprojection matrix, because we'll be removing jitters later.
 	// This isn't really necessary for the MVs generation from the depth buffer, but it unifies the jitter removal code path to work under dynamic motions MVs and depth buffer generated MVs.
-	const float4 vPosHPrev = mul(LumaData.ReprojectionMatrix, float4(_baseTC, _depth, 1.0));
+	const float4 vPosHPrev = mul(LumaData.GameData.ReprojectionMatrix, float4(_baseTC, _depth, 1.0));
 #else
 	// LUMA FT: use "fixed" matrix with jitters too when calculating motion vectors for DLSS (we wouldn't want (previous and current) jitters in the raw TAA as it would just blur things too much)
-	const float4 vPosHPrev = mul(LumaSettings.DLSS ? LumaData.ReprojectionMatrix : cbPostAA.matReprojection, float4(_baseTC, _depth, 1.0));
+	const float4 vPosHPrev = mul(LumaSettings.DLSS ? LumaData.GameData.ReprojectionMatrix : cbPostAA.matReprojection, float4(_baseTC, _depth, 1.0));
 #endif
 	return vPosHPrev.xy / vPosHPrev.w;
 }

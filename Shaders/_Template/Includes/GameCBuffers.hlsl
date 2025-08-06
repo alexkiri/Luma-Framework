@@ -1,5 +1,5 @@
-#ifndef LUMA_GAME_SETTINGS_CB_STRUCT
-#define LUMA_GAME_SETTINGS_CB_STRUCT
+#ifndef LUMA_GAME_CB_STRUCTS
+#define LUMA_GAME_CB_STRUCTS
 
 #ifdef __cplusplus
 // This include is needed to allow reading shader types from c++.
@@ -16,6 +16,12 @@ namespace CB
 		float GameSetting01;
 		uint GameSetting02;
 	};
+	
+	// Define the game specific cbuffer (instance/pass) data here
+	struct LumaGameData
+	{
+		float Dummy; // hlsl doesn't support empty structs
+	};
 }
 
-#endif // LUMA_GAME_SETTINGS_CB_STRUCT
+#endif // LUMA_GAME_CB_STRUCTS

@@ -262,7 +262,7 @@ void HDRFinalScenePS(float4 WPos, float4 baseTC, out float4 outColor)
 {
   int3 pixelCoord = int3(WPos.xy, 0);
 	float2 screenTC = MapViewportToRaster(baseTC.xy);
-	float2 jitteredScreenTC = MapViewportToRaster(baseTC.xy + (LumaData.CameraJitters.xy * float2(0.5, -0.5)));
+	float2 jitteredScreenTC = MapViewportToRaster(baseTC.xy + (LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5)));
 
 #if DRAW_LUT && !TEST_MOTION_BLUR_TYPE && !TEST_SMAA_EDGES && !TEST_TAA_TYPE
   uint sourceLevel = 0;
@@ -294,7 +294,7 @@ void HDRFinalScenePS(float4 WPos, float4 baseTC, out float4 outColor)
 	float4 cScene = hdrSourceTex.Load(pixelCoord);
 #endif // ALLOW_MSAA
 
-  float2 jitteredBaseTC = baseTC.xy + (LumaData.CameraJitters.xy * float2(0.5, -0.5));
+  float2 jitteredBaseTC = baseTC.xy + (LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5));
 #if ENABLE_VIGNETTE
   // LUMA FT: Ultrawide friendly vignette implementation. To alter the vignette strength, we can multiply the offset from 1 (away from it)
   // LUMA FT: added jittering to vignette, so it's resolved over time more nicely (it's still bad that it's applied before TAA!)

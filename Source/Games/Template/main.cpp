@@ -84,9 +84,9 @@ public:
 
       // Init the game settings here, you could also load them from ini in "LoadConfigs()".
       // These can be defined in a header shared between shaders and c++, and are sent to the GPU every time they change.
-      // It should be in "Shaders/Game/Includes/GameCBSettings.hlsl", you can either add that to your Visual Studio project as forced include as some projects do,
+      // It should be in "Shaders/Game/Includes/GameCBuffers.hlsl", you can either add that to your Visual Studio project as forced include as some projects do,
       // or manually add it to the project files and include that at the top (before anything else, as the game cb settings struct needs to be defined), or make a copy of it in c++ (making sure it's mirrored to hlsl),
-      // and define "LUMA_GAME_SETTINGS_CB_STRUCT" to avoid it being re-defined.
+      // and define "LUMA_GAME_CB_STRUCTS" to avoid it being re-defined.
       // Set "device_data.cb_luma_global_settings_dirty" to true when you change them (if you care for them being re-uploaded to the GPU).
       cb_luma_global_settings.GameSettings.GameSetting01 = 0.5f;
       cb_luma_global_settings.GameSettings.GameSetting02 = 33;

@@ -1,5 +1,5 @@
-#ifndef LUMA_GAME_SETTINGS_CB_STRUCT
-#define LUMA_GAME_SETTINGS_CB_STRUCT
+#ifndef LUMA_GAME_CB_STRUCTS
+#define LUMA_GAME_CB_STRUCTS
 
 #ifdef __cplusplus
 #include "../../../Source/Core/includes/shader_types.h"
@@ -12,6 +12,11 @@ namespace CB
 		float HDRHighlights;
 		float HDRDesaturation;
 	};
+	
+	struct LumaGameData
+	{
+		float Dummy;
+	};
 }
 
-#endif // LUMA_GAME_SETTINGS_CB_STRUCT
+#endif // LUMA_GAME_CB_STRUCTS

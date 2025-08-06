@@ -1,7 +1,7 @@
 #pragma once
 
-#include "math.h"
 #include "shader_types.h"
+#include <cmath>
 
 #if !defined(DEBUG)
 #define M_INLINE __forceinline
@@ -419,7 +419,6 @@ namespace Math
 	};
 
 	typedef __declspec(align(16)) Matrix44T<float> Matrix44F;
-	static_assert(sizeof(Matrix44F) == sizeof(float4) * 4); // For GPUs cbuffers
 	typedef Matrix44T<double> Matrix44D;
 	static_assert(sizeof(Matrix44D) == sizeof(double) * 4 * 4);
 	typedef Matrix44T<float> Matrix44; // Make the default one 32 bit float.
@@ -499,22 +498,26 @@ namespace Math
 	template<class TA, class TB>
 	inline bool MatrixAlmostEqual(const Matrix44T<TA>& M1, const Matrix44T<TB>& M2, TA fTolerance)
 	{
-		return AlmostEqual(M1(0, 0), (TA)M2(0, 0), fTolerance)
-			&& AlmostEqual(M1(0, 1), (TA)M2(0, 1), fTolerance)
-			&& AlmostEqual(M1(0, 2), (TA)M2(0, 2), fTolerance)
-			&& AlmostEqual(M1(0, 3), (TA)M2(0, 3), fTolerance)
-			&& AlmostEqual(M1(1, 0), (TA)M2(1, 0), fTolerance)
-			&& AlmostEqual(M1(1, 1), (TA)M2(1, 1), fTolerance)
-			&& AlmostEqual(M1(1, 2), (TA)M2(1, 2), fTolerance)
-			&& AlmostEqual(M1(1, 3), (TA)M2(1, 3), fTolerance)
-			&& AlmostEqual(M1(2, 0), (TA)M2(2, 0), fTolerance)
-			&& AlmostEqual(M1(2, 1), (TA)M2(2, 1), fTolerance)
-			&& AlmostEqual(M1(2, 2), (TA)M2(2, 2), fTolerance)
-			&& AlmostEqual(M1(2, 3), (TA)M2(2, 3), fTolerance)
-			&& AlmostEqual(M1(3, 0), (TA)M2(3, 0), fTolerance)
-			&& AlmostEqual(M1(3, 1), (TA)M2(3, 1), fTolerance)
-			&& AlmostEqual(M1(3, 2), (TA)M2(3, 2), fTolerance)
-			&& AlmostEqual(M1(3, 3), (TA)M2(3, 3), fTolerance);
+		auto AlmostEqualLambda = [](auto a, auto b, auto tolerance)
+			{
+				return std::abs(a - b) <= tolerance;
+			};
+		return AlmostEqualLambda(M1(0, 0), (TA)M2(0, 0), fTolerance)
+			&& AlmostEqualLambda(M1(0, 1), (TA)M2(0, 1), fTolerance)
+			&& AlmostEqualLambda(M1(0, 2), (TA)M2(0, 2), fTolerance)
+			&& AlmostEqualLambda(M1(0, 3), (TA)M2(0, 3), fTolerance)
+			&& AlmostEqualLambda(M1(1, 0), (TA)M2(1, 0), fTolerance)
+			&& AlmostEqualLambda(M1(1, 1), (TA)M2(1, 1), fTolerance)
+			&& AlmostEqualLambda(M1(1, 2), (TA)M2(1, 2), fTolerance)
+			&& AlmostEqualLambda(M1(1, 3), (TA)M2(1, 3), fTolerance)
+			&& AlmostEqualLambda(M1(2, 0), (TA)M2(2, 0), fTolerance)
+			&& AlmostEqualLambda(M1(2, 1), (TA)M2(2, 1), fTolerance)
+			&& AlmostEqualLambda(M1(2, 2), (TA)M2(2, 2), fTolerance)
+			&& AlmostEqualLambda(M1(2, 3), (TA)M2(2, 3), fTolerance)
+			&& AlmostEqualLambda(M1(3, 0), (TA)M2(3, 0), fTolerance)
+			&& AlmostEqualLambda(M1(3, 1), (TA)M2(3, 1), fTolerance)
+			&& AlmostEqualLambda(M1(3, 2), (TA)M2(3, 2), fTolerance)
+			&& AlmostEqualLambda(M1(3, 3), (TA)M2(3, 3), fTolerance);
 	}
 
 	template<class T>

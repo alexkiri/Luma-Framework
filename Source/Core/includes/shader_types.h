@@ -2,8 +2,14 @@
 
 #include <cstdint>
 
+#include "matrix.h"
+
 namespace
 {
+   // Remove these attributes
+   #define row_major
+   #define column_major
+
    typedef uint32_t uint;
 
    struct uint2
@@ -77,4 +83,7 @@ namespace
          return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
       }
    };
+
+   typedef Math::Matrix44F float4x4;
+   static_assert(sizeof(Math::Matrix44F) == sizeof(float4) * 4);
 }

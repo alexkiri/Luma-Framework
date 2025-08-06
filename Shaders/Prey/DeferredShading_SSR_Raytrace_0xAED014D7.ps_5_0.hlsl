@@ -160,7 +160,7 @@ void main(
 
 #if 0 //TODO LUMA: if we ever wanted to actually randomize the reflection ray a bit (per pixel?) to emulate diffuseness we could, but it might not be such a good idea as it'd get noisy
 	float randomizationAmount = 1.0 - sqr(attribs.Smoothness);
-	float randomizationIteration = (LumaData.FrameIndex % 8) / 7.0;
+	float randomizationIteration = (LumaSettings.FrameIndex % 8) / 7.0;
 #if 1
     float3 axis = normalize(NRand3(inBaseTC.xy * randomizationIteration));
     float angle = radians(45.0) * randomizationAmount * NRand3(inBaseTC.yx * randomizationIteration).x;
@@ -400,7 +400,7 @@ void main(
 				localPrevTC += blurrinessAmountAndDirection * blurrinessRange;
 #endif // BLUR_REFLECTIONS_TYPE == 1
 #if REJITTER_RELFECTIONS // LUMA FT: re-jitter the dejittered reflections UV with the current's frame jitter, so that TAA will reconstruct them better
-				localPrevTC += LumaData.CameraJitters.xy * float2(0.5, -0.5); // Even if the texture we sampled had a different resolution, we want to apply the jitters with the UV offset of the main rendering resolution
+				localPrevTC += LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5); // Even if the texture we sampled had a different resolution, we want to apply the jitters with the UV offset of the main rendering resolution
 #endif
 				localPrevTC *= cbRefl.screenScalePrev;
 #if ENFORCE_BORDER_COLOR
