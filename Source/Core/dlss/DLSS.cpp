@@ -116,7 +116,7 @@ namespace NGX
 // Previously (dynamic objects) MVs were half jittered (with the current frame's jitters only), because they are rendered with g-buffers, on projection matrices that have jitters.
 // We could't remove these jitters properly when rendering the final motion vectors for DLSS (we tried...), so neither this flag on or off would have been correct.
 // Even if we managed to generate the final MVs without jitters included, it seemengly doesn't look any better anyway.
-#if 1
+#if !GAME_FF7_REMAKE
 				| NVSDK_NGX_DLSS_Feature_Flags_MVJittered
 #endif
 #if 0
@@ -463,7 +463,7 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0 // Disabled to avoid sharpening randomly coming back if users used old DLLs or NV restored it
 	evalParams.Feature.InSharpness = data->sharpness; // It's likely clamped between 0 and 1 internally, though a value of 0 might fall back to the internal default
 #endif
-#if !GAME_PREY && !GAME_FF7_REMAKE // Prey uses a different scale for MVs, so we need to use the render resolution instead of the output one
+#if !GAME_PREY // Prey uses a different scale for MVs, so we need to use the render resolution instead of the output one
 	evalParams.InMVScaleX = 1.0;
 	evalParams.InMVScaleY = 1.0;
 #else // Needed in Prey
