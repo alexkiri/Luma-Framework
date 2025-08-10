@@ -18,8 +18,8 @@
 #define ENABLE_FAKE_HDR 0
 #endif
 
-#if !defined(LUMA_ENABLED)
-#define LUMA_ENABLED 1
+#if !defined(ENABLE_LUMA)
+#define ENABLE_LUMA 1
 #endif
 
 Texture2D<float4> bloomTexture : register(t4); // Very blurred
@@ -43,13 +43,15 @@ SamplerState s0_s : register(s0);
 // 0x2D6B78F6 - Rare scene with extra color filter but user lowered brightness
 // 0xA5777313 - Rare scene with extra color filter but during menu change resolution view
 // 0x0AE21975 - Rare scene with extra color filter but user lowered brightness and during menu change resolution view
-// 0x519DF6E7 - Water gameplay (they also have the extra color filter)
+// 0x519DF6E7 - Water gameplay (does chromatic aborration differently, they also have the extra color filter)
 // 0xC5DABDD4 - Water gameplay but user lowered brightness
 // 0x9D414A70 - Water gameplay but during menu change resolution view
 // 0xBFAB5215 - Water gameplay but user lowered brightness and during menu change resolution view
 // 0xC4065BE1 - Death (game can't be paused during death)
 // 0xF0503978 - Death but user lowered brightness
+// 
 // TODO: play the whole game to get all permutations, e.g. death in water, or water without color filter etc
+// (e.g. search for "0x7ef311c3", there seems to be 64 in total, so 8 base setings, there's a copy of each shader without lens distortion (and thus chromatic aberration))
 
 cbuffer cb0 : register(b0)
 {
@@ -83,21 +85,21 @@ float GetSceneWeightFromAlpha(float sceneColorAlpha)
 
 float3 AdjustBloom(float3 bloomColor)
 {
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   return sqr_mirrored(bloomColor); // Luma: added mirroring to preserve scRGB colors
-#else // !LUMA_ENABLED
+#else // !ENABLE_LUMA
   return sqr(bloomColor);
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
 }
 
 // Quick test to enable/disable Luma changes
 float3 OptionalSaturate(float3 x)
 {
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   return x;
-#else // !LUMA_ENABLED
+#else // !ENABLE_LUMA
   return saturate(x);
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
 }
 
 // Cubic polynomial
@@ -110,14 +112,14 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
   // w: additive color (higher means brighter, usually 0)
   // levelAdditive: raises blacks a bit, but if set to 0, it can crush them, so it's likely compensated by the other params (e.g. z and "levelAdditive"?).
   
-#if LUMA_ENABLED && DEVELOPMENT && 0 // TODO: play the whole game making sure these params are always 0, so that the mod can reliably change them (it should work anyway!)? These are changed by the user brightness setting, so it's ok!
+#if ENABLE_LUMA && DEVELOPMENT && 0 // TODO: play the whole game making sure these params are always 0, so that the mod can reliably change them (it should work anyway!)? These are changed by the user brightness setting, so it's ok!
   if (polynomialParams.x != 0.0 || polynomialParams.y != 0.0)
   {
     return float3(1.0, 0.0, 1.0);
   }
 #endif
 
-#if LUMA_ENABLED && 1
+#if ENABLE_LUMA && 1
   // Changing these will automatically output images in the HDR range!
   if (LumaSettings.DisplayMode == 1) // HDR mode, leave SDR as it was
   {
@@ -171,7 +173,7 @@ void main(
 
   const float fadeToWhite = cb0[11].x; // White at 1
   const float colorFilterIntensity = cb0[6].z; // Neutral (unfiltered) at 0. Color filtering isn't always used
-  const float blackFloor = cb0[10].x * LumaSettings.DevSetting01;
+  const float blackFloor = cb0[10].x * DVS2;
   const float colorPow = cb0[10].z;
 #if _8DEE69CB || _BEC46939 || _C5DABDD4 || _BFAB5215 || _0AE21975 || _2D6B78F6 || _F0503978
   const float fadeToBlackOrVignetteOrUserBrightness = 1.0;
@@ -189,11 +191,11 @@ void main(
 
   const float lensDistortionScale = 42.5; // Probably a manually picked constant, not the size of the texture, the same variable is found in the generation shader.
   float4 lensDistortionAndChromaticAberration = lensDistortionAndChromaticAberrationTexture.SampleLevel(s4_s, v1.xy, 0).xyzw;
-  float2 lensDistortion = (lensDistortionAndChromaticAberration.xy / lensDistortionScale) - (0.5 / lensDistortionScale); // Fixed lens distortion at this screen position. Neutral at 0.
-  float2 chromaticAberration = (lensDistortionAndChromaticAberration.zw * (0.5 / lensDistortionScale)) - (0.25 / lensDistortionScale); // Neutral at 0.
+  float2 lensDistortion = (lensDistortionAndChromaticAberration.xy / lensDistortionScale) - (0.5 / lensDistortionScale); // Outwards lens distortion. Neutral at 0.
+  float2 chromaticAberration = (lensDistortionAndChromaticAberration.zw * (0.5 / lensDistortionScale)) - (0.25 / lensDistortionScale); // Chromatic aberration + inwards lens distortion. Neutral at 0.
 #if !ENABLE_LENS_DISTORTION
   lensDistortion = 0;
-#elif LUMA_ENABLED // Fix lens distortion being stronger on the sides for Ultrawide
+#elif ENABLE_LUMA // Fix lens distortion being stronger on the sides for Ultrawide
   const float sourceAspectRatio = screenWidth / screenHeight; // Not exactly the size of the screen, but of the current viewport anyway (at least the source one, this texture might add black bars, but probably doesn't, they are added later if the screen aspect ratio is different from the render resolution)
   const float originalAspectRatio = 16.0 / 9.0;
   float2 ndc = (v1 - 0.5) * 2.0;
@@ -209,31 +211,32 @@ void main(
   const float2 noiseTextureInvSize = cb0[8].xy; // 256x256
   float2 noiseUV = v0.xy + noiseRandomOffset; // This is per pixel and is properly scaled by screen aspect ratio
   noiseUV *= noiseTextureInvSize;
-#if LUMA_ENABLED // Fix grain being near invisible at 4k, set it to 1080, the most common resolution of when the game shipped
+#if ENABLE_LUMA // Fix grain being near invisible at 4k, set it to 1080, the most common resolution of when the game shipped
   noiseUV *= 1080.0 / screenHeight;
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
   float4 noise = noiseTexture.SampleLevel(s3_s, noiseUV, 0).rgba;
 
 #if ENABLE_FILM_GRAIN
-#if LUMA_ENABLED // Fixed film grain raising blacks (see "blackFloorScale" above if you change this)
+#if ENABLE_LUMA // Fixed film grain raising blacks (see "blackFloorScale" above if you change this)
   noise.rgb = noise.rgb * 4.0 - 2.0;
   noise.rgb *= 5.0 / 4.0; // Slightly increase the intensity to kinda match the previous range
-#else // !LUMA_ENABLED
+#else // !ENABLE_LUMA
   noise.rgb = noise.rgb * 5.0 - 2.0; // Not exactly centered, this raises blacks!
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
   noise.rgb /= 219.0; // Random scale that probably looked good
 #else // !ENABLE_FILM_GRAIN
   noise.rgb = 0.0;
 #endif // ENABLE_FILM_GRAIN
 
-  float chromaticAberrationScale = 0.5;
+  // The palette starting shift (between 0 and 1 (or more)) determines what color we shift towards
+  float colorPaletteShift = 0.5;
 #if _519DF6E7 || _C5DABDD4 || _9D414A70 || _BFAB5215 // Water permutations
-  chromaticAberrationScale = noise.a;
+  colorPaletteShift = noise.a;
 #endif
 
   float2 currentSceneUV = v1.xy + lensDistortion;
-  currentSceneUV += chromaticAberration * uvStep * chromaticAberrationScale;
-  float2 currentColorPaletteUV = float2(uvStep * chromaticAberrationScale, 0.5); // This will do all horizontal samples from 0.0625 to 0.9375, as if the texture had an orizontal size 0f 8, though it doesn't, but it's fine anyway (8 is our horizontal iterations)
+  currentSceneUV += chromaticAberration * uvStep * colorPaletteShift;
+  float2 currentColorPaletteUV = float2(uvStep * colorPaletteShift, 0.5); // This will do all horizontal samples from 0.0625 to 0.9375, as if the texture had an orizontal size 0f 8, though it doesn't, but it's fine anyway (8 is our horizontal iterations)
 
   // First iteration
   float3 centralColorFilter = colorFilterTexture.SampleLevel(s1_s, currentColorPaletteUV, 0).rgb;
@@ -285,21 +288,21 @@ void main(
   float3 invertedScaledSceneColor = 1.0 - scaledSceneColor;
   float3 invertedScaledBloomColor = 1.0 - scaledBloomColor;
   // Compose bloom
-#if LUMA_ENABLED // Luma: added abs*sign to preserve negative colors, though we can't restore two signs or we'd turn positive again, so we only restore the primary one for now (ideally we'd find the influence of each of the two and pick an average of the two signs? Or do this in a wider color space, but the bloom here is so blurred that it has little influence)
+#if ENABLE_LUMA // Luma: added abs*sign to preserve negative colors, though we can't restore two signs or we'd turn positive again, so we only restore the primary one for now (ideally we'd find the influence of each of the two and pick an average of the two signs? Or do this in a wider color space, but the bloom here is so blurred that it has little influence)
   float3 invertedScaledComposedColor = abs(invertedScaledBloomColor) * abs(invertedScaledSceneColor) * sign(invertedScaledSceneColor); // TODO: make sure that restoring only one of the original signs here makes sense, as in case only one of the two was negative, it might create a step in colors? It's fine!
-#else // !LUMA_ENABLED
+#else // !ENABLE_LUMA
   float3 invertedScaledComposedColor = invertedScaledBloomColor * invertedScaledSceneColor; 
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
   float3 scaledComposedColor = 1.0 - invertedScaledComposedColor;
 
-#if LUMA_ENABLED && 1 // Luma: replace the clipped min black + black crush, with a lerp to black, given it killed black detail (this lowers brightness usually)
+#if ENABLE_LUMA && 1 // Luma: replace the clipped min black + black crush, with a lerp to black, given it killed black detail (this lowers brightness usually)
   const float blackFloorScale = 2.0; // Empyrically found value that keeps the blacks level roughly the same without clipping it (note that this is calibrated to also match the original black level with the additive film grain). Values like 5 would be a better match in some scenes, but they'd completely destroy other scenes.
   scaledComposedColor = lerp(0.0, scaledComposedColor, blackFloor == 0.0 ? 1.0 : sqr(saturate(scaledComposedColor / (blackFloor * blackFloorScale))));
-#else // !LUMA_ENABLED
+#else // !ENABLE_LUMA
   scaledComposedColor = max(blackFloor, scaledComposedColor) - blackFloor;
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
   scaledComposedColor /= cb0[10].y - blackFloor; // Raises brightness usually
-#if LUMA_ENABLED // Luma: added abs*sign to preserve negative colors (the alternaitve would have caused NaNs in SDR too anyway)
+#if ENABLE_LUMA // Luma: added abs*sign to preserve negative colors (the alternaitve would have caused NaNs in SDR too anyway)
   scaledComposedColor = pow(abs(scaledComposedColor), colorPow) * sign(scaledComposedColor); // Lowers brightness usually
 #else
   scaledComposedColor = pow(scaledComposedColor, colorPow); // Lowers brightness usually
@@ -309,25 +312,25 @@ void main(
 #if 1 // Some kind of brightness scaling... It adds a lot of contrast and flattens highlights
   float3 someColor1 = 1.0 - scaledComposedColor;
 
-#if LUMA_ENABLED && 0 // Luma: high quality version, plus mirroring to support scRGB colors. This looks quite different
+#if ENABLE_LUMA && 0 // Luma: high quality version, plus mirroring to support scRGB colors. This looks quite different
   float3 someColor2 = sqr_mirrored(someColor1) + (0.2 * cb0[10].w); // Luma: added mirroring to preserve scRGB colors
   float3 sqrtColor = sqrt(abs(someColor2)) * sign(someColor2);
   someColor1 -= safeDivision(someColor2, sqrtColor, 0);
-#elif LUMA_ENABLED // Luma: Conserve the hacky optimized square root, but make it work in scRGB
+#elif ENABLE_LUMA // Luma: Conserve the hacky optimized square root, but make it work in scRGB
   float3 someColor2 = sqr(max(someColor1, 0.0)) + (0.2 * cb0[10].w);
   float3 invSqrtColor = Quake_rsqrt(someColor2);
   someColor1 -= someColor2 * invSqrtColor;
-#else // !LUMA_ENABLED
+#else // !ENABLE_LUMA
   float3 someColor2 = sqr(someColor1) + (0.2 * cb0[10].w);
   float3 invSqrtColor = Quake_rsqrt(someColor2);
   someColor1 -= someColor2 * invSqrtColor;
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
 
   scaledComposedColor += someColor1 * 0.5;
 #endif
 
   // The main tonemapping (it seemengly darkens the game usually)
-#if LUMA_ENABLED // Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
+#if ENABLE_LUMA // Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
   const float3 zeroShift = ApplyCustomCurve(0.0, v3.y, v3.x, v2);
   float3 scaledComposedColorSigns = sign(scaledComposedColor);
   scaledComposedColor = ApplyCustomCurve(abs(scaledComposedColor), v3.y, v3.x, v2);
@@ -346,14 +349,14 @@ void main(
 
   outColor.rgb = (scaledComposedColor * fadeToBlackOrVignetteOrUserBrightness * otherFilter) + noise.rgb;
 
-#if LUMA_ENABLED // Luma: HDR display mapping and UI etc
+#if ENABLE_LUMA // Luma: HDR display mapping and UI etc
   outColor.rgb = gamma_to_linear(outColor.rgb, GCT_MIRROR);
 
 #if ENABLE_FAKE_HDR // Not really needed anymore after tweaking the tonemapper
   float normalizationPoint = 0.25; // Found empyrically
   float fakeHDRIntensity = 0.5;
   bool boostSaturation = false;
-#if 0
+#if 0 // TODO: delete
   normalizationPoint = LumaSettings.DevSetting01;
   fakeHDRIntensity =  LumaSettings.DevSetting02;
   boostSaturation =  LumaSettings.DevSetting03 > 0.5;
@@ -376,7 +379,7 @@ void main(
 #endif
 
   outColor.rgb = linear_to_gamma(outColor.rgb, GCT_MIRROR);
-#endif // LUMA_ENABLED
+#endif // ENABLE_LUMA
 
 #if _C4065BE1 || _F0503978 // Death permutations
   // Darken screen, or anyway fade to black. For consistency, we do this after the HDR tonemapping.

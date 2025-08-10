@@ -268,7 +268,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			}
 		}
 		
-#if 0
+#if 0 // AntiBloom AutoHDR
 		float shoulderPow = 2.75f; // Default value, can be changed in the settings
 		float maxShoulderPow = lerp(shoulderPow, 1.f, LumaSettings.DevSetting01); // Default value, can be changed in the settings
 		float mipRatio1 = GetLuminance(mipColor1.rgb) / GetLuminance(color.rgb);

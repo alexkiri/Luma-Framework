@@ -212,6 +212,30 @@ bool ShouldForceWhiteLevel() { return LumaSettings.DisplayMode == 0; }
 #endif
 float GetForcedWhileLevel() { return (LumaSettings.DisplayMode == 0) ? sRGB_WhiteLevelNits : ITU_WhiteLevelNits; }
 
+#if DEVELOPMENT
+#define DVS1 LumaSettings.DevSetting01
+#define DVS2 LumaSettings.DevSetting02
+#define DVS3 LumaSettings.DevSetting03
+#define DVS4 LumaSettings.DevSetting04
+#define DVS5 LumaSettings.DevSetting05
+#define DVS6 LumaSettings.DevSetting06
+#define DVS7 LumaSettings.DevSetting07
+#define DVS8 LumaSettings.DevSetting08
+#define DVS9 LumaSettings.DevSetting09
+#define DVS10 LumaSettings.DevSetting10
+#else // Default to 1 even if when enabled they default to 0, it's more likely to be the neutral value
+#define DVS1 1.0
+#define DVS2 1.0
+#define DVS3 1.0
+#define DVS4 1.0
+#define DVS5 1.0
+#define DVS6 1.0
+#define DVS7 1.0
+#define DVS8 1.0
+#define DVS9 1.0
+#define DVS10 1.0
+#endif
+
 #ifdef HDR_TONEMAP_PAPER_WHITE_BRIGHTNESS // You can define this to force an hardcoded paper white (for whatever reason)
 static const float GamePaperWhiteNits = HDR_TONEMAP_PAPER_WHITE_BRIGHTNESS;
 static const float UIPaperWhiteNits = HDR_TONEMAP_PAPER_WHITE_BRIGHTNESS;

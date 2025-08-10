@@ -94,6 +94,7 @@ public:
       if (game_info)
       {
          sub_game_shader_define = game_info->shader_define.c_str(); // This data is persistent
+         sub_game_shaders_appendix = game_info->internal_name; // Make sure we dump in a sub folder, to keep them separate
       }
       // Allow to branch on behaviour for a generic mod too in shaders
       else
@@ -146,6 +147,7 @@ public:
       if (game_id == GAME_INSIDE)
       {
          std::vector<ShaderDefineData> game_shader_defines_data = {
+            {"ENABLE_LUMA", '1', false, false, "Enables all Luma's post processing modifications, to improve the image and output HDR"},
             {"ENABLE_FILM_GRAIN", '1', false, false, "Allow disabling the game's film grain effect"},
             {"ENABLE_LENS_DISTORTION", '1', false, false, "Allow disabling the game's lens distortion effect"},
             {"ENABLE_CHROMATIC_ABERRATION", '1', false, false, "Allow disabling the game's chromatic aberration effect"},
@@ -190,7 +192,7 @@ public:
       // and we'd need to add re-initialization code (and also expose the names ImGUI).
       // Don't change it if you want to keep the automatic detection on boot.
       std::string game_name = GetGameInfoFromID(game_id).title;
-      if (game_id <= 0) // Automatic mode (no force game)
+      if (game_id <= 0) // Automatic mode (no forced game)
       {
          game_name = "Auto";
       }

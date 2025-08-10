@@ -71,18 +71,18 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
          *type_name = "Texture 2D";
          if (texture_2d_desc.SampleDesc.Count != 1)
          {
-            *type_name = "Texture 1D MS";
+            *type_name = "Texture 2D MS";
             if (texture_2d_desc.ArraySize != 1)
             {
-               *type_name = "Texture 1D MS Array";
+               *type_name = "Texture 2D MS Array";
             }
          }
          else if (texture_2d_desc.ArraySize != 1)
          {
-            *type_name = "Texture 1D Array";
+            *type_name = "Texture 2D Array";
             if (texture_2d_desc.ArraySize == 6 && (texture_2d_desc.MiscFlags & D3D11_RESOURCE_MISC_TEXTURECUBE) != 0)
             {
-               *type_name = "Texture 1D Cube";
+               *type_name = "Texture 2D Cube";
             }
          }
       }

@@ -33,6 +33,7 @@ cbuffer cb0 : register(b0)
 
 #define cmp -
 
+// Used by characters meat blob at the end of the game, and possibly more
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : TEXCOORD0,
@@ -84,6 +85,10 @@ void main(
   r3.yw = -r3.zz * v3.zw + r3.yw;
   r7.xyzw = t1.SampleLevel(s5_s, r3.yw, 0).xyzw;
   r4.w = cmp(r7.x < v8.x);
+#if 1 // Luma: added default initilalization of variable given that depending on the branches below, it have not been assigned
+  r8 = float4(0, 0, 0, 1);
+  r9 = float4(0, 0, 0, 1);
+#endif
   if (r4.w != 0) {
     r4.w = cmp(v8.z < r7.x);
     r4.w = r4.w ? 0.75 : 1;
