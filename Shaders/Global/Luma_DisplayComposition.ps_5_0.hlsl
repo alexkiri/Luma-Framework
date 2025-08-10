@@ -188,8 +188,8 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 	sourceTexture.GetDimensions(sizeWidth, sizeHeight);
 	float2 uv = pos.xy / float2(sizeWidth, sizeHeight);
 
-	float targetHeight1 = 1080.0 * DVS04;
-	float targetHeight2 = targetHeight1 * DVS05 * 0.5;
+	float targetHeight1 = 1080.0 * DVS4;
+	float targetHeight2 = targetHeight1 * DVS5 * 0.5;
 	float mipLevel1 = log2(sizeHeight / targetHeight1);
 	float mipLevel2 = log2(sizeHeight / targetHeight2);
 	float4 color = sourceTexture.Load((int3)pos.xyz);
