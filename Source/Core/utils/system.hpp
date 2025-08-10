@@ -7,6 +7,8 @@
 
 namespace System
 {
+   // TODO: move these to a cpp body
+
    std::string GetProcessExecutableName()
    {
       char path[MAX_PATH];

@@ -3270,8 +3270,6 @@ namespace
 
    //TODOFT3: merge all the shader permutations that use the same code in Prey (and then move shader binaries to bin folder? Add shader files to VS project?)
 
-   int stop_type = 0; //TODOFT...
-
    // Return false to prevent the original draw call from running (e.g. if you replaced it or just want to skip it)
    // Most games (e.g. Prey, Dishonored 2) always draw in direct mode (as opposed to indirect), but uses different command lists on different threads (e.g. on Prey, that's almost only used for the shadow projection maps, in Dishonored 2, for almost every separate pass).
    // Usually there's a few compute shaders but most passes are "classic" pixel shaders.

@@ -188,7 +188,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       texture_format_upgrades_lut_size = 32;
       texture_format_upgrades_lut_dimensions = LUTDimensions::_2D;
 		// In case the textures failed to upgrade, tweak the filtering conditions to be more lenient (e.g. aspect ratio checks etc).
-      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio;
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
       // Create your game sub-class instance (it will be automatically destroyed on exit).
       // You do not need to do this if you have no custom data to store.
