@@ -55,7 +55,7 @@ namespace Math
 		return std::abs(a - b) <= tolerance;
 	}
 
-	// Emulates hlsl "asfloat(float x)"
+	// Emulates hlsl "asfloat(int x)"
 	template<typename T>
 	float AsFloat(T value)
 	{
@@ -63,6 +63,24 @@ namespace Math
 		uint32_t value_uint32 = value;
 		return *reinterpret_cast<float*>(&value_uint32);
 	}
+
+   // Emulates hlsl "asint(float x)"
+   template<typename T>
+   int32_t AsInt(T value)
+   {
+      static_assert(sizeof(T) <= sizeof(float) && sizeof(float) == sizeof(int32_t));
+      float value_float = value;
+      return *reinterpret_cast<int32_t*>(&value_float);
+   }
+
+   // Emulates hlsl "asuint(float x)"
+   template<typename T>
+   uint32_t AsUInt(T value)
+   {
+      static_assert(sizeof(T) <= sizeof(float) && sizeof(float) == sizeof(uint32_t));
+      float value_float = value;
+      return *reinterpret_cast<uint32_t*>(&value_float);
+   }
 
    bool IsMemoryAllZero(const char* begin, std::size_t bytes)
    {

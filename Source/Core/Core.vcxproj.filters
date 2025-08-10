@@ -5,6 +5,9 @@
     <ClCompile Include="dlss\DLSS.cpp">
       <Filter>DLSS</Filter>
     </ClCompile>
+    <ClCompile Include="utils\system.hpp">
+      <Filter>Utils</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="DLSS">

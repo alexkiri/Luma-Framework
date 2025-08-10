@@ -1,7 +1,5 @@
 #define GAME_TRINE_5 1
 
-#define UPGRADE_SAMPLERS 0
-
 #include "..\..\Core\core.hpp"
 
 // Dev only as skipping sharpening also skips TAA
@@ -223,7 +221,7 @@ public:
                   game_device_data.upgraded_post_process_srv = nullptr;
                   game_device_data.upgraded_post_process_rtv = nullptr;
 
-                  game_device_data.upgraded_post_process_texture = CloneTexture2D(native_device, target_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, false, false, nullptr);
+                  game_device_data.upgraded_post_process_texture = CloneTexture<ID3D11Texture2D>(native_device, target_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, 0, 0, false, false, nullptr);
                   ASSERT_ONCE(game_device_data.upgraded_post_process_texture);
                   native_device->CreateShaderResourceView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_srv);
                   native_device->CreateRenderTargetView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_rtv);
@@ -244,7 +242,15 @@ public:
             reshade::api::swapchain* swapchain = *device_data.swapchains.begin();
             IDXGISwapChain* native_swapchain = (IDXGISwapChain*)(swapchain->get_native());
             SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
+#if 0
+            com_ptr<IDXGISwapChain3> native_swapchain3;
+            // The cast pointer is actually the same, we are just making sure the type is right.
+            HRESULT hr = native_swapchain->QueryInterface(&native_swapchain3);
+            ASSERT_ONCE(SUCCEEDED(hr));
+            UINT back_buffer_index = native_swapchain3->GetCurrentBackBufferIndex();
+#else // Always 0 in DX11
             UINT back_buffer_index = swapchain->get_current_back_buffer_index();
+#endif
             com_ptr<ID3D11Texture2D> back_buffer;
             native_swapchain->GetBuffer(back_buffer_index, IID_PPV_ARGS(&back_buffer));
 

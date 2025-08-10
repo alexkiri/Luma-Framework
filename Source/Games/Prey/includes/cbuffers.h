@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include "..\..\..\Core\includes\shader_types.h"
 #include "..\..\..\Core\includes\matrix.h"
 
@@ -50,6 +52,7 @@ namespace
       float     CV_PADDING0;
       float     CV_PADDING1;
    };
+   constexpr uint32_t CBPerViewGlobal_valid_buffer_size = offsetof(CBPerViewGlobal, CV_PADDING0); // From there, the cbuffer is never accessed in shaders
    constexpr uint32_t CBPerViewGlobal_buffer_size = 1024; // This is how much CryEngine allocates for buffers that hold this (it doesn't use "sizeof(CBPerViewGlobal)")
    static_assert(CBPerViewGlobal_buffer_size > sizeof(CBPerViewGlobal));
 

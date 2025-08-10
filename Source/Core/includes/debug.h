@@ -3,7 +3,9 @@
 #include <windows.h>
 #include <string>
 
+// DEFINE_NAME_AS_STRING
 #define _STRINGIZE(x) _STRINGIZE2(x)
+// DEFINE_VALUE_AS_STRING
 #define _STRINGIZE2(x) #x
 
 // In non debug builds, replace asserts with a message box
@@ -130,49 +132,4 @@ namespace
       return true;
    }
 #endif // DEVELOPMENT || _DEBUG
-
-   std::string GetProcessExecutableName()
-   {
-      char path[MAX_PATH];
-      DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
-      if (length == 0 || length == MAX_PATH)
-         return {};
-
-      std::filesystem::path exe_path = std::string(path);
-      std::string exe_name = exe_path.filename().string();
-
-      return exe_name;
-   }
-
-   bool CopyToClipboard(const std::string& text)
-   {
-      // Convert UTF-8 to UTF-16
-      int wideSize = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-      if (wideSize <= 0) return false;
-
-      HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, wideSize * sizeof(wchar_t));
-      if (!hMem) return false;
-
-      wchar_t* wstr = static_cast<wchar_t*>(GlobalLock(hMem));
-      if (!wstr)
-      {
-         GlobalFree(hMem);
-         return false;
-      }
-
-      MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, wstr, wideSize);
-      GlobalUnlock(hMem);
-
-      if (!OpenClipboard(nullptr))
-      {
-         GlobalFree(hMem);
-         return false;
-      }
-
-      EmptyClipboard();
-      SetClipboardData(CF_UNICODETEXT, hMem); // Windows owns the memory after this
-      CloseClipboard();
-
-      return true;
-   }
 }

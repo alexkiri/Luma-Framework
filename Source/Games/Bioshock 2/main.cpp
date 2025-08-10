@@ -1,6 +1,6 @@
 #define GAME_BIOSHOCK_2 1
 
-#define UPGRADE_SAMPLERS 0
+#define UPGRADE_SAMPLERS 1
 
 #include "..\..\Core\core.hpp"
 
@@ -18,6 +18,8 @@ struct GameDeviceDataBioshock2 final : public GameDeviceData
    com_ptr<ID3D11RenderTargetView> upgraded_post_process_rtv;
    bool drew_tonemap = false;
    bool drew_aa = false;
+
+   bool infinite = false;
 
    // BS2/Infinite fog
    com_ptr<ID3D11Texture2D> scene_texture;
@@ -127,13 +129,13 @@ public:
             com_ptr<ID3D11Resource> rtr;
             rtv->GetResource(&rtr);
 
-            uint3 size_a, size_b;
+            uint4 size_a, size_b;
             DXGI_FORMAT format_a, format_b;
             GetResourceInfo(game_device_data.scene_texture.get(), size_a, format_a);
             GetResourceInfo(rtr.get(), size_b, format_b);
             if (size_a != size_b || format_a != format_b)
             {
-               game_device_data.scene_texture = CloneTexture2D(native_device, rtr.get(), DXGI_FORMAT_UNKNOWN, false, false);
+               game_device_data.scene_texture = CloneTexture<ID3D11Texture2D>(native_device, rtr.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, D3D11_BIND_UNORDERED_ACCESS, false, false);
                game_device_data.scene_texture_srv = nullptr;
                if (game_device_data.scene_texture)
                {
@@ -155,7 +157,7 @@ public:
          game_device_data.drew_tonemap = true;
 
          // If we upgrade all R8G8B8A8 textures, there's no need to do this live texture format swap
-         if (enable_swapchain_upgrade && swapchain_upgrade_type == 1 && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r8g8b8a8_unorm)))
+         if (game_device_data.infinite && enable_swapchain_upgrade && swapchain_upgrade_type == 1 && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r8g8b8a8_unorm)))
          {
             // We manually upgrade the R8G8B8A8 texture that is used as tonemapper output and AA input (after which the game uses the swapchain as RT), this avoids tampering too much with the game textures.
             // Note that this can be nullptr in some frames in this game (maybe in menus).
@@ -166,22 +168,9 @@ public:
                com_ptr<ID3D11Resource> target_resource;
                rtv->GetResource(&target_resource);
 
-               reshade::api::swapchain* swapchain = *device_data.swapchains.begin();
-               IDXGISwapChain*  native_swapchain = (IDXGISwapChain*)(swapchain->get_native());
-               SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
-               UINT back_buffer_index = swapchain->get_current_back_buffer_index();
-               com_ptr<ID3D11Texture2D> back_buffer;
-               DXGI_SWAP_CHAIN_DESC asd;
-               native_swapchain->GetDesc(&asd);
-
-               com_ptr<IDXGISwapChain3> native_swapchain3;
-               // The cast pointer is actually the same, we are just making sure the type is right.
-               HRESULT hr = native_swapchain->QueryInterface(&native_swapchain3);
-               ASSERT_ONCE(SUCCEEDED(hr));
-               ASSERT_ONCE(native_swapchain3->GetCurrentBackBufferIndex() == back_buffer_index);
-
-				   // If AA is disabled, this would already be writing to the swapchain, so we don't need to do anything
-               if (is_custom_pass && !device_data.back_buffers.contains(reinterpret_cast<uint64_t>(target_resource.get())))
+               // TODO: this is for infinite? not for 2
+				   // If AA is disabled, this would already be writing to the upgraded swapchain, so we don't need to do anything
+               if (!device_data.back_buffers.contains(reinterpret_cast<uint64_t>(target_resource.get())))
                {
                   if (!AreResourcesEqual(game_device_data_prev.upgraded_post_process_texture.get(), target_resource.get(), false))
                   {
@@ -189,10 +178,12 @@ public:
                      game_device_data.upgraded_post_process_srv = nullptr;
                      game_device_data.upgraded_post_process_rtv = nullptr;
 
-                     game_device_data.upgraded_post_process_texture = CloneTexture2D(native_device, target_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, false, false, nullptr);
+                     game_device_data.upgraded_post_process_texture = CloneTexture<ID3D11Texture2D>(native_device, target_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, D3D11_BIND_UNORDERED_ACCESS, false, false, nullptr);
                      ASSERT_ONCE(game_device_data.upgraded_post_process_texture);
-                     native_device->CreateShaderResourceView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_srv);
-                     native_device->CreateRenderTargetView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_rtv);
+                     HRESULT hr = native_device->CreateShaderResourceView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_srv);
+                     ASSERT_ONCE(SUCCEEDED(hr));
+                     hr = native_device->CreateRenderTargetView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_rtv);
+                     ASSERT_ONCE(SUCCEEDED(hr));
                   }
                }
                else
@@ -223,10 +214,59 @@ public:
       {
          game_device_data.drew_aa = true;
 
-         if (game_device_data.upgraded_post_process_srv.get())
+         if (game_device_data.infinite && game_device_data.upgraded_post_process_srv.get())
          {
             ID3D11ShaderResourceView* const upgraded_post_process_srv_const = game_device_data.upgraded_post_process_srv.get();
             native_device_context->PSSetShaderResources(0, 1, &upgraded_post_process_srv_const);
+         }
+         // If we upgrade all R8G8B8A8 textures, there's no need to do this live texture format swap
+         else if (!game_device_data.infinite && enable_swapchain_upgrade && swapchain_upgrade_type == 1 && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r8g8b8a8_unorm)))
+         {
+            // TODO: BS2: if the SRV 0 is not an upgraded texture, it's a failed copy of the upgraded swapchain, so replace copy the swapchain and set it as SRV 0
+
+            // We manually upgrade the R8G8B8A8 texture that is used as tonemapper output and AA input (after which the game uses the swapchain as RT), this avoids tampering too much with the game textures.
+            // Note that this can be nullptr in some frames in this game (maybe in menus).
+            com_ptr<ID3D11ShaderResourceView> srv;
+            native_device_context->PSGetShaderResources(0, 1, &srv);
+            if (srv)
+            {
+               com_ptr<ID3D11Resource> source_resource;
+               srv->GetResource(&source_resource);
+
+               // TODO: this is for infinite? not for 2
+               // If AA is disabled, this would already be writing to the upgraded swapchain, so we don't need to do anything
+               if (device_data.back_buffers.size() > 0 && !device_data.back_buffers.contains(reinterpret_cast<uint64_t>(source_resource.get())))
+               {
+                  ID3D11Texture2D* back_buffer = reinterpret_cast<ID3D11Texture2D*>((*device_data.back_buffers.begin())); // There's always only 1 swapchain buffer in DX11
+                  source_resource = back_buffer;
+                  if (!AreResourcesEqual(game_device_data_prev.upgraded_post_process_texture.get(), source_resource.get(), false))
+                  {
+                     game_device_data.upgraded_post_process_texture = nullptr;
+                     game_device_data.upgraded_post_process_srv = nullptr;
+                     game_device_data.upgraded_post_process_rtv = nullptr;
+
+                     game_device_data.upgraded_post_process_texture = CloneTexture<ID3D11Texture2D>(native_device, source_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, false, false, nullptr);
+                     ASSERT_ONCE(game_device_data.upgraded_post_process_texture);
+                     HRESULT hr = native_device->CreateShaderResourceView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_srv);
+                     ASSERT_ONCE(SUCCEEDED(hr));
+                  }
+
+                  native_device_context->CopyResource(game_device_data.upgraded_post_process_texture.get(), source_resource.get());
+               }
+               else
+               {
+                  game_device_data.upgraded_post_process_texture = nullptr;
+                  game_device_data.upgraded_post_process_srv = nullptr;
+                  game_device_data.upgraded_post_process_rtv = nullptr;
+               }
+
+               // Restoring the state isn't necessary in this game
+               if (game_device_data.upgraded_post_process_srv)
+               {
+                  ID3D11ShaderResourceView* const upgraded_post_process_srv_const = game_device_data.upgraded_post_process_srv.get();
+                  native_device_context->PSSetShaderResources(0, 1, &upgraded_post_process_srv_const);
+               }
+            }
          }
       }
 
@@ -282,11 +322,24 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
             reshade::api::format::r11g11b10_float,
       };
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio;
+#endif
+#if !DEVELOPMENT // TODO: investigate more if it happens (thus disabled in dev mode)
+      enable_upgraded_texture_resource_copy_redirection = false; // Resources are upgraded manually, so this isn't needed (it would happen between tonemapping and FXAA)
 #endif
 
-      pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("29D570D8") };
-      pixel_shader_hashes_AA.pixel_shaders = { Shader::Hash_StrToNum("27BD2A2E"), Shader::Hash_StrToNum("5CDD5AB1") };
-      shader_hashes_Fog.pixel_shaders.emplace(std::stoul("FC0B307B", nullptr, 16));
+      bool infinite = false;
+      if (infinite)
+      {
+         pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("29D570D8") };
+         pixel_shader_hashes_AA.pixel_shaders = { Shader::Hash_StrToNum("27BD2A2E"), Shader::Hash_StrToNum("5CDD5AB1") };
+      }
+      else
+      {
+         pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("6F92E3E3") };
+         pixel_shader_hashes_AA.pixel_shaders = { Shader::Hash_StrToNum("EC834D82") };
+         shader_hashes_Fog.pixel_shaders.emplace(std::stoul("FC0B307B", nullptr, 16));
+      }
 
       game = new Bioshock2();
    }

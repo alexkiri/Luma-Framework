@@ -599,6 +599,7 @@
   <ItemGroup>
     <ClCompile Include="dlss\DLSS.cpp" />
     <ClCompile Include="core.hpp" />
+    <ClCompile Include="utils\system.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dlss\DLSS.h" />

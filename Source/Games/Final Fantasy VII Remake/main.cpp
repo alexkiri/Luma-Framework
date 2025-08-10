@@ -153,7 +153,7 @@ public:
 						D3D11_RENDER_TARGET_VIEW_DESC object_velocity_render_target_view_desc;
 						render_target_views[0]->GetDesc(&object_velocity_render_target_view_desc);
 						object_velocity_render_target_view_desc.Format = object_velocity_texture_desc.Format;
-						object_velocity_render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D;
+						object_velocity_render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 						object_velocity_render_target_view_desc.Texture2D.MipSlice = 0;
 
 						game_device_data.dlss_motion_vectors_rtv = nullptr; // Make sure we discard the previous one

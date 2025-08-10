@@ -52,6 +52,43 @@ float3 safeDivision(float3 quotient, float3 dividend, int fallbackMode = 0)
   return float3(safeDivision(quotient.x, dividend.x, fallbackMode), safeDivision(quotient.y, dividend.y, fallbackMode), safeDivision(quotient.z, dividend.z, fallbackMode));
 }
 
+// Depending on the compiler settings, DX claims to strip away "isnan" checks as "NaN" can't happen in shaders (which isn't true...),
+// this is an actual forced check for it.
+// float!=float is only true if the number is NaN.
+bool IsNaN_Strict(float x)
+{
+#if 1
+  return x.x != x.x;
+#else
+  uint bits = asuint(x);
+  return ((bits & 0x7F800000u) == 0x7F800000u) && ((bits & 0x007FFFFFu) != 0);
+#endif
+}
+bool2 IsNaN_Strict(float2 x)
+{
+  return bool2(x.x != x.x, x.y != x.y);
+}
+bool3 IsNaN_Strict(float3 x)
+{
+  return bool3(x.x != x.x, x.y != x.y, x.z != x.z);
+}
+bool4 IsNaN_Strict(float4 x)
+{
+  return bool4(x.x != x.x, x.y != x.y, x.z != x.z, x.w != x.w);
+}
+bool IsAnyNaN_Strict(float2 x)
+{
+  return x.x != x.x || x.y != x.y;
+}
+bool IsAnyNaN_Strict(float3 x)
+{
+  return x.x != x.x || x.y != x.y || x.z != x.z;
+}
+bool IsAnyNaN_Strict(float4 x)
+{
+  return x.x != x.x || x.y != x.y || x.z != x.z || x.w != x.w;
+}
+
 float inverseLerp(float a, float b, float value) {
   // Avoid division by zero
   if (a == b) {

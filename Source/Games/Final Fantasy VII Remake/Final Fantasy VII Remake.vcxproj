@@ -138,7 +138,7 @@
       <AdditionalDependencies>nvsdk_ngx_d_dbg.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>..\..\External\NGX\libs</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <ImportLibrary>
       </ImportLibrary>
       <IgnoreSpecificDefaultLibraries>

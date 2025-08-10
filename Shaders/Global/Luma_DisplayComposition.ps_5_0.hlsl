@@ -3,9 +3,18 @@
 
 Texture2D<float4> sourceTexture : register(t0);
 Texture2D<float4> uiTexture : register(t1); // Optional: Pre-multiplied UI
-Texture2D<float4> debugTexture : register(t2);
+#if DEVELOPMENT
+Texture2D<float4> debugTexture2D : register(t2);
+Texture2DMS<float4> debugTexture2DMS : register(t3);
+Texture2DArray<float4> debugTexture2DArray : register(t4);
+Texture2DMSArray<float4> debugTexture2DMSArray : register(t5);
+Texture3D<float4> debugTexture3D : register(t6);
+Texture1D<float4> debugTexture1D : register(t7);
+Texture1DArray<float4> debugTexture1DArray : register(t8);
+// TODO: add TextureCube(s) support... Update "debug_draw_srv_slot_numbers" in c++ if you change this.
+#endif
 
-SamplerState sampler0 : register(s0); //TODOFT...
+SamplerState linearSampler : register(s0);
 
 // Custom Luma shader to apply the display (or output) transfer function from a linear input (or apply custom gamma correction)
 float4 main(float4 pos : SV_Position0) : SV_Target0
@@ -17,31 +26,67 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
     const float UIPaperWhite = LumaSettings.UIPaperWhiteNits / sRGB_WhiteLevelNits;
 
 #if DEVELOPMENT
-	float debugWidth;
-	float debugHeight;
-	debugTexture.GetDimensions(debugWidth, debugHeight);
+	bool _texture2D = (LumaData.CustomData2 & (1 << 13)) != 0; // "_" as the name is seemengly taken in hlsl
+	bool _texture3D = (LumaData.CustomData2 & (1 << 14)) != 0;
+	bool _texture1D = !_texture2D && !_texture3D; // We don't have a flag for "no texture", we simply unbind all of them
+	bool _textureCube = _texture2D && _texture3D;
+	bool _textureMS = (LumaData.CustomData2 & (1 << 11)) != 0;
+	bool _textureArray = (LumaData.CustomData2 & (1 << 12)) != 0;
+	float debugWidth = 0.0, debugHeightOrArraySize = 1.0, debugDepthOrArraySize = 1.0, sampleCount = 1.0; // Default to 0 to make sure they stay zero if the texture wasn't bound
+	if (_texture1D && _textureArray)
+	{
+		debugTexture1DArray.GetDimensions(debugWidth, debugHeightOrArraySize);
+	}
+	else if (_texture1D)
+	{
+		debugTexture1D.GetDimensions(debugWidth);
+	}
+	else if (_texture3D)
+	{
+		debugTexture3D.GetDimensions(debugWidth, debugHeightOrArraySize, debugDepthOrArraySize);
+	}
+	else if (_textureMS && _textureArray)
+	{
+		debugTexture2DMSArray.GetDimensions(debugWidth, debugHeightOrArraySize, debugDepthOrArraySize, sampleCount);
+	}
+	else if (_textureMS)
+	{
+		debugTexture2DMS.GetDimensions(debugWidth, debugHeightOrArraySize, sampleCount);
+	}
+	else if (_textureArray)
+	{
+		debugTexture2DArray.GetDimensions(debugWidth, debugHeightOrArraySize, debugDepthOrArraySize);
+	}
+	else // _texture2D
+	{
+		debugTexture2D.GetDimensions(debugWidth, debugHeightOrArraySize);
+	}
 	// Skip if there's no texture. It might be undefined behaviour, but it seems to work on Nvidia
-	if (debugWidth != 0 && debugHeight != 0)
-    {
+	if (debugWidth != 0.0)
+	{
 		float2 resolutionScale = 1.0;
 		bool fullscreen = (LumaData.CustomData2 & (1 << 0)) != 0;
-        bool renderResolutionScale = (LumaData.CustomData2 & (1 << 1)) != 0;
-        bool showAlpha = (LumaData.CustomData2 & (1 << 2)) != 0;
-        bool redOnly = (LumaData.CustomData2 & (1 << 9)) != 0;
-        bool premultiplyAlpha = (LumaData.CustomData2 & (1 << 3)) != 0;
+		bool renderResolutionScale = (LumaData.CustomData2 & (1 << 1)) != 0;
+		bool showAlpha = (LumaData.CustomData2 & (1 << 2)) != 0;
+		bool premultiplyAlpha = (LumaData.CustomData2 & (1 << 3)) != 0;
 		bool invertColors = (LumaData.CustomData2 & (1 << 4)) != 0;
-        bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
-        bool linearToGamma = (LumaData.CustomData2 & (1 << 6)) != 0;
-        bool flipY = (LumaData.CustomData2 & (1 << 7)) != 0;
-        bool doSaturate = (LumaData.CustomData2 & (1 << 8)) != 0;
-		bool backgroundPassthrough = false;
+		bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
+		bool linearToGamma = (LumaData.CustomData2 & (1 << 6)) != 0;
+		bool flipY = (LumaData.CustomData2 & (1 << 7)) != 0;
+		bool doSaturate = (LumaData.CustomData2 & (1 << 8)) != 0;
+		bool redOnly = (LumaData.CustomData2 & (1 << 9)) != 0;
+		bool backgroundPassthrough = (LumaData.CustomData2 & (1 << 10)) != 0;
+	
+		int sliceWidth = debugWidth + 0.5;
+		int depthOrArrayIndex = uint(pos.x) / sliceWidth;
+		//pos.x = (uint(pos.x) % sliceWidth) + 0.5;
 
 		if (fullscreen) // Stretch to fullscreen
 		{
 			float targetWidth;
 			float targetHeight;
 			sourceTexture.GetDimensions(targetWidth, targetHeight);
-			resolutionScale = float2(debugWidth / targetWidth, debugHeight / targetHeight);
+			resolutionScale = float2(debugWidth / targetWidth, debugHeightOrArraySize / targetHeight);
 
 			if (flipY)
 			{
@@ -53,15 +98,46 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			resolutionScale *= LumaData.RenderResolutionScale;
 		}
 		
-		//TODO: handle if this works with "renderResolutionScale" (e.g. Prey)
+		// TODO: handle if this works with "renderResolutionScale" (e.g. Prey)
 		if (!fullscreen && flipY)
 		{
-			pos.y = debugHeight - pos.y;
+			pos.y = debugHeightOrArraySize - pos.y;
 		}
 
 		pos.xy = round((pos.xy - 0.5) * resolutionScale) + 0.5;
-		bool validTexel = pos.x < debugWidth && pos.y < debugHeight;
-		float4 color = debugTexture.Load((int3)pos.xyz); // We don't have a sampler here so we just approimate to the closest texel
+	
+		bool validTexel = pos.x < debugWidth && pos.y < debugHeightOrArraySize && depthOrArrayIndex < debugDepthOrArraySize;
+		float4 color;
+		int sampleIndex = 0; // Not really relevant, from 0 to 3 with MSAA 4 for example, ideally we'd take the average of all samples (maybe we should use a linear sampler instead)
+		int mipLevel = 0; // TODO: add support for exposing this?
+		if (_texture1D && _textureArray)
+		{
+			debugTexture1DArray.Load(int3(pos.x, pos.y, mipLevel)); // The array elements are spread vertically
+		}
+		else if (_texture1D)
+		{
+			debugTexture1D.Load(int2(pos.x, mipLevel));
+		}
+		else if (_texture3D)
+		{
+			color = debugTexture3D.Load(int4(pos.x, pos.y, depthOrArrayIndex, mipLevel)); // The array elements are spread horizontally
+		}
+		else if (_textureMS && _textureArray)
+		{
+			color = debugTexture2DMSArray.Load(int3(pos.x, pos.y, depthOrArrayIndex), sampleIndex); // The array elements are spread horizontally
+		}
+		else if (_textureMS)
+		{
+			color = debugTexture2DMS.Load(int2(pos.xy), sampleIndex);
+		}
+		else if (_textureArray)
+		{
+			color = debugTexture2DArray.Load(int4(pos.x, pos.y, depthOrArrayIndex, mipLevel)); // The array elements are spread horizontally
+		}
+		else // _texture2D
+		{
+			color = debugTexture2D.Load(int3(pos.x, pos.y, mipLevel)); // We don't have a sampler here so we just approimate to the closest texel
+		}
 
 		// Do it early so it also fixes nans
 		if (doSaturate)
@@ -117,8 +193,8 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 	float mipLevel1 = log2(sizeHeight / targetHeight1);
 	float mipLevel2 = log2(sizeHeight / targetHeight2);
 	float4 color = sourceTexture.Load((int3)pos.xyz);
-	float4 mipColor1 = sourceTexture.SampleLevel(sampler0, uv, mipLevel1);
-	float4 mipColor2 = sourceTexture.SampleLevel(sampler0, uv, mipLevel2);
+	float4 mipColor1 = sourceTexture.SampleLevel(linearSampler, uv, mipLevel1);
+	float4 mipColor2 = sourceTexture.SampleLevel(linearSampler, uv, mipLevel2);
 #if 0
 	int offset = 5;
 	mipColor1 = sourceTexture.Load((int3)pos.xyz + int3( offset, -offset, 0)) +

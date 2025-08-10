@@ -34,8 +34,9 @@ struct DrawStateStack
    }
 
    // Cache aside the previous resources/states:
-   void Cache(ID3D11DeviceContext* device_context)
+   void Cache(ID3D11DeviceContext* device_context, UINT device_max_uav_num)
    {
+      uav_num = device_max_uav_num;
       if constexpr (Mode == DrawStateStackType::SimpleGraphics || Mode == DrawStateStackType::FullGraphics)
       {
          device_context->OMGetBlendState(&blend_state, blend_factor, &blend_sample_mask);
@@ -47,13 +48,20 @@ struct DrawStateStack
          device_context->PSGetShaderResources(0, srv_num, &shader_resource_views[0]);
          device_context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
          device_context->OMGetDepthStencilState(&depth_stencil_state, &stencil_ref);
+         device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
          if constexpr (Mode == DrawStateStackType::FullGraphics)
          {
-            device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &unordered_access_views[0]);
-         }
-         else
-         {
-            device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
+            for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+            {
+               bool rtv_empty = render_target_views[i].get() == nullptr;
+               if (!rtv_empty)
+               {
+                  render_target_views[i].reset(); // Re-set it as we will re-assign it
+                  valid_render_target_views_bound++; // The documentation is confusing, but it seems like the UAV start slot you request needs to be >= the number of valid bound RTVs
+               }
+            }
+            depth_stencil_view.reset();
+            device_context->OMGetRenderTargetsAndUnorderedAccessViews(valid_render_target_views_bound, &render_target_views[0], &depth_stencil_view, valid_render_target_views_bound, uav_num - valid_render_target_views_bound, &unordered_access_views[0]);
          }
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->VSGetShader(&vs, vs_instances, &vs_instances_count);
@@ -76,13 +84,14 @@ struct DrawStateStack
          device_context->VSGetConstantBuffers(0, 1, &VSConstantBuffer);
          device_context->IAGetIndexBuffer(&IndexBuffer, &IndexBufferFormat, &IndexBufferOffset);
          device_context->IAGetVertexBuffers(0, 1, &VertexBuffer, &VertexBufferStride, &VertexBufferOffset);
+         device_context->VSGetConstantBuffers(...);
 #endif
       }
       else if constexpr (Mode == DrawStateStackType::Compute)
       {
          device_context->CSGetShaderResources(0, srv_num, &shader_resource_views[0]);
          device_context->CSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
-         device_context->CSGetUnorderedAccessViews(0, D3D11_1_UAV_SLOT_COUNT, &unordered_access_views[0]);
+         device_context->CSGetUnorderedAccessViews(0, uav_num, &unordered_access_views[0]);
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->CSGetShader(&cs, cs_instances, &cs_instances_count);
          ASSERT_ONCE(vs_instances_count == 0 && cs_instances_count == 0);
@@ -111,9 +120,9 @@ struct DrawStateStack
          if constexpr (Mode == DrawStateStackType::FullGraphics)
          {
             ID3D11UnorderedAccessView* const* uavs_const = (ID3D11UnorderedAccessView**)std::addressof(unordered_access_views[0]);
-            UINT uav_initial_counts[D3D11_PS_CS_UAV_REGISTER_COUNT]; // Likely not necessary, we could pass in nullptr
+            UINT uav_initial_counts[D3D11_1_UAV_SLOT_COUNT]; // Likely not necessary, we could pass in nullptr
             std::ranges::fill(uav_initial_counts, -1u);
-            device_context->OMSetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get(), 0, D3D11_PS_CS_UAV_REGISTER_COUNT, uavs_const, uav_initial_counts);
+            device_context->OMSetRenderTargetsAndUnorderedAccessViews(valid_render_target_views_bound, rtvs_const, depth_stencil_view.get(), valid_render_target_views_bound, uav_num - valid_render_target_views_bound, uavs_const, &uav_initial_counts[0]);
          }
          else
          {
@@ -151,9 +160,9 @@ struct DrawStateStack
          ID3D11Buffer* const* constant_buffers_const = (ID3D11Buffer**)std::addressof(constant_buffers[0]);
          device_context->CSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const);
          ID3D11UnorderedAccessView* const* uavs_const = (ID3D11UnorderedAccessView**)std::addressof(unordered_access_views[0]);
-         UINT uav_initial_counts[D3D11_PS_CS_UAV_REGISTER_COUNT]; // Likely not necessary, we could pass in nullptr
+         UINT uav_initial_counts[D3D11_1_UAV_SLOT_COUNT]; // Likely not necessary, we could pass in nullptr
          std::ranges::fill(uav_initial_counts, -1u);
-         device_context->CSSetUnorderedAccessViews(0, D3D11_1_UAV_SLOT_COUNT, uavs_const, uav_initial_counts);
+         device_context->CSSetUnorderedAccessViews(0, uav_num, uavs_const, uav_initial_counts);
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->CSSetShader(cs.get(), cs_instances, cs_instances_count);
          for (UINT i = 0; i < max_shader_class_instances; i++)
@@ -186,13 +195,6 @@ struct DrawStateStack
          else
             return size_t{ 3 }; // We usually don't use them beyond than the first 3
       }();
-   static constexpr size_t uav_num = []
-      {
-         if constexpr (Mode == DrawStateStackType::Compute)
-            return D3D11_1_UAV_SLOT_COUNT;
-         else
-            return D3D11_PS_CS_UAV_REGISTER_COUNT;
-      }();
 
    com_ptr<ID3D11BlendState> blend_state;
    FLOAT blend_factor[4] = { 1.f, 1.f, 1.f, 1.f };
@@ -216,7 +218,7 @@ struct DrawStateStack
    com_ptr<ID3D11SamplerState> samplers_state[samplers_num];
    com_ptr<ID3D11ShaderResourceView> shader_resource_views[srv_num];
    com_ptr<ID3D11RenderTargetView> render_target_views[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
-   com_ptr<ID3D11UnorderedAccessView> unordered_access_views[uav_num];
+   com_ptr<ID3D11UnorderedAccessView> unordered_access_views[D3D11_1_UAV_SLOT_COUNT];
    com_ptr<ID3D11Buffer> constant_buffers[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
    D3D11_RECT scissor_rects[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
    UINT scissor_rects_num = 0;
@@ -224,6 +226,8 @@ struct DrawStateStack
    UINT viewports_num = 1;
    com_ptr<ID3D11InputLayout> input_layout;
    com_ptr<ID3D11RasterizerState> rasterizer_state;
+   UINT valid_render_target_views_bound = 0;
+   UINT uav_num = D3D11_1_UAV_SLOT_COUNT;
 };
 
 #if DEVELOPMENT
@@ -247,6 +251,8 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
    const bool is_valid = pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr;
    if (is_valid)
    {
+      constexpr bool show_unused_bound_resources = false; // Expose if needed
+
       const auto pipeline = pipeline_pair->second;
       if (pipeline->HasPixelShader())
       {
@@ -268,14 +274,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          {
             trace_draw_call_data.viewport_0 = { viewport.TopLeftX, viewport.TopLeftY, viewport.Width, viewport.Height };
          }
-      }
-      constexpr bool show_unused_bound_resources = false; // Expose if needed
-      if (pipeline->HasPixelShader())
-      {
+
          com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
-         com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_PS_CS_UAV_REGISTER_COUNT];
+         com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_1_UAV_SLOT_COUNT];
          com_ptr<ID3D11DepthStencilView> dsv;
-         native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv, 0, D3D11_PS_CS_UAV_REGISTER_COUNT, &uavs[0]);
+         native_device_context->OMGetRenderTargetsAndUnorderedAccessViews(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &dsv, 0, device_data.uav_max_count, &uavs[0]);
 
          com_ptr<ID3D11DepthStencilState> depth_stencil_state;
          native_device_context->OMGetDepthStencilState(&depth_stencil_state, nullptr);
@@ -348,7 +351,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                {
                   // If any of the set RTs are the swapchain, set it to true
                   trace_draw_call_data.rt_is_swapchain[i] |= device_data.back_buffers.contains((uint64_t)rt_resource.get());
-                  GetResourceInfo(rt_resource.get(), trace_draw_call_data.rt_size[i], trace_draw_call_data.rt_format[i], &trace_draw_call_data.rt_hash[i]);
+                  GetResourceInfo(rt_resource.get(), trace_draw_call_data.rt_size[i], trace_draw_call_data.rt_format[i], &trace_draw_call_data.rt_type_name[i], &trace_draw_call_data.rt_hash[i]);
                }
             }
          }
@@ -358,7 +361,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
             trace_draw_call_data.depth_state = TraceDrawCallData::DepthStateType::Disabled;
             trace_draw_call_data.stencil_enabled = false;
          }
-         for (UINT i = 0; i < D3D11_PS_CS_UAV_REGISTER_COUNT; i++)
+         for (UINT i = 0; i < device_data.uav_max_count; i++)
          {
             if (uavs[i] != nullptr && (show_unused_bound_resources || pipeline->uavs[i]))
             {
@@ -366,7 +369,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
-               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
             }
          }
 
@@ -380,7 +383,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
             }
          }
       }
@@ -396,7 +399,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
             }
          }
       }
@@ -412,13 +415,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
             }
          }
 
          com_ptr<ID3D11UnorderedAccessView> uavs[D3D11_1_UAV_SLOT_COUNT];
-         native_device_context->CSGetUnorderedAccessViews(0, D3D11_1_UAV_SLOT_COUNT, &uavs[0]);
-         for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
+         native_device_context->CSGetUnorderedAccessViews(0, device_data.uav_max_count, &uavs[0]);
+         for (UINT i = 0; i < device_data.uav_max_count; i++)
          {
             if (uavs[i] != nullptr && (show_unused_bound_resources || pipeline->uavs[i]))
             {
@@ -426,7 +429,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
-               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
             }
          }
       }
@@ -456,6 +459,7 @@ void DrawCustomPixelShader(ID3D11DeviceContext* device_context, ID3D11DepthStenc
    device_context->RSSetViewports(1, &viewport); // Viewport is always needed
    device_context->PSSetShaderResources(0, 1, &source_resource_texture_view);
    device_context->OMSetDepthStencilState(depth_stencil_state, 0);
+   // TODO: add custom/default sampler here
    device_context->OMSetRenderTargets(1, &target_resource_texture_view, nullptr);
    device_context->VSSetShader(vs, nullptr, 0);
    device_context->PSSetShader(ps, nullptr, 0);
@@ -486,7 +490,7 @@ void SetViewportFullscreen(ID3D11DeviceContext* device_context, uint2 size = {})
 #if DEVELOPMENT
       D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
       render_target_view->GetDesc(&render_target_view_desc);
-      ASSERT_ONCE(render_target_view_desc.ViewDimension == D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D); // This should always be the case
+      ASSERT_ONCE(render_target_view_desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2D); // This should always be the case
 #endif // DEVELOPMENT
 
       com_ptr<ID3D11Resource> render_target_resource;

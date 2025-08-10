@@ -648,9 +648,9 @@ public:
                //reset_dlss = false;
                //projection_jitters.x = 0;
                //projection_jitters.y = 0;
-               //device_data.dlss_output_color_2 = CloneTexture2D(cmd_list, device_data.dlss_output_color.get(), false);
-               //device_data.source_color_2 = CloneTexture2D(cmd_list, dlss_source_color.get(), false);
-               //device_data.motion_vectors_2 = CloneTexture2D(cmd_list, dlss_motion_vectors.get(), false);
+               //device_data.dlss_output_color_2 = CloneTexture<ID3D11Texture2D>(cmd_list, device_data.dlss_output_color.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
+               //device_data.source_color_2 = CloneTexture<ID3D11Texture2D>(cmd_list, dlss_source_color.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
+               //device_data.motion_vectors_2 = CloneTexture<ID3D11Texture2D>(cmd_list, dlss_motion_vectors.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
                //game_device_data.dlss_source_color = (ID3D11Texture2D*)dlss_source_color.get();
                //game_device_data.dlss_motion_vectors = (ID3D11Texture2D*)dlss_motion_vectors.get();
 

@@ -439,7 +439,7 @@ public:
 
                D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
                rtv_desc.Format = texture_desc.Format;
-               rtv_desc.ViewDimension = D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D;
+               rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
                rtv_desc.Texture2D.MipSlice = 0;
 
                game_device_data.ssr_diffuse_rtv = nullptr;
@@ -448,7 +448,7 @@ public:
 
                D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
                srv_desc.Format = texture_desc.Format;
-               srv_desc.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D;
+               srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
                srv_desc.Texture2D.MipLevels = 1;
                srv_desc.Texture2D.MostDetailedMip = 0;
 
@@ -752,7 +752,7 @@ public:
 
                D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
                rtv_desc.Format = texture_desc.Format;
-               rtv_desc.ViewDimension = D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D;
+               rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
                rtv_desc.Texture2D.MipSlice = 0;
 
                game_device_data.gtao_edges_rtv = nullptr;
@@ -761,7 +761,7 @@ public:
 
                D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
                srv_desc.Format = texture_desc.Format;
-               srv_desc.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D;
+               srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
                srv_desc.Texture2D.MipLevels = 1;
                srv_desc.Texture2D.MostDetailedMip = 0;
 
@@ -911,7 +911,7 @@ public:
 
                D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
                srv_desc.Format = texture_desc.Format;
-               srv_desc.ViewDimension = D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D;
+               srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
                srv_desc.Texture2D.MipLevels = lens_distortion_max_mip_levels;
                srv_desc.Texture2D.MostDetailedMip = 0;
 
@@ -954,7 +954,7 @@ public:
 
                   D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
                   rtv_desc.Format = lens_distortion_format;
-                  rtv_desc.ViewDimension = D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D;
+                  rtv_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
                   rtv_desc.Texture2D.MipSlice = 0;
 
                   game_device_data.lens_distortion_rtvs[game_device_data.lens_distortion_rtv_index] = nullptr;
@@ -1372,7 +1372,7 @@ public:
                      D3D11_RENDER_TARGET_VIEW_DESC object_velocity_render_target_view_desc;
                      render_target_views[0]->GetDesc(&object_velocity_render_target_view_desc);
                      object_velocity_render_target_view_desc.Format = object_velocity_texture_desc.Format;
-                     object_velocity_render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D;
+                     object_velocity_render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
                      object_velocity_render_target_view_desc.Texture2D.MipSlice = 0;
 
                      game_device_data.dlss_motion_vectors_rtv = nullptr; // Make sure we discard the previous one
@@ -2514,6 +2514,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r11g11b10_float,
       };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio;
+#endif
+#if ENABLE_NATIVE_PLUGIN
+      // Prey upgrades resources with native hooks, there's no incompatibilies left
+      enable_upgraded_texture_resource_copy_redirection = false;
 #endif
 
       game = new Prey();
