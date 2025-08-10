@@ -39,9 +39,10 @@
 *.exp
 *.vcxproj.user
 
-# Compiled and Dumped Shaders
+# Compiled, Disassembled and Dumped Shaders
 *.cso
-**/Dump/**/*.cso
+**/Dump/**.asm
+**/Dump/**.cso
 **/Dump/**/*.hlsl
 
 # Misc
