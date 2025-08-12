@@ -3,7 +3,7 @@
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
-#define ALLOW_SHADERS_DUMPING 1
+#define ALLOW_SHADERS_DUMPING 0
 
 #include "..\..\Core\core.hpp"
 
@@ -41,6 +41,7 @@ struct GameDeviceDataFF7Remake final : public GameDeviceData
 	std::atomic<bool> has_drawn_title = false;
 	std::atomic<bool> has_drawn_upscaling = false;
 	std::atomic<bool> found_per_view_globals = false;
+	std::atomic<bool> drs_active = false;
 	com_ptr<ID3D11PixelShader> motion_vectors_ps;
 	com_ptr<ID3D11PixelShader> bloom_ps;
 	com_ptr<ID3D11VertexShader> bloom_vs;
@@ -125,7 +126,7 @@ public:
  				std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)device_data.output_resolution.x * (double)device_data.dlss_render_resolution_scale, (double)device_data.output_resolution.y  * (double)device_data.dlss_render_resolution_scale, (double)device_data.output_resolution.x / (double)device_data.output_resolution.y );
 				bool dlss_hdr = true;
 
-				NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, device_data.output_resolution.x, device_data.output_resolution.y, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, true); //TODO: figure out dsr later
+				NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, device_data.output_resolution.x, device_data.output_resolution.y, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.drs_active); //TODO: figure out dsr later
 
 				bool skip_dlss = output_texture_desc.Width < 32 || output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
 				bool dlss_output_changed = false;
@@ -434,6 +435,11 @@ public:
 	{
 		ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
 		ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
+		auto& game_device_data = GetGameDeviceData(*device->get_private_data<DeviceData>());
+
+		if (!game_device_data.has_drawn_title) {
+			return;
+		}
 		// No need to convert to native DX11 flags
 		if (access == reshade::api::map_access::write_only || access == reshade::api::map_access::write_discard || access == reshade::api::map_access::read_write)
 		{
@@ -492,14 +498,19 @@ public:
 				device_data.render_resolution.x = float_data[125].x;
 				device_data.render_resolution.y  = float_data[125].y;
 				float resolution_scale = device_data.render_resolution.y  / device_data.output_resolution.y;
-				if (resolution_scale < 0.5f - FLT_EPSILON)
+				if (!game_device_data.drs_active && resolution_scale == 1.0f) {
+					device_data.dlss_render_resolution_scale = 1.0f;
+				}
+				else if (resolution_scale < 0.5f - FLT_EPSILON)
 				{
 					device_data.dlss_render_resolution_scale = resolution_scale;
+					game_device_data.drs_active = true;
 				}
 				else
 				{
 					// This should pick quality or balanced mode, with a range from 100% to 50% resolution scale
 					device_data.dlss_render_resolution_scale = 1.f / 1.5f;
+					game_device_data.drs_active = true;
 				}
 			}
 		}

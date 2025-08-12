@@ -475,7 +475,7 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight);
 #elif GAME_FF7_REMAKE
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * 0.5f;
-	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * 0.5f;
+	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * -0.5f;
 #elif GAME_PREY // This is what's needed by vanilla Prey
 	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * -0.5f;
 	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * 0.5f;
