@@ -45,7 +45,7 @@ void main(
   float2 JitterNorm = cb1[118].xy;
 // Convert to pixel space
   float2 JitterPixels = JitterNorm.xy * cb1[122].xy * float2(0.5, -0.5);
-  r1.xy = r1.xy - cb1[118].xy; // Apply jitter offset
+  r1.xy = r1.xy + cb1[118].xy; // Apply jitter offset
   
   // Setup viewport bounds for clamping
   r2.xyzw = (int4)cb1[121].xyxy; // viewport min
