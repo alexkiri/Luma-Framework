@@ -3,7 +3,9 @@
 
 /////////////////////////////////////////
 // LUMA advanced settings
-// (note that the defaults might be mirrored in c++, the shader values will be overridden anyway)
+// 
+// Note that the defaults might be mirrored in c++, the shader values will be overridden anyway.
+// Include the game cbuffer structs define before this ("LUMA_GAME_CB_STRUCTS") if you have one.
 /////////////////////////////////////////
 
 // Whether we store the post process buffers in linear space scRGB or gamma space (sRGB under normal circumstances) (like in the vanilla game, though now we use FP16 textures as opposed to UNORM8 ones).
@@ -145,27 +147,29 @@
 // LUMA user settings
 /////////////////////////////////////////
 
-// These can be defined in c++, in each game's code
-// For now we don't need to automatically define them in shaders, as they are optional
-#if 0
-#ifndef LUMA_GAME_SETTING_01
-#define LUMA_GAME_SETTING_01 float GameSetting01
+// In case the per game code had not defined a custom struct, define a generic empty one. This behaviour is matched in c++.
+#ifndef LUMA_GAME_CB_STRUCTS
+#define LUMA_GAME_CB_STRUCTS
+#if REQUIRES_LUMA_GAME_CB_STRUCTS
+#error "Settings.hlsl has not been included after the per game CB structs definitions"
 #endif
-#ifndef LUMA_GAME_SETTING_02
-#define LUMA_GAME_SETTING_02 float GameSetting02
-#endif
-#ifndef LUMA_GAME_SETTING_03
-#define LUMA_GAME_SETTING_03 float GameSetting03
-#endif
-#ifndef LUMA_GAME_SETTING_04
-#define LUMA_GAME_SETTING_04 float GameSetting04
-#endif
-#ifndef LUMA_GAME_SETTING_05
-#define LUMA_GAME_SETTING_05 float GameSetting05
-#endif
+namespace CB
+{
+	// hlsl doesn't support empty structs, so add a dummy variable (ideally it'd be empty or optional but it won't realistically affect performance)
+	struct LumaGameSettings
+	{
+		float Dummy;
+	};
+	struct LumaGameData
+	{
+		float Dummy;
+	};
+}
 #endif
 
-// Most engines (e.g. CryEngine, Unreal, Unity) push the registers that are used by each shader again for every draw, so it's generally safe to overridden them anyway (they are all reset between frames).
+// Luma global settings (usually, but not necessarily, changed a maximum of once per frame)
+// Regarding "LUMA_SETTINGS_CB_INDEX", most engines (e.g. CryEngine, Unreal, Unity) push the registers that are used by each shader again for every draw, so it's generally safe to overridden them anyway (they are all reset between frames).
+// Game and Dev settings should only be accessed outside of global shaders and includes, given the struct isn't guaranteed to be fully defined there.
 cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
 {
   struct
@@ -178,21 +182,8 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float GamePaperWhiteNits; // Access this through the global variables below (this either applies to the game scene colors, or to the whole final image)
     float UIPaperWhiteNits; // Access this through the global variables below (only usable in certain "UI_DRAW_TYPE" modes)
     uint DLSS; // Is DLSS enabled (implies it engaged and it's compatible) (this is on even in fullscreen UI menus that don't use upscaling)
-#ifdef LUMA_GAME_SETTING_01
-    LUMA_GAME_SETTING_01;
-#endif
-#ifdef LUMA_GAME_SETTING_02
-    LUMA_GAME_SETTING_02;
-#endif
-#ifdef LUMA_GAME_SETTING_03
-    LUMA_GAME_SETTING_03;
-#endif
-#ifdef LUMA_GAME_SETTING_04
-    LUMA_GAME_SETTING_04;
-#endif
-#ifdef LUMA_GAME_SETTING_05
-    LUMA_GAME_SETTING_05;
-#endif
+    uint FrameIndex; // Frame counter, no need for this to be by device or swapchain
+
 #if DEVELOPMENT
     // These are reflected in ImGui (the number of them is hardcoded in c++).
     // You can add up to 3 numbers as comment to their right to define the UI settings sliders default, min and max values, and their name.
@@ -207,6 +198,9 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float DevSetting09; // 0, 0, 1
     float DevSetting10; // 0, 0, 1
 #endif
+
+    // This is here to avoid taking too many cbuffer slots for separate buffers. It's at the end to avoid alignment issues with non game specific data in case the game specific includes were missing.
+    CB::LumaGameSettings GameSettings; // Custom games setting, with a per game struct.
   } LumaSettings : packoffset(c0);
 }
 
@@ -217,6 +211,30 @@ bool ShouldForceWhiteLevel() { return false; }
 bool ShouldForceWhiteLevel() { return LumaSettings.DisplayMode == 0; }
 #endif
 float GetForcedWhileLevel() { return (LumaSettings.DisplayMode == 0) ? sRGB_WhiteLevelNits : ITU_WhiteLevelNits; }
+
+#if DEVELOPMENT
+#define DVS1 LumaSettings.DevSetting01
+#define DVS2 LumaSettings.DevSetting02
+#define DVS3 LumaSettings.DevSetting03
+#define DVS4 LumaSettings.DevSetting04
+#define DVS5 LumaSettings.DevSetting05
+#define DVS6 LumaSettings.DevSetting06
+#define DVS7 LumaSettings.DevSetting07
+#define DVS8 LumaSettings.DevSetting08
+#define DVS9 LumaSettings.DevSetting09
+#define DVS10 LumaSettings.DevSetting10
+#else // Default to 1 even if when enabled they default to 0, it's more likely to be the neutral value
+#define DVS1 1.0
+#define DVS2 1.0
+#define DVS3 1.0
+#define DVS4 1.0
+#define DVS5 1.0
+#define DVS6 1.0
+#define DVS7 1.0
+#define DVS8 1.0
+#define DVS9 1.0
+#define DVS10 1.0
+#endif
 
 #ifdef HDR_TONEMAP_PAPER_WHITE_BRIGHTNESS // You can define this to force an hardcoded paper white (for whatever reason)
 static const float GamePaperWhiteNits = HDR_TONEMAP_PAPER_WHITE_BRIGHTNESS;

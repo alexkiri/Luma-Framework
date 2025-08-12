@@ -28,7 +28,7 @@ cbuffer _Globals : register(b0)
 
 SamplerState s_sceneDepth_s : register(s0);
 Texture2D<float> s_sceneDepth : register(t0);
-Texture2D<float4> sceneTexture : register(t1);
+Texture2D<float4> sceneTexture : register(t1); // Copy of the last scene set by Luma
 
 float4 GetAdditiveFogByDepth(float depth, float2 depthUV, float4 fogOpacity, float4 fogIntensity)
 {

@@ -5,12 +5,12 @@ RWTexture2D<float4> sourceTargetTexture : register(u0);
 [numthreads(1,1,1)]
 void main(uint3 vDispatchThreadId : SV_DispatchThreadID)
 {
-  const uint3 pixelPos = vDispatchThreadId;
+  const int3 pixelPos = int3(vDispatchThreadId);
   
   uint width, height;
   sourceTargetTexture.GetDimensions(width, height);
-  if (pixelPos.x >= width || pixelPos.y >= height)
+  if (pixelPos.x >= (int)width || pixelPos.y >= (int)height)
     return;
     
-  sourceTargetTexture[pixelPos.xy] = float4(1, 0, 1, 1); // Purple
+  sourceTargetTexture[uint2(pixelPos.xy)] = float4(1, 0, 1, 1); // Purple
 }

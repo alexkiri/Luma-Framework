@@ -189,7 +189,7 @@ public:
 						D3D11_RENDER_TARGET_VIEW_DESC object_velocity_render_target_view_desc;
 						render_target_views[0]->GetDesc(&object_velocity_render_target_view_desc);
 						object_velocity_render_target_view_desc.Format = object_velocity_texture_desc.Format;
-						object_velocity_render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D;
+						object_velocity_render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
 						object_velocity_render_target_view_desc.Texture2D.MipSlice = 0;
 
 						game_device_data.dlss_motion_vectors_rtv = nullptr; // Make sure we discard the previous one
@@ -261,8 +261,8 @@ public:
 					else
 					{
 						//ASSERT_ONCE(false);
-						//cb_luma_frame_settings.DLSS = 0;
-						//device_data.cb_luma_frame_settings_dirty = true;
+						//cb_luma_global_settings.DLSS = 0;
+						//device_data.cb_luma_global_settings_dirty = true;
 						//device_data.dlss_sr_suppressed = true;
 						device_data.force_reset_dlss_sr = true;
 					}

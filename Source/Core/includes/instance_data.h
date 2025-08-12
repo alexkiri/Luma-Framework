@@ -51,20 +51,22 @@ struct TraceDrawCallData
    D3D11_BLEND_DESC blend_desc = {};
    DXGI_FORMAT rt_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the resource
    DXGI_FORMAT rtv_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the view
-   uint3 rt_size[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+   uint4 rt_size[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
+   std::string rt_type_name[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    std::string rt_hash[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    bool rt_is_swapchain[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    // Shader Resource (Resource+Views)
    DXGI_FORMAT srv_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the view
    DXGI_FORMAT sr_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the resource
-   uint3 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+   uint4 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
+   std::string sr_type_name[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    bool sr_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    // Unordered Access (Resource+Views)
-	static_assert(D3D11_1_UAV_SLOT_COUNT >= D3D11_PS_CS_UAV_REGISTER_COUNT);
    DXGI_FORMAT ua_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource
    DXGI_FORMAT uav_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
-   uint3 ua_size[D3D11_1_UAV_SLOT_COUNT] = {};
+   uint4 ua_size[D3D11_1_UAV_SLOT_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
+   std::string ua_type_name[D3D11_1_UAV_SLOT_COUNT] = {};
    std::string ua_hash[D3D11_1_UAV_SLOT_COUNT] = {};
    bool ua_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
 
@@ -109,6 +111,8 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    CommandListData* primary_command_list_data = nullptr; // The immediate/primary command list is always valid
 #endif // DEVELOPMENT
 
+   UINT uav_max_count = D3D11_1_UAV_SLOT_COUNT; // DX11.1. Use "D3D11_PS_CS_UAV_REGISTER_COUNT" for DX11.
+
    com_ptr<IDXGISwapChain3> GetMainNativeSwapchain() const
    {
       ASSERT_ONCE(swapchains.size() == 1);
@@ -121,8 +125,8 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
       return native_swapchain3;
    }
 
-   // Pipelines by handle. Multiple pipelines can target the same shader, and even have multiple shaders within themselved.
-   // This contains all pipelines that we can replace shaders of (e.g. pixel shaders, vertex shaders, ...).
+   // Pipelines by handle. Multiple pipelines can target the same shader, and even have multiple shaders within themselves.
+   // This contains all pipelines (from the game) that we can replace shaders of (e.g. pixel shaders, vertex shaders, ...).
    std::unordered_map<uint64_t, Shader::CachedPipeline*> pipeline_cache_by_pipeline_handle;
    // Same as "pipeline_cache_by_pipeline_handle" but for cloned (custom) pipelines.
    std::unordered_map<uint64_t, Shader::CachedPipeline*> pipeline_cache_by_pipeline_clone_handle;
@@ -153,7 +157,8 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 
    // Custom Shaders
    bool created_custom_shaders = false;
-   com_ptr<ID3D11Texture2D> copy_texture;
+   com_ptr<ID3D11Texture2D> temp_copy_source_texture;
+   com_ptr<ID3D11Texture2D> temp_copy_target_texture;
    com_ptr<ID3D11Texture2D> display_composition_texture;
    com_ptr<ID3D11ShaderResourceView> display_composition_srv;
    com_ptr<ID3D11VertexShader> copy_vertex_shader;
@@ -163,12 +168,12 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11ComputeShader> draw_purple_compute_shader;
 
    // CBuffers
-   com_ptr<ID3D11Buffer> luma_frame_settings;
+   com_ptr<ID3D11Buffer> luma_global_settings;
    com_ptr<ID3D11Buffer> luma_instance_data;
    com_ptr<ID3D11Buffer> luma_ui_data;
-   LumaInstanceData cb_luma_instance_data = {};
-   LumaUIData cb_luma_ui_data = {};
-   bool cb_luma_frame_settings_dirty = true;
+   CB::LumaInstanceDataPadded cb_luma_instance_data = {};
+   CB::LumaUIDataPadded cb_luma_ui_data = {};
+   bool cb_luma_global_settings_dirty = true;
 
    // UI
    com_ptr<ID3D11Texture2D> ui_texture;
@@ -176,6 +181,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11ShaderResourceView> ui_texture_srv;
 
    // Misc
+   com_ptr<ID3D11SamplerState> default_sampler_state;
    com_ptr<ID3D11BlendState> default_blend_state;
    com_ptr<ID3D11DepthStencilState> default_depth_stencil_state;
 
@@ -186,9 +192,11 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 #endif
    void* cb_per_view_global_buffer_map_data = nullptr;
 #if DEVELOPMENT
-   com_ptr<ID3D11Texture2D> debug_draw_texture;
-   DXGI_FORMAT debug_draw_texture_format = DXGI_FORMAT_UNKNOWN; // The view format, not the Texture2D format
-   uint3 debug_draw_texture_size = {};
+   com_ptr<ID3D11Resource> debug_draw_texture;
+   DXGI_FORMAT debug_draw_texture_format = DXGI_FORMAT_UNKNOWN; // The view format, not the texture format
+   uint4 debug_draw_texture_size = {}; // 3rd and 4th channels are Array/MS/Mips
+
+   std::vector<float> track_buffer_data;
 #endif
 
    // Generic states that can be used by multiple games (you don't need to set them if you ignore the whole thing)

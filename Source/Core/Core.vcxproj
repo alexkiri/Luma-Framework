@@ -599,6 +599,7 @@
   <ItemGroup>
     <ClCompile Include="dlss\DLSS.cpp" />
     <ClCompile Include="core.hpp" />
+    <ClCompile Include="utils\system.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dlss\DLSS.h" />
@@ -612,6 +613,7 @@
     <ClInclude Include="includes\recursive_shared_mutex.h" />
     <ClInclude Include="includes\shaders.h" />
     <ClInclude Include="includes\shader_define.h" />
+    <ClInclude Include="includes\shader_types.h" />
     <ClInclude Include="utils\display.hpp" />
     <ClInclude Include="utils\draw.hpp" />
     <ClInclude Include="utils\format.hpp" />

@@ -51,7 +51,7 @@ void main(
 #if REJITTER_SUNSHAFTS && 0 //TODOFT: delete here or there? Possibly moved to tonemapping (sunshafts blend) pass, which makes a lot more sense? There's no way of telling if this is the first or second sun shafts generation pass so we can't rejitter here (we'd do it twice...)
   // Selectively pick what we (re)jitter and what not (e.g. the depth buffer (occlusion map), was already dejittered so we don't need to re-jitter it)
   // We scale the jitters by half as this pass is run twice on itself (which means this makes little sense).
-  jitteredBaseTC += LumaData.CameraJitters.xy * float2(0.5, -0.5) * 0.5;
+  jitteredBaseTC += LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5) * 0.5;
 #endif
   
   float2 sunVec = (sunPosProj.xy - jitteredBaseTC.xy) * aspectRatioCorrection;

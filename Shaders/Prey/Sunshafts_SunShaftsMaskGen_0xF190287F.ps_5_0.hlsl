@@ -20,7 +20,7 @@ void main(
 {
 #if REJITTER_SUNSHAFTS
   // Dejitter the background depth/color, to get a more consistent result over time (basically a quick way of resolving TAA on these sun shafts vertices that didn't acknowledge it)
-  inBaseTC.xy -= LumaData.CameraJitters.xy * float2(0.5, -0.5);
+  inBaseTC.xy -= LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5);
 #endif
 
   float2 sampleUV = MapViewportToRaster(inBaseTC.xy);

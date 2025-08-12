@@ -10,8 +10,8 @@
 // This is based on the commonly used value, though perception space mid gray (0.5) in sRGB or Gamma 2.2 would theoretically be ~0.2155 in linear.
 static const float MidGray = 0.18f;
 static const float DefaultGamma = 2.2f;
-static const float3 Rec709_Luminance = float3( 0.2126f, 0.7152f, 0.0722f );
-static const float3 Rec2020_Luminance = float3( 0.2627066f, 0.6779996f, 0.0592938f );
+static const float3 Rec709_Luminance = float3(0.2126f, 0.7152f, 0.0722f);
+static const float3 Rec2020_Luminance = float3(0.2627066f, 0.6779996f, 0.0592938f);
 static const float HDR10_MaxWhiteNits = 10000.0f;
 static const float ITU_WhiteLevelNits = 203.0f;
 static const float Rec709_WhiteLevelNits = 100.0f;
@@ -50,26 +50,45 @@ float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 	return dot( color, Rec709_Luminance );
 }
 
-float GetSaturation(float3 color)
+ // Note: the result might depend on the color space
+float GetChrominance(float3 color)
 {
     float maxVal = max(color.r, max(color.g, color.b));
     float minVal = min(color.r, min(color.g, color.b));
     return (maxVal == 0.0) ? 0.0 : saturate((maxVal - minVal) / maxVal);
 }
 
-float3 RestoreSaturation(float3 color, float targetSaturation)
+// Returns 1 if the color is a greyscale, more otherwise
+ // Note: the result of this depends on the color space
+float GetSaturation(float3 color, uint colorSpace = CS_DEFAULT)
 {
-    float maxVal = max(color.r, max(color.g, color.b));
-    float minVal = min(color.r, min(color.g, color.b));
-    float3 gray = float3(maxVal, maxVal, maxVal); // value-preserving grayscale
-    float saturation = (maxVal == 0.0) ? 0.0 : saturate((maxVal - minVal) / maxVal);
-    return lerp(gray, color, (saturation > 0.0) ? targetSaturation / saturation : 1.0);
+	float luminance = GetLuminance(color, colorSpace);
+	return (luminance == 0.0) ? 1.0 : max3(color) / luminance; // Find the ratio of the color against the luminance
 }
 
 float3 Saturation(float3 color, float saturation, uint colorSpace = CS_DEFAULT)
 {
 	float luminance = GetLuminance(color, colorSpace);
 	return lerp(luminance, color, saturation);
+}
+
+float3 RestoreSaturation(float3 sourceColor, float3 targetColor, uint colorSpace = CS_DEFAULT)
+{
+	float sourceSaturation = GetSaturation(sourceColor, colorSpace);
+	float targetSaturation = GetSaturation(targetColor, colorSpace);
+	float saturationRatio = safeDivision(sourceSaturation, targetSaturation, 1);
+	return Saturation(targetColor, saturationRatio, colorSpace);
+}
+
+ // Note: the result of this depends on the color space
+float3 RestoreChrominance(float3 sourceColor, float3 targetColor, uint colorSpace = CS_DEFAULT)
+{
+	float sourceChrominance = GetChrominance(sourceColor);
+	float targetChrominance = GetChrominance(targetColor);
+	float chrominanceRatio = safeDivision(sourceChrominance, targetChrominance, 1);
+	// We can't simply change the min, max or mid colors independently to change chrominance, or we'd heavily shift the luminance,
+	// so we use the saturation formula.
+	return Saturation(targetColor, chrominanceRatio, colorSpace);
 }
 
 float3 linear_to_gamma(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)

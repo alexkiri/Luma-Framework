@@ -118,8 +118,10 @@ float3 DICETonemap(
             float colorLuminance = GetLuminance(Color);
             float colorLuminanceInExcess = colorLuminance - PeakWhite;
             float maxColorInExcess = max3(colorBT2020) - PeakWhite; // This is guaranteed to be >= "colorLuminanceInExcess"
+#pragma warning( disable : 4000 ) // No idea why this warning is thrown here, it seems to make no sense (anyway this doesn't fix it...)
             float brightnessReduction = saturate(safeDivision(PeakWhite, max3(colorBT2020), 1)); // Fall back to one in case of division by zero
             float desaturateAlpha = saturate(safeDivision(maxColorInExcess, maxColorInExcess - colorLuminanceInExcess, 0)); // Fall back to zero in case of division by zero
+#pragma warning( default : 4000 )
             colorBT2020 = lerp(colorBT2020, colorLuminance, desaturateAlpha * Settings.DesaturationAmount);
             colorBT2020 = lerp(colorBT2020, colorBT2020 * brightnessReduction, Settings.DarkeningAmount); // Also reduce the brightness to partially maintain the hue, at the cost of brightness
             Color = BT2020_To_BT709(colorBT2020);

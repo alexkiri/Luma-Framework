@@ -118,13 +118,11 @@ float3 Tonemap(float3 color)
   config.Type = DICE_TYPE_BY_CHANNEL_PQ; // Do DICE by channel to desaturate highlights and keep the SDR range unotuched
   float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
   float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
-#if 0 // Test: Make it relative
+#if 0 // Test: make PQ tonemapping indepdenent from the user paper white (the result seems about identical if we start the shoulder from paper white), this isn't what the design intended
   peakWhite /= paperWhite;
   paperWhite = 1.0;
 #endif
-  //TODOFT: doesn't work!???
   config.ShoulderStart = paperWhite / peakWhite; // Start tonemapping beyond paper white, so we leave the SDR range untouched (roughly, given that this tonemaps in BT.2020)
-  //config.ShoulderStart = LumaSettings.DevSetting05 * paperWhite / peakWhite;
   return DICETonemap(color * paperWhite, peakWhite, config) / paperWhite;
 }
 

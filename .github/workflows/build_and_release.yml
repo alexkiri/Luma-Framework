@@ -122,7 +122,7 @@ jobs:
                 Remove-Item $_.FullName -Recurse -Force
             } elseif (-not "${{ matrix.config }}".StartsWith("Development")) {
               # Inside allowed folders, delete specific subfolders that we don't need for non dev builds
-              $foldersToDelete = @("Unused", "Dev", "Samples")
+              $foldersToDelete = @("Unused", "Dev", "Sample")
               foreach ($folder in $foldersToDelete) {
                 $target = Join-Path $_.FullName $folder
                 if (Test-Path $target) {

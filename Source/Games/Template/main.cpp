@@ -10,11 +10,6 @@
 // Update samples to override the bias, based on the rendering resolution etc
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
-// Define the game specific cbuffer settings here (up to a fixed limited number), these are automatically compiled into shaders without editing them, and can be read in game specific shaders.
-// You can call them however they want, and make them of any types.
-// Avoid types that are not mutliples of 64 bits (with the exception of 32 bit types, which can be used).
-#define LUMA_GAME_SETTING_01 float GameSetting01
-#define LUMA_GAME_SETTING_02 uint GameSetting02
 
 // Alternative implementation in case we used "Core" as static library
 #if defined(RESHADE_EXTERNS) && 0
@@ -76,7 +71,7 @@ public:
       // Define these according to the game's original technical details and the mod's implementation (see their declarations for more).
       GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0'); // What space are the colors in? Was the swapchain linear (sRGB texture format)? Did we change post processing to store in linear space?
       GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('0'); // Whether we do gamma correction and paper white scaling during post processing or we delay them until the final display composition pass
-      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0'); // What SDR transfer curve was the game using?
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0'); // What SDR transfer curve was the game using? Most modern games used sRGB in SDR
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1'); // What SDR transfer curve to we want to emulate? This is relevant even if we work in linear space, as there can be a gamma mismatch on it
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0'); // How does the UI draw in?
 
@@ -87,9 +82,14 @@ public:
       luma_data_cbuffer_index = 12; // Needed for debugging textures and having custom per pass data (including handling the final pass properly).
       luma_ui_cbuffer_index = -1; // Optional, see "UI_DRAW_TYPE" (this is for type 1)
 
-      // Init the game settings here, you could also load them from ini in "LoadConfigs()"
-      cb_luma_frame_settings.GameSetting01 = 0.5f;
-      cb_luma_frame_settings.GameSetting02 = 33;
+      // Init the game settings here, you could also load them from ini in "LoadConfigs()".
+      // These can be defined in a header shared between shaders and c++, and are sent to the GPU every time they change.
+      // It should be in "Shaders/Game/Includes/GameCBuffers.hlsl", you can either add that to your Visual Studio project as forced include as some projects do,
+      // or manually add it to the project files and include that at the top (before anything else, as the game cb settings struct needs to be defined), or make a copy of it in c++ (making sure it's mirrored to hlsl),
+      // and define "LUMA_GAME_CB_STRUCTS" to avoid it being re-defined.
+      // Set "device_data.cb_luma_global_settings_dirty" to true when you change them (if you care for them being re-uploaded to the GPU).
+      cb_luma_global_settings.GameSettings.GameSetting01 = 0.5f;
+      cb_luma_global_settings.GameSettings.GameSetting02 = 33;
    }
 
    // This needs to be overridden with your own "GameDeviceData" sub-class (destruction is automatically handled)
@@ -188,7 +188,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       texture_format_upgrades_lut_size = 32;
       texture_format_upgrades_lut_dimensions = LUTDimensions::_2D;
 		// In case the textures failed to upgrade, tweak the filtering conditions to be more lenient (e.g. aspect ratio checks etc).
-      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::AspectRatio;
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
       // Create your game sub-class instance (it will be automatically destroyed on exit).
       // You do not need to do this if you have no custom data to store.

@@ -541,6 +541,11 @@ namespace Hooks
 		Offsets::pCD3D9Renderer->m_devInfo.m_pSwapChain->QueryInterface(__uuidof(IDXGISwapChain3), reinterpret_cast<void**>(&swapChain3));
 
 		if (swapChain3) {
+#if DEVELOPMENT
+			DXGI_SWAP_CHAIN_DESC desc;
+			swapChain3->GetDesc(&desc);
+			assert(desc.BufferCount >= 1 && (desc.BufferDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM || desc.BufferDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT));
+#endif
 			DXGI_COLOR_SPACE_TYPE colorSpace;
 			if (LDRPostProcessFormat == RE::ETEX_Format::eTF_R8G8B8A8) {
 				colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;

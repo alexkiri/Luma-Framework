@@ -10,8 +10,9 @@ void main(uint3 vDispatchThreadId : SV_DispatchThreadID)
   if (pixelPos.x >= width || pixelPos.y >= height)
     return;
 
-  float4 color = sourceTargetTexture.Load(pixelPos);
+	float4 color = sourceTargetTexture[pixelPos.xy];
 
+  // Note: these NaNs checks might not be performed unless we build with /Gis
   if (isnan(color.r))
     color.r = 0.0;
   if (isnan(color.g))

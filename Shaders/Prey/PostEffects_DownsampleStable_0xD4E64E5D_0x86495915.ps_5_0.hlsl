@@ -82,7 +82,7 @@ void main(
 // This is basically a quick way to resolve TAA, at the cost of some blurryness.
 // To avoid this increasing bloom on top of patterns, we could also sample all texels with nearest neightbor and then check the min and max brightness of them and reduce the final brightness a bit if there's a lot of variation between them.
 #if _RT_SAMPLE1 && REJITTER_BLOOM
-	float2 scaledJitters = LumaData.CameraJitters.xy * float2(0.5, -0.5) * CV_HPosScale.xy;
+	float2 scaledJitters = LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5) * CV_HPosScale.xy;
 #if 0 // Snap to closest texel center (doesn't make sense as we are always within a half texel range, even with jitters)
 	if (abs(scaledJitters.x) > CV_ScreenSize.z * 0.5)
 	{

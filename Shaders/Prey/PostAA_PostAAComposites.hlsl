@@ -171,13 +171,13 @@ void PostAAComposites_PS(float4 WPos, float4 baseTC, out float4 outColor)
   bool gammaSpace = bool(POST_PROCESS_SPACE_TYPE <= 0);
   
 #if !ENABLE_SCREEN_DISTORTION // Shortcut to disable all of it
-  LumaSettings.LensDistortion = false;
+  LumaSettings.GameSettings.LensDistortion = false;
 #endif // !ENABLE_SCREEN_DISTORTION
   
   float2 distortedTC = baseTC.xy;
   float2 invDistortedTC = baseTC.xy;
   float4 distortedHPosClamp = float4(0.0, 0.0, CV_HPosClamp.xy); // The clamps for pre-distorted images (it'd go beyond the lens distortion black edges if beyond this). left min, top min, right max, bottom max
-  if (LumaSettings.LensDistortion)
+  if (LumaSettings.GameSettings.LensDistortion)
   {
     float2 outputResolution = 0.5 / CV_ScreenSize.zw; // Using "CV_ScreenSize.xy" directly would probably also be fine given this is always meant to be done after upscaling
     float FOVX = 1.0 / CV_ProjRatio.z;
@@ -202,7 +202,7 @@ void PostAAComposites_PS(float4 WPos, float4 baseTC, out float4 outColor)
 #if 0 // Show sharpening map (for fun)
   outColor = 1;
 #endif
-  if (LumaSettings.LensDistortion)
+  if (LumaSettings.GameSettings.LensDistortion)
   {
     // Early out if the borders are black, we don't want to draw film grain on top of it!
     if (outColor.a <= 0.0)
@@ -264,7 +264,7 @@ void PostAAComposites_PS(float4 WPos, float4 baseTC, out float4 outColor)
   {
     sharpenAmount *= 2.5;
   }
-  if (LumaSettings.LensDistortion) // Heuristically found (it makes little difference but helps a bit)
+  if (LumaSettings.GameSettings.LensDistortion) // Heuristically found (it makes little difference but helps a bit)
   {
     sharpenAmount *= 1.5;
   }
@@ -279,7 +279,7 @@ void PostAAComposites_PS(float4 WPos, float4 baseTC, out float4 outColor)
 #else // POST_TAA_SHARPENING_TYPE <= 1
 
   // We can't make "sharpenAmount" any higher or it will create ringing artifacts and look awful in general
-  if (LumaSettings.LensDistortion) // Heuristically found
+  if (LumaSettings.GameSettings.LensDistortion) // Heuristically found
   {
     sharpenAmount *= 1.25;
   }

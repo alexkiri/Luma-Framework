@@ -28,7 +28,7 @@ void main(
 		const float depth = PostAA_DeviceDepthTex.Load(pixelCoord).r;
 		const float2 currTC = inBaseTC.xy;
 #if 0 // LUMA FT: an alternative version of the reprojection code that acknowledges the jitters within the UV, test shows that it looks identical, so it's disabled given it's unconventional and that the reprojection matrix already contains jitters
-		float2 jitters = LumaData.CameraJitters.xy * float2(0.5, -0.5);
+		float2 jitters = LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5);
 		float2 prevTC = CalcPreviousTC(currTC + jitters, depth) - jitters;
 #else
 		float2 prevTC = CalcPreviousTC(currTC, depth);
@@ -52,8 +52,8 @@ void main(
 	}
 
 	// Convert from NDC space to UV space (y is flipped)
-	float2 jitters = LumaData.CameraJitters.xy * float2(0.5, -0.5);
-	float2 prevJitters = LumaData.PreviousCameraJitters.xy * float2(0.5, -0.5);
+	float2 jitters = LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5);
+	float2 prevJitters = LumaData.GameData.PreviousCameraJitters.xy * float2(0.5, -0.5);
 
 #if 0 // Test different jitters scales
 	static const float numberOfBars = 2.0;
@@ -86,7 +86,7 @@ void main(
 	const float2 jitteredCurrTC = inBaseTC.xy + jitters;
 
 #if TEST_TAA_TYPE == 1 // LUMA FT: quick jitter test (this will show the original jitter value "m_vProjMatrixSubPixoffset" on the game code)
-	outColor = float4(LumaData.CameraJitters.xy * float2(0.5, -0.5) * cbPostAA.screenSize.xy / sRGB_WhiteLevelNits, CF_VolumetricFogDistributionParams.w / sRGB_WhiteLevelNits, 0);
+	outColor = float4(LumaData.GameData.CameraJitters.xy * float2(0.5, -0.5) * cbPostAA.screenSize.xy / sRGB_WhiteLevelNits, CF_VolumetricFogDistributionParams.w / sRGB_WhiteLevelNits, 0);
 	return;
 #endif
 

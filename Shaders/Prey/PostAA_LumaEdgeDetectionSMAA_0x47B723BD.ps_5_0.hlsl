@@ -59,10 +59,9 @@ void main(
   float Ltoptop = GetLuma(_tex0.Sample(_tex0_s, inBaseTC.xy + float2(0, -2) * pixelOffset).rgb);
   delta.zw = abs(float2(Lleft, Ltop) - float2(Lleftleft, Ltoptop));
 
-  // Calculate the final maximum delta:
+  // Calculate the final maximum delta (which could be greater than 1 in HDR, but it doesn't matter):
   maxDelta = max(max(maxDelta, delta.z), delta.w);
   edges.xy *= step(0.5 * maxDelta, delta.xy);
 
 	outColor = float4(edges, 0.0, 0.0);
-  return;
 }

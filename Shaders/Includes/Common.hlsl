@@ -23,6 +23,27 @@ static const float NativeAspectRatioWidth = 16.0;
 static const float NativeAspectRatioHeight = 9.0;
 static const float NativeAspectRatio = NativeAspectRatioWidth / NativeAspectRatioHeight;
 
+// Luma per pass/instance data, this can be customized and sent at any time
+cbuffer LumaData : register(LUMA_DATA_CB_INDEX)
+{
+  // GPU has "32 32 32 32 | break" bits alignment on memory, so to not break any "float2", we need all the float/uint/int before them to be in groups of 2 (because we are using a unified struct).
+  struct
+  {
+    // These can be used as non generic (pass specific) data (even a float through asfloat())
+    uint CustomData1;
+    uint CustomData2;
+    float CustomData3;
+    float CustomData4;
+    
+    float2 RenderResolutionScale;
+    // This can be used instead of "CV_ScreenSize" in passes where "CV_ScreenSize" would have been
+    // replaced with 1 because DLSS SR upscaled the image earlier in the rendering.
+    float2 PreviousRenderResolutionScale;
+
+    CB::LumaGameData GameData;
+  } LumaData : packoffset(c0);
+}
+
 float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false, uint colorSpace = CS_DEFAULT)
 {
   float targetColorLuminance = GetLuminance(targetColor, colorSpace);
@@ -94,47 +115,19 @@ float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
   return linear_to_sRGB_gamma(Color, Mirrored ? GCT_MIRROR : GCT_NONE);
 }
 
-// Luma per pass or per frame data
-cbuffer LumaData : register(LUMA_DATA_CB_INDEX)
-{
-  // GPU has "32 32 32 32 | break" bits alignment on memory, so to not break any "float2", we need all the float/uint/int before them to be in groups of 2 (because we are using a unified struct).
-  struct
-  {
-    // These can be used as non generic (pass specific) data (even a float through asfloat())
-    uint CustomData1;
-    uint CustomData2;
-    uint CustomData3;
-    
-    uint FrameIndex;
-    
-    float2 RenderResolutionScale;
-    // This can be used instead of "CV_ScreenSize" in passes where "CV_ScreenSize" would have been
-    // replaced with 1 because DLSS SR upscaled the image earlier in the rendering.
-    float2 PreviousRenderResolutionScale;
-    
-#if GAME_PREY
-    // Camera jitters in NCD space (based on the rendering resolution, but relative to the output resolution full range UVs, so apply these before "CV_HPosScale.xy")
-    // (not in projection matrix space, so they don't need to be divided by the rendering resolution). You might need to multiply this by 0.5 and invert the horizontal axis before using it, if it's targeting UV space.
-    float2 CameraJitters;
-    // Previous frame's camera jitters in NCD space (relative to its own resolution).
-    float2 PreviousCameraJitters;
-#if 0 // Disabled in code too
-    row_major float4x4 ViewProjectionMatrix;
-    row_major float4x4 PreviousViewProjectionMatrix;
-#endif
-    // Same as the one on "PostAA" "AA" but fixed to include jitters as well
-    row_major float4x4 ReprojectionMatrix;
-#endif
-  } LumaData : packoffset(c0);
-}
-
 // AdvancedAutoHDR pass to generate some HDR brightess out of an SDR signal.
 // This is hue conserving and only really affects highlights.
 // "SDRColor" is meant to be in "SDR range" (linear), as in, a value of 1 matching SDR white (something between 80, 100, 203, 300 nits, or whatever else)
 // https://github.com/Filoppi/PumboAutoHDR
 float3 PumboAutoHDR(float3 SDRColor, float _PeakWhiteNits, float _PaperWhiteNits, float ShoulderPow = 2.75f)
 {
+#if 0 // This might disproportionally brighten up pure colors
+	const float SDRRatio = max3(SDRColor);
+#elif 1
+	const float SDRRatio = average(SDRColor);
+#else // This nearly ignores blue!
 	const float SDRRatio = max(GetLuminance(SDRColor), 0.f);
+#endif
 	// Limit AutoHDR brightness, it won't look good beyond a certain level.
 	// The paper white multiplier is applied later so we account for that.
 	const float AutoHDRMaxWhite = max(min(_PeakWhiteNits, PeakWhiteNits) / _PaperWhiteNits, 1.f);

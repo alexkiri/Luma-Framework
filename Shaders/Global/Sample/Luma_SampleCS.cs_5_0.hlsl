@@ -12,8 +12,7 @@ void main(uint3 vDispatchThreadId : SV_DispatchThreadID)
 	if (pixelPos.x >= width || pixelPos.y >= height)
 		return;
 
-#pragma warning( disable : 3206 ) // Not sure why it's needed
-	float4 color = sourceTargetTexture.Load(pixelPos);
-#pragma warning( default : 3206 )
-	sourceTargetTexture[pixelPos.xy] = color;
+	float4 color = sourceTargetTexture[pixelPos.xy];
+	
+	sourceTargetTexture[uint2(pixelPos.xy)] = color;
 }

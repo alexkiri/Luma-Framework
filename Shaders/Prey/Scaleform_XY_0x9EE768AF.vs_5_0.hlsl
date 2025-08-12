@@ -40,7 +40,7 @@ void main(
   bool hasPlaneScaling = o0.w != 1; // Seems to be false almost always
   // Note that distoring per vertex is fine, though will squish the geometry. If the implementation was perfect, we'd offset the whole geometry of the draw call, and potentially scale it (e.g. if it's a reticle that maps a scene area to the screen).
   // That would require replacing vertices in c++ though, not even a geometry shader would be enough as it only has access to individual triangles.
-  if (LumaUIData.TargetingSwapchain && !LumaUIData.FullscreenMenu && LumaSettings.LensDistortion && isLinearProjectionMatrix(cCompositeMat))
+  if (LumaUIData.TargetingSwapchain && !LumaUIData.FullscreenMenu && LumaSettings.GameSettings.LensDistortion && isLinearProjectionMatrix(cCompositeMat))
   {
     o0.xyz /= o0.w; // From clip to NDC space
     o0.w = 1; // no need to convert it back to clip space, the GPU would do it again anyway

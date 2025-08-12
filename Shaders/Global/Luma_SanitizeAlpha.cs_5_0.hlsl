@@ -10,7 +10,7 @@ void main(uint3 vDispatchThreadId : SV_DispatchThreadID)
 	if (pixelPos.x >= width || pixelPos.y >= height)
 		return;
 
-	float4 color = sourceTargetTexture.Load(pixelPos);
+	float4 color = sourceTargetTexture[pixelPos.xy];
 
 	color.a = saturate(color.a);
 

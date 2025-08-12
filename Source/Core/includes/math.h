@@ -7,6 +7,12 @@
 
 #include <cmath>
 #include <array>
+#include <limits>
+#include <algorithm>
+#include <string_view>
+#include <unordered_set>
+#include <cctype>
+#include "assert.h"
 
 // Not everything in here is exactly math, there's also util and logic stuff, but it's close enough!
 namespace Math
@@ -49,7 +55,7 @@ namespace Math
 		return std::abs(a - b) <= tolerance;
 	}
 
-	// Emulates hlsl "asfloat(float x)"
+	// Emulates hlsl "asfloat(int x)"
 	template<typename T>
 	float AsFloat(T value)
 	{
@@ -58,79 +64,23 @@ namespace Math
 		return *reinterpret_cast<float*>(&value_uint32);
 	}
 
-   typedef uint32_t uint;
-
-   struct uint2
+   // Emulates hlsl "asint(float x)"
+   template<typename T>
+   int32_t AsInt(T value)
    {
-      uint x;
-      uint y;
+      static_assert(sizeof(T) <= sizeof(float) && sizeof(float) == sizeof(int32_t));
+      float value_float = value;
+      return *reinterpret_cast<int32_t*>(&value_float);
+   }
 
-      friend bool operator==(const uint2& lhs, const uint2& rhs)
-      {
-         return lhs.x == rhs.x && lhs.y == rhs.y;
-      }
-   };
-
-   struct uint3
+   // Emulates hlsl "asuint(float x)"
+   template<typename T>
+   uint32_t AsUInt(T value)
    {
-      uint x;
-      uint y;
-      uint z;
-
-      friend bool operator==(const uint3& lhs, const uint3& rhs)
-      {
-         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
-      }
-   };
-
-   struct uint4
-   {
-      uint x;
-      uint y;
-      uint z;
-      uint w;
-
-      friend bool operator==(const uint4& lhs, const uint4& rhs)
-      {
-         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
-      }
-   };
-
-   struct float2
-   {
-      float x;
-      float y;
-
-      friend bool operator==(const float2& lhs, const float2& rhs)
-      {
-         return lhs.x == rhs.x && lhs.y == rhs.y;
-      }
-   };
-
-   struct float3
-   {
-      float x;
-      float y;
-      float z;
-
-      friend bool operator==(const float3& lhs, const float3& rhs)
-      {
-         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
-      }
-   };
-
-   struct float4
-   {
-      float x;
-      float y;
-      float z;
-      float w;
-
-      friend bool operator==(const float4& lhs, const float4& rhs)
-      {
-         return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
-      }
-   };
+      static_assert(sizeof(T) <= sizeof(float) && sizeof(float) == sizeof(uint32_t));
+      float value_float = value;
+      return *reinterpret_cast<uint32_t*>(&value_float);
+   }
 
    bool IsMemoryAllZero(const char* begin, std::size_t bytes)
    {

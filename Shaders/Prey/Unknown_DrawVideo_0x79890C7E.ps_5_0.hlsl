@@ -1,5 +1,5 @@
+#include "Includes/Common.hlsl"
 #include "../Includes/UI.hlsl"
-#include "Includes/Settings.hlsl"
 
 cbuffer _Globals : register(b0)
 {

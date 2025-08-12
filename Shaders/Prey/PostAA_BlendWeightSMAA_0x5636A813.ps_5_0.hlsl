@@ -1,8 +1,8 @@
 #include "Includes/CBuffer_PerViewGlobal.hlsl"
 
 // tex0 = edgesTex (HDR, generated based on the rendering)
-// tex1 = areaTex (SDR/8bit, unclear who generates this, is it fixed in value?)
-// tex2 = searchTex (SDR/8bit, unclear who generates this, is it fixed in value?)
+// tex1 = areaTex (8bit UNORM LUT generated loaded from disk)
+// tex2 = searchTex (8bit UNORM LUT generated loaded from disk)
 SamplerState _tex0_s : register(s0);
 SamplerState _tex1_s : register(s1);
 SamplerState _tex2_s : register(s2);
@@ -85,6 +85,7 @@ void main(
     r1.w = _tex0.SampleLevel(_tex0_s, r5.xz, 0).x;
     r1.xy = float2(4,4) * r1.xw;
     r1.xy = round(r1.xy);
+    // LUT sampling
     r1.xy = r1.xy * float2(16,16) + r4.xy;
     r1.xy = r1.xy * float2(0.00625000009,0.0017857143) + float2(0.00312500005,0.000892857148);
     r1.xy = _tex1.SampleLevel(_tex1_s, r1.xy, 0).xy;
@@ -156,6 +157,7 @@ void main(
     r0.z = _tex0.SampleLevel(_tex0_s, r2.xy, 0).y;
     r0.xz = float2(4,4) * r0.xz;
     r0.xz = round(r0.xz);
+    // LUT sampling
     r0.xy = r0.xz * float2(16,16) + r0.yw;
     r0.xy = r0.xy * float2(0.00625000009,0.0017857143) + float2(0.00312500005,0.000892857148);
     r0.xy = _tex1.SampleLevel(_tex1_s, r0.xy, 0).xy;

@@ -1,13 +1,8 @@
 #define GAME_TRINE_5 1
 
-#define UPGRADE_SAMPLERS 0
-
-#define LUMA_GAME_SETTING_01 float HDRHighlights
-#define LUMA_GAME_SETTING_02 float HDRDesaturation
-
 #include "..\..\Core\core.hpp"
 
-// Dev only as skipping sharpening also skipps TAA
+// Dev only as skipping sharpening also skips TAA
 #define SKIP_SHARPEN_TYPE 0
 
 namespace
@@ -57,8 +52,8 @@ public:
    void LoadConfigs() override
    {
       reshade::api::effect_runtime* runtime = nullptr;
-      reshade::get_config_value(runtime, NAME, "HDRHighlights", cb_luma_frame_settings.HDRHighlights);
-      reshade::get_config_value(runtime, NAME, "HDRDesaturation", cb_luma_frame_settings.HDRDesaturation);
+      reshade::get_config_value(runtime, NAME, "HDRHighlights", cb_luma_global_settings.GameSettings.HDRHighlights);
+      reshade::get_config_value(runtime, NAME, "HDRDesaturation", cb_luma_global_settings.GameSettings.HDRDesaturation);
    }
 
    void DrawImGuiSettings(DeviceData& device_data)
@@ -67,18 +62,18 @@ public:
 
       if (ImGui::TreeNode("Advanced Settings"))
 		{
-         if (ImGui::SliderFloat("HDR Highlights", &cb_luma_frame_settings.HDRHighlights, 0.f, 1.f))
+         if (ImGui::SliderFloat("HDR Highlights", &cb_luma_global_settings.GameSettings.HDRHighlights, 0.f, 1.f))
          {
-            device_data.cb_luma_frame_settings_dirty = true;
+            device_data.cb_luma_global_settings_dirty = true;
          }
          ImGui::SameLine();
-         if (cb_luma_frame_settings.HDRHighlights != default_hdr_highlights)
+         if (cb_luma_global_settings.GameSettings.HDRHighlights != default_hdr_highlights)
          {
             ImGui::PushID("HDR Highlights");
             if (ImGui::SmallButton(ICON_FK_UNDO))
             {
-               cb_luma_frame_settings.HDRHighlights = default_hdr_highlights;
-               reshade::set_config_value(runtime, NAME, "HDRHighlights", cb_luma_frame_settings.HDRHighlights);
+               cb_luma_global_settings.GameSettings.HDRHighlights = default_hdr_highlights;
+               reshade::set_config_value(runtime, NAME, "HDRHighlights", cb_luma_global_settings.GameSettings.HDRHighlights);
             }
             ImGui::PopID();
          }
@@ -91,18 +86,18 @@ public:
             ImGui::InvisibleButton("", ImVec2(size.x, size.y));
          }
 
-         if (ImGui::SliderFloat("HDR Desaturation", &cb_luma_frame_settings.HDRDesaturation, 0.f, 1.f))
+         if (ImGui::SliderFloat("HDR Desaturation", &cb_luma_global_settings.GameSettings.HDRDesaturation, 0.f, 1.f))
          {
-            device_data.cb_luma_frame_settings_dirty = true;
+            device_data.cb_luma_global_settings_dirty = true;
          }
          ImGui::SameLine();
-         if (cb_luma_frame_settings.HDRDesaturation != default_hdr_desaturation)
+         if (cb_luma_global_settings.GameSettings.HDRDesaturation != default_hdr_desaturation)
          {
             ImGui::PushID("HDR Desaturation");
             if (ImGui::SmallButton(ICON_FK_UNDO))
             {
-               cb_luma_frame_settings.HDRDesaturation = default_hdr_desaturation;
-               reshade::set_config_value(runtime, NAME, "HDRDesaturation", cb_luma_frame_settings.HDRDesaturation);
+               cb_luma_global_settings.GameSettings.HDRDesaturation = default_hdr_desaturation;
+               reshade::set_config_value(runtime, NAME, "HDRDesaturation", cb_luma_global_settings.GameSettings.HDRDesaturation);
             }
             ImGui::PopID();
          }
@@ -226,7 +221,7 @@ public:
                   game_device_data.upgraded_post_process_srv = nullptr;
                   game_device_data.upgraded_post_process_rtv = nullptr;
 
-                  game_device_data.upgraded_post_process_texture = CloneTexture2D(native_device, target_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, false, false, nullptr);
+                  game_device_data.upgraded_post_process_texture = CloneTexture<ID3D11Texture2D>(native_device, target_resource.get(), DXGI_FORMAT_R16G16B16A16_FLOAT, 0, 0, false, false, nullptr);
                   ASSERT_ONCE(game_device_data.upgraded_post_process_texture);
                   native_device->CreateShaderResourceView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_srv);
                   native_device->CreateRenderTargetView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_rtv);
@@ -247,7 +242,15 @@ public:
             reshade::api::swapchain* swapchain = *device_data.swapchains.begin();
             IDXGISwapChain* native_swapchain = (IDXGISwapChain*)(swapchain->get_native());
             SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
+#if 0
+            com_ptr<IDXGISwapChain3> native_swapchain3;
+            // The cast pointer is actually the same, we are just making sure the type is right.
+            HRESULT hr = native_swapchain->QueryInterface(&native_swapchain3);
+            ASSERT_ONCE(SUCCEEDED(hr));
+            UINT back_buffer_index = native_swapchain3->GetCurrentBackBufferIndex();
+#else // Always 0 in DX11
             UINT back_buffer_index = swapchain->get_current_back_buffer_index();
+#endif
             com_ptr<ID3D11Texture2D> back_buffer;
             native_swapchain->GetBuffer(back_buffer_index, IID_PPV_ARGS(&back_buffer));
 
@@ -370,8 +373,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
 
-      cb_luma_frame_settings.HDRHighlights = default_hdr_highlights;
-      cb_luma_frame_settings.HDRDesaturation = default_hdr_desaturation;
+      cb_luma_global_settings.GameSettings.HDRHighlights = default_hdr_highlights;
+      cb_luma_global_settings.GameSettings.HDRDesaturation = default_hdr_desaturation;
 
       pixel_shader_hashes_SharpenPreparation.compute_shaders = { Shader::Hash_StrToNum("F5503D2E") };
 		pixel_shader_hashes_Sharpen.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("AA97F987"), Shader::Hash_StrToNum("0910AE0F") }; // The last one is for DLSS (which doesn't do sharpening), the others are for sharpening and some for TAA too
