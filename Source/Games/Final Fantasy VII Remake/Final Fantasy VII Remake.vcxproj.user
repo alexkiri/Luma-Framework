@@ -3,6 +3,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Development-Debug|x64'">
     <LocalDebuggerCommand>$(LUMA_FF7_REMAKE_BIN_PATH)\ff7remake_.exe</LocalDebuggerCommand>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+    <LocalDebuggerCommandArguments>-dx11</LocalDebuggerCommandArguments>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Development-Release|x64'">
     <LocalDebuggerCommand>$(LUMA_FF7_REMAKE_BIN_PATH)\ff7remake_.exe</LocalDebuggerCommand>

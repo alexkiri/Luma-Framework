@@ -1586,7 +1586,7 @@ namespace
       return true;
 #endif
 
-#if ENABLE_NGX
+#if ENABLE_NGX && GAME_PREY
       // Required by FSR 3 on DX11. Also goes to determine whether we have to use D3D11_1_UAV_SLOT_COUNT or (the older) D3D11_PS_CS_UAV_REGISTER_COUNT.
       // Some games (e.g. INSIDE) crashes with this.
       if (api_version == D3D_FEATURE_LEVEL_11_0)
