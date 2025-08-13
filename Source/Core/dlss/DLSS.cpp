@@ -122,7 +122,7 @@ namespace NGX
 #if 0
 				| NVSDK_NGX_DLSS_Feature_Flags_DoSharpening // Sharpening is currently deprecated (in DLSS 2.5.1 and doesn't do anything), this would re-enable it if it was ever re-allowed by DLSS
 #endif
-#if 0 // We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
+#if GAME_FF7_REMAKE // We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
 				| NVSDK_NGX_DLSS_Feature_Flags_AutoExposure
 #endif
 				;

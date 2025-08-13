@@ -21,12 +21,12 @@ namespace
 	ShaderHashesList shader_hashes_TAA;
 	ShaderHashesList shader_hashes_Title;
 	ShaderHashesList shader_hashes_MotionVectors;
-	ShaderHashesList shader_hashes_TAA_Post;
-	ShaderHashesList shader_hashes_TAA_Blur;
+	ShaderHashesList shader_hashes_DOF;
+	ShaderHashesList shader_hashes_Motion_Blur;
 	ShaderHashesList shader_hashes_Downsample_Bloom;
 	ShaderHashesList shader_hashes_Bloom;
 	ShaderHashesList shader_hashes_MenuSlowdown;
-	ShaderHashesList shader_hashes_before_present;
+	ShaderHashesList shader_hashes_Tonemap;
 	const uint32_t CBPerViewGlobal_buffer_size = 4096;
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
@@ -94,9 +94,9 @@ public:
 			return true;
 		}
 
+#if ENABLE_NGX
 		if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && original_shader_hashes.Contains(shader_hashes_TAA))
 		{
-#if ENABLE_NGX
 			game_device_data.has_drawn_upscaling = true;
 			// 1 depth
 			// 2 current color source ()
@@ -272,16 +272,15 @@ public:
 					device_data.dlss_output_color = nullptr;
 				}
 			}
-#endif
 		}
-
-		if (device_data.has_drawn_dlss_sr && original_shader_hashes.Contains(shader_hashes_TAA_Post))
+// TODO: Figure out DOF and Motion Blur afert DLSS early upscale
+		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_DOF))
 		{
 			return true;
 
 		}
 
-		if (device_data.has_drawn_dlss_sr && original_shader_hashes.Contains(shader_hashes_TAA_Blur))
+		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Motion_Blur))
 		{
 			//get render target and copy dlss output to it and skip shader
 			com_ptr<ID3D11RenderTargetView> render_target_views[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -300,7 +299,7 @@ public:
 
 		}
 
-		if (device_data.has_drawn_dlss_sr && !device_data.force_reset_dlss_sr && game_device_data.found_per_view_globals)
+		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && game_device_data.found_per_view_globals)
 		{
 			// check if the render target texture is of output resolution size and store if true in a flag
 			bool is_output_resolution = false;
@@ -348,7 +347,7 @@ public:
 
 		}
 
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && original_shader_hashes.Contains(shader_hashes_Downsample_Bloom)) {
+		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Downsample_Bloom)) {
 			//get vertex shader cb2 from resources map and cast to float4[4] array and update [2].x and [2].y to output res and save it back to the buffer
 			com_ptr<ID3D11Buffer> cb0_buffer;
 			native_device_context->PSGetConstantBuffers(0, 1, &cb0_buffer);
@@ -369,18 +368,18 @@ public:
 			}
 		}
 
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && original_shader_hashes.Contains(shader_hashes_Bloom))
+		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Bloom))
 		{
 			native_device_context->VSSetShader(game_device_data.bloom_vs.get(), nullptr, 0);
 			native_device_context->PSSetShader(game_device_data.bloom_ps.get(), nullptr, 0);
 		}
 
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && original_shader_hashes.Contains(shader_hashes_MenuSlowdown))
+		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_MenuSlowdown))
 		{
 			native_device_context->VSSetShader(game_device_data.menu_slowdown_vs.get(), nullptr, 0);
 		}
 
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && original_shader_hashes.Contains(shader_hashes_before_present))
+		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Tonemap))
 		{
 
 			com_ptr<ID3D11Buffer> cb0_buffer;
@@ -405,6 +404,7 @@ public:
 			}
 
 		}
+#endif
 		return false; // Don't cancel the original draw call
 	}
 
@@ -563,12 +563,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 		shader_hashes_TAA.pixel_shaders.emplace(std::stoul("4729683B", nullptr, 16));
 		shader_hashes_Title.pixel_shaders.emplace(std::stoul("5FEE74F9", nullptr, 16));
-		shader_hashes_TAA_Post.pixel_shaders.emplace(std::stoul("B400FAF6", nullptr, 16));
-		shader_hashes_TAA_Blur.pixel_shaders.emplace(std::stoul("B0F56393", nullptr, 16));
+		shader_hashes_DOF.pixel_shaders.emplace(std::stoul("B400FAF6", nullptr, 16));
+		shader_hashes_Motion_Blur.pixel_shaders.emplace(std::stoul("B0F56393", nullptr, 16));
 		shader_hashes_Downsample_Bloom.pixel_shaders.emplace(std::stoul("2174B927", nullptr, 16));
 		shader_hashes_Bloom.pixel_shaders.emplace(std::stoul("4D6F937E", nullptr, 16));
 		shader_hashes_MenuSlowdown.pixel_shaders.emplace(std::stoul("968B821F", nullptr, 16));
-		shader_hashes_before_present.pixel_shaders.emplace(std::stoul("F68D39B5", nullptr, 16));
+		shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("F68D39B5", nullptr, 16));
 
 		enable_swapchain_upgrade = true;
 		swapchain_upgrade_type = 1;
