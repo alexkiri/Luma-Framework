@@ -509,14 +509,14 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			gamutMap = false;
 		}
 #endif
-#if SDR_HDR_SPLIT_VIEW_TEST_MODE >= 1
-#if SDR_HDR_SPLIT_VIEW_TEST_MODE == 1 || SDR_HDR_SPLIT_VIEW_TEST_MODE == 3 // 2 bars (1 split)
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE == 1 || TEST_SDR_HDR_SPLIT_VIEW_MODE == 3 // 2 bars (1 split)
 		static const float numberOfBars = 2.0;
 #else // 4 bars (3 splits)
 		static const float numberOfBars = 4.0;
 #endif
 		float barLength = 0.00125;
-#if SDR_HDR_SPLIT_VIEW_TEST_MODE <= 2 // Horizontal
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE <= 2 // Horizontal
 		float targetUV = uv.x;
 		float sourceAspectRatio = sourceWidth / (float)sourceHeight;
 		barLength /= sourceAspectRatio; // Scale by the usually wider side to match the thickness on both axes
@@ -528,7 +528,11 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		// Apply effect only to even bars
 		if (fmod(barIndex, 2.0) == 0.0)
 		{
+#if 1 // Tonemap instead of raw clipping
+  			color.rgb = Reinhard::ReinhardRange(color.rgb);
+#else
 			color.rgb = saturate(color.rgb);
+#endif
 		}
 #if 1 // Draw black bars
 		for (uint i = 1; i < (uint)numberOfBars; i++)

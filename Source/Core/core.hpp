@@ -6322,7 +6322,12 @@ namespace
       static const std::string reload_shaders_button_title_outdated = std::string("Reload Shaders ") + std::string(ICON_FK_REFRESH);
       // We skip locking "s_mutex_loading" just to read the size of "shaders_compilation_errors".
       // We could maybe check "last_pressed_unload" instead of "cloned_pipeline_count", but that wouldn't work in case unloading shaders somehow failed.
-      if (ImGui::Button(shaders_compilation_errors.empty() ? (device_data.cloned_pipeline_count ? (needs_compilation ? reload_shaders_button_title_outdated.c_str() : "Reload Shaders") : "Load Shaders") : reload_shaders_button_title_error.c_str()))
+      const char* reload_shaders_button_name = shaders_compilation_errors.empty() ? (device_data.cloned_pipeline_count ? (needs_compilation ? reload_shaders_button_title_outdated.c_str() : "Reload Shaders") : "Load Shaders") : reload_shaders_button_title_error.c_str();
+      bool show_reload_shaders_button = (needs_compilation && !auto_recompile_defines) || !shaders_compilation_errors.empty();
+#if DEVELOPMENT || TEST // Always show...
+      show_reload_shaders_button = true;
+#endif
+      if ((show_reload_shaders_button && ImGui::Button(reload_shaders_button_name)) || (auto_recompile_defines && needs_compilation))
       {
          needs_unload_shaders = false;
          last_pressed_unload = false;
@@ -6330,7 +6335,7 @@ namespace
          const std::unique_lock lock(s_mutex_loading);
          device_data.pipelines_to_reload.clear();
       }
-      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      if (show_reload_shaders_button && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
          const std::shared_lock lock(s_mutex_loading);
 #if !DEVELOPMENT
@@ -9315,7 +9320,9 @@ namespace
          {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
-               ImGui::SetTooltip("Shader Defines: reload shaders after changing these for the changes to apply (and save).\nSome settings are only editable in debug modes, and only apply if the \"DEVELOPMENT\" flag is turned on.\nDo not change unless you know what you are doing.");
+               const char* head = auto_recompile_defines ? "" : "Reload shaders after changing these for the changes to apply (and save).\n";
+               const char* tail = "Some settings are only editable in debug modes, and only apply if the \"DEVELOPMENT\" flag is turned on.\nDo not change unless you know what you are doing.";
+               ImGui::SetTooltip("Shader Defines: %s%s", head, tail);
             }
 
             const std::unique_lock lock_shader_defines(s_mutex_shader_defines);
@@ -9349,7 +9356,9 @@ namespace
                ImGui::PopID();
                ImGui::EndDisabled();
             }
+#if DEVELOPMENT || TEST
             // Show restore button (basically "undo")
+            //if (!auto_recompile_defines) // We could do this, but it's better to just always grey it out in that case
             {
                bool needs_compilation = defines_need_recompilation;
                for (uint32_t i = 0; i < shader_defines_data.size() && !needs_compilation; i++)
@@ -9372,6 +9381,7 @@ namespace
                ImGui::PopID();
                ImGui::EndDisabled();
             }
+#endif
 
 #if DEVELOPMENT || TEST
             ImGui::BeginDisabled(shader_defines_data.empty() || !shader_defines_data[shader_defines_data.size() - 1].IsCustom());
@@ -9399,6 +9409,20 @@ namespace
             }
             ImGui::PopID();
             ImGui::EndDisabled();
+#endif
+
+#if DEVELOPMENT || TEST // Always true in publishing mode
+            // Auto Compile Button
+            {
+               ImGui::SameLine();
+               ImGui::PushID("Advanced Settings: Auto Compile");
+               ImGui::Checkbox("Auto Compile", &auto_recompile_defines);
+               if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+               {
+                  ImGui::SetTooltip("Automatically re-compile instantly when you change settings, at the possible cost of a small stutter");
+               }
+               ImGui::PopID();
+            }
 #endif
 
 #if 0 // We simply add a "*" next to the reload shaders button now instead

@@ -55,6 +55,12 @@ namespace Shader
    uint32_t defines_count = 0;
    // Extra flag to specify we need a recompilation
    bool defines_need_recompilation = false;
+   bool auto_recompile_defines
+#if DEVELOPMENT
+      = false;
+#else
+      = true;
+#endif
 
    struct ShaderDefineData
    {
