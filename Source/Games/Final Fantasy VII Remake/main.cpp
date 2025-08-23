@@ -212,6 +212,7 @@ public:
 		const bool is_taa = original_shader_hashes.Contains(shader_hashes_TAA);
 		if (is_taa) {
 			game_device_data.has_drawn_taa = true;
+			device_data.taa_detected = true;
 		}
 
 		// Nothing to do if TAA isn't enabled
@@ -588,6 +589,8 @@ public:
 		device_data.has_drawn_main_post_processing = false;
 		game_device_data.has_drawn_upscaling = false;
 		game_device_data.has_drawn_taa = false;
+		device_data.taa_detected = true;
+		device_data.has_drawn_dlss_sr_imgui = device_data.has_drawn_dlss_sr;
 		device_data.has_drawn_dlss_sr = false;
 		game_device_data.found_per_view_globals = false;
 	}
