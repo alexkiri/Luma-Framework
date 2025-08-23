@@ -2499,6 +2499,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       shader_defines_data.append_range(game_shader_defines_data);
       assert(shader_defines_data.size() < MAX_SHADER_DEFINES);
 
+      dlss_game_tooltip = "Select \"SMAA 2TX\" or \"TAA\" in the game's AA settings for DLSS/DLAA to engage.\n";
+
 #if !ENABLE_NATIVE_PLUGIN && DEVELOPMENT
       // Test path to upgrade textures directly through classic Luma code, though this has major issues yet (later in rendering, some stuff is too dark and things flicker)
       enable_swapchain_upgrade = true;

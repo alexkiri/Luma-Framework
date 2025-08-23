@@ -205,6 +205,7 @@ namespace
    constexpr bool precompile_custom_shaders = true; // Async shader compilation on boot
    constexpr bool block_draw_until_device_custom_shaders_creation = true; // Needs "precompile_custom_shaders". Note that drawing (and "Present()") could be blocked anyway due to other mutexes on boot if custom shaders are still compiling
    bool dlss_sr = true; // If true DLSS is enabled by the user (but not necessarily supported+initialized correctly, that's by device)
+   const char* dlss_game_tooltip = "";
    bool hdr_enabled_display = false;
    bool hdr_supported_display = false;
    constexpr bool prevent_shader_cache_loading = false;
@@ -352,6 +353,7 @@ namespace
    // These default should ideally match shaders values (Settings.hlsl), but it's not necessary because whatever the default values they have they will be overridden.
 	// For further descriptions, see their shader declarations.
    // TODO: add grey out conditions (another define, by name, whether its value is > 0), and also add min/max values range (to limit the user insertable values), and "category"
+   // TODO: add a user facing name (not just the tooltip)?
    std::vector<ShaderDefineData> shader_defines_data = {
        {"DEVELOPMENT", DEVELOPMENT ? '1' : '0', true, DEVELOPMENT ? false : true, "Enables some development/debug features that are otherwise not allowed (get a TEST or DEVELOPMENT build if you want to use this)"},
        // Usually if we store in gamma space, we also keep the paper white not multiplied in until we apply it on the final output, while if we store in linear space, we pre-multiply it in (and we might also pre-correct gamma before the final output).
@@ -8459,7 +8461,7 @@ namespace
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
-               ImGui::SetTooltip("This replaces the game's native AA and dynamic resolution scaling implementations.\nSelect \"SMAA 2TX\" or \"TAA\" in the game's AA settings for DLSS/DLAA to engage.\nA tick will appear here when it's engaged and a warning will appear if it failed.\n\nRequires compatible Nvidia GPUs (or OptiScaler for FSR).");
+               ImGui::SetTooltip("This replaces the game's native AA and dynamic resolution scaling implementations.\n%sA tick will appear here when it's engaged and a warning will appear if it failed.\n\nRequires compatible Nvidia GPUs (or OptiScaler for FSR).", dlss_game_tooltip);
             }
 
             ImGui::SameLine();
