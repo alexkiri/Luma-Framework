@@ -46,14 +46,15 @@ public:
       device_data.game = nullptr;
    }
    virtual void CreateShaderObjects(DeviceData& native_device, const std::optional<std::set<std::string>>& shader_names_filter) {}
+   // TODO: call OnDrawOrComputeCustom?
    // Called for every game's valid draw call (any type),
    // this is where you can override passes, add new ones, cancel other ones etc.
    // Return true to cancel the call.
-   virtual bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) { return false; }
+   virtual bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) { return false; }
    // This is called every frame just before sending out the final image to the display (the swapchain).
    // You can reliable reset any per frame setting here.
    virtual void OnPresent(ID3D11Device* native_device, DeviceData& device_data) {}
-   virtual void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data) {}
+   virtual void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) {}
    // Retrieves the game's "global" (main, per view, ...) cbuffer data
    virtual bool UpdateGlobalCB(const void* global_buffer_data_ptr, reshade::api::device* device) { return false; }
 
@@ -82,15 +83,6 @@ public:
    virtual float GetTonemapUIBackgroundAmount(const DeviceData& device_data) const { return 0.f; }
    // In case your DLSS implementation had any extra resources, you can clean them up here
    virtual void CleanExtraDLSSResources(DeviceData& device_data) {}
-   // Some games draw UI through sRGB views on non sRGB textures (thus in linear space), or through non sRGB views on sRGB textures (thus in gamma space), hence the check below is not necessarily right, override per game if necessary
-   virtual DXGI_FORMAT GetSeparateUITextureFormat(bool vanilla_swapchain_was_linear_space) const
-   {
-#if 1 // Use "DXGI_FORMAT_R16G16B16A16_UNORM" for UI to have the highest quality possible (pre-multiplying the UI on a separate render target leads to minor quantization)
-      return vanilla_swapchain_was_linear_space ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R16G16B16A16_UNORM;
-#else
-      return vanilla_swapchain_was_linear_space ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
-#endif
-   }
 	// Some games use a non linear swapchain, but always write to it through sRGB view, so we should essentially treat it as linear
    virtual bool ForceVanillaSwapchainLinear() const { return false; }
 };

@@ -1,37 +1,16 @@
 #include "../Includes/Common.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
+#include "../Includes/Tonemap.hlsl"
+
+#ifndef STRETCH_ORIGINAL_TONEMAPPER
+#define STRETCH_ORIGINAL_TONEMAPPER 0
+#endif
 
 Texture2DMS<float4> t0 : register(t0);
 
 cbuffer cb0 : register(b0)
 {
   float4 cb0[138];
-}
-
-float3 Uncharted2Curve(float3 x, float a, float b, float c, float d, float e, float f)
-{
-  return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
-}
-
-// One channel only, given they are all the same
-float Uncharted2Curve_Inverse(float y, float a, float b, float c, float d, float e, float f)
-{
-  float ef = e / f;
-  float yp = y + ef;
-
-  float A = a * (yp - 1.0);
-  float B = b * (yp - c);
-  float C = d * (f * yp - e);
-
-  float discriminant = B * B - 4.0 * A * C;
-
-  float sqrtD = sqrt(abs(discriminant)) * sign(discriminant);
-
-  float x1 = (-B + sqrtD) / (2.0 * A);
-  float x2 = (-B - sqrtD) / (2.0 * A);
-
-  // Choose the root that makes sense in your context (e.g., positive, in [0,1])
-  return (x1 >= 0.0) ? x1 : x2;
 }
 
 // Basically identical to the full Uncharted 2 tonemapper,
@@ -47,10 +26,11 @@ float3 UnityTonemapper(float3 x)
   float e = 0.02;
   float f = 0.3;
   float whiteLevel = 5.3;
-  float whiteScale = Uncharted2Curve(whiteLevel, a, b, c, d, e, f).x;
+  float whiteScale = Tonemap_Uncharted2_Eval(whiteLevel, a, b, c, d, e, f).x;
 
-  return sign(x) * Uncharted2Curve(abs(x) / whiteScale, a, b, c, d, e, f) / whiteScale; // Luma: add sign*abs to preserve negative values
-#else
+  // Note: the second division by "whiteScale" is what makes the Unity tonemapper different from the original UC2, this version however seems to make no sense as it doesn't rescrict between 0 and 1
+  return sign(x) * Tonemap_Uncharted2_Eval(abs(x) / whiteScale, a, b, c, d, e, f) / whiteScale; // Luma: add sign*abs to preserve negative values (it's fine as it outputs 0 for 0)
+#else // There seemengly is no way to make this curve output something that looks right in HDR, at least not in COCOON, that heavily relied on clipping to hue shift
   float a = 0.2 * 2 * LumaSettings.DevSetting05;
   float b = 0.29 * 2 * LumaSettings.DevSetting06;
   float c = 0.24 * 2 * LumaSettings.DevSetting07;
@@ -58,9 +38,9 @@ float3 UnityTonemapper(float3 x)
   float e = 0.02 * 2 * LumaSettings.DevSetting09;
   float f = 0.3 * 2 * LumaSettings.DevSetting10;
   float whiteLevel = 5.3 * 2 * LumaSettings.DevSetting03;
-  float whiteScale = Uncharted2Curve(whiteLevel, a, b, c, d, e, f).x;
+  float whiteScale = Tonemap_Uncharted2_Eval(whiteLevel, a, b, c, d, e, f).x;
 
-  return sign(x) * Uncharted2Curve(abs(x) / whiteScale, a, b, c, d, e, f) / (whiteScale * 2 * LumaSettings.DevSetting04);
+  return sign(x) * Tonemap_Uncharted2_Eval(abs(x) / whiteScale, a, b, c, d, e, f) / (whiteScale * 2 * LumaSettings.DevSetting04);
 #endif
 }
 
@@ -74,9 +54,9 @@ float UnityTonemapper_Inverse(float x)
   float e = 0.02;
   float f = 0.3;
   float whiteLevel = 5.3;
-  float whiteScale = Uncharted2Curve(whiteLevel, a, b, c, d, e, f).x;
+  float whiteScale = Tonemap_Uncharted2_Eval(whiteLevel, a, b, c, d, e, f).x;
 
-  return sign(x) * Uncharted2Curve_Inverse(abs(x) * whiteScale, a, b, c, d, e, f) * whiteScale;
+  return sign(x) * Tonemap_Uncharted2_Inverse_Eval(abs(x) * whiteScale, a, b, c, d, e, f) * whiteScale;
 }
 
 // Resolve MSAA and tonemap in the meantime
@@ -95,17 +75,27 @@ void main(
   {
     float3 sceneColor = t0.Load((int2)v0.xy, i).xyz;
     sceneColor *= exposure;
-    float3 tonemappedSDRColor = UnityTonemapper(sceneColor); // Tonemapping before averaging the MS color is slightly better!
+    float3 tonemappedSDRColor = UnityTonemapper(sceneColor); // Tonemapping before averaging the MS color is slightly better! // TODO: it's not better, and it's slow, do it after!
     float3 tonemappedColor = tonemappedSDRColor;
-#if 1 // Luma: restore untonemapped color from around 0.18
+
     static const float SDRTMMidGrayOut = MidGray; 
     static const float SDRTMMidGrayIn = UnityTonemapper_Inverse(SDRTMMidGrayOut);
     static const float SDRTMMidGrayRatio = SDRTMMidGrayOut / SDRTMMidGrayIn;
     float3 tonemappedHDRColor = sceneColor * SDRTMMidGrayRatio; // Match mid gray with the original TM output
+#if !STRETCH_ORIGINAL_TONEMAPPER // Luma: restore untonemapped color from around 0.18
     tonemappedColor = lerp(tonemappedSDRColor, tonemappedHDRColor, saturate(tonemappedSDRColor / MidGray));
-#elif 1 // Bad attept at stretching the SDR tonemapper, it's extremely saturated
-    const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-    tonemappedColor = UnityTonemapper(sceneColor / peakWhite) * peakWhite;
+#elif STRETCH_ORIGINAL_TONEMAPPER // Attept at stretching the SDR tonemapper
+    float powCoeff = DVS1; // <=0.5
+    float startingPoint = DVS2; // MidGray
+    // TODO: run in BT.2020?
+    // Remap around the output's mid gray, so we keep the result "identical" below mid grey but expanded above it
+    tonemappedHDRColor = (tonemappedHDRColor > startingPoint) ? (pow(tonemappedHDRColor - startingPoint + 1.0, powCoeff) + startingPoint - 1.0) : tonemappedHDRColor;
+    tonemappedHDRColor /= SDRTMMidGrayRatio; // Restore back to the original/full range, to pass it to the game's SDR tonemapper again
+    tonemappedHDRColor = UnityTonemapper(tonemappedHDRColor);
+    // This will possibly massively increase saturation, so make sure to tonemap by channel again in HDR later
+    //TODOFT: by luminance?
+    tonemappedHDRColor = (tonemappedHDRColor > startingPoint) ? (pow(tonemappedHDRColor - startingPoint + 1.0, 1.0 / powCoeff) + startingPoint - 1.0) : tonemappedHDRColor;
+    tonemappedColor = tonemappedHDRColor;
 #endif
     outColor += tonemappedColor;
     SDRColor += tonemappedSDRColor;
@@ -114,7 +104,7 @@ void main(
   outColor /= int(MSCount);
   SDRColor /= int(MSCount);
 
-#if 1 // Luma: restore SDR colors
+#if !STRETCH_ORIGINAL_TONEMAPPER // Luma: restore SDR colors
   outColor = RestoreHue(outColor, SDRColor, 0.8);
   outColor = RestoreChrominanceAdvanced(outColor, SDRColor, 0.4);
 #endif

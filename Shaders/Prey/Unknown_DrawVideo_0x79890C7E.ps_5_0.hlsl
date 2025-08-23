@@ -23,6 +23,7 @@ void main(
 {
   float4 r0,r1;
 
+  // TODO: check if the matrices are properly BT.709 (or either way, whether they mirror the original encoding formula, though we couldn't know it)
   r0.x = tex1.Sample(samp0_s, inBaseTC.zw).x;
   r0.xyzw = crc.xyzw * r0.xxxx;
   r1.x = tex0.Sample(samp0_s, inBaseTC.xy).x;

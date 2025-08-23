@@ -53,6 +53,7 @@ namespace DICE
 // This might look more like classic SDR tonemappers and is closer to how modern TVs and Monitors play back colors (usually they clip each individual channel to the peak brightness value, though in their native panel color space, or current SDR/HDR mode color space).
 // Overall, this seems to handle bright gradients more smoothly, even if it shifts hues more (and generally desaturating).
 #define DICE_TYPE_BY_CHANNEL_PQ 3
+// TODO: add perceptual log version? It probably barely matters (according to Lilium's research)
 
 struct DICESettings
 {

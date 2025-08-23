@@ -152,7 +152,7 @@ public:
    }
 
    //TODOFT: delete?
-   void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data) override
+   void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override
    {
    }
 
@@ -395,7 +395,7 @@ public:
       game_device_data.has_drawn_dlss_sr = false;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -484,21 +484,21 @@ public:
          ASSERT_ONCE(dlss_inputs_valid);
          if (dlss_inputs_valid)
          {
-            com_ptr<ID3D11Resource> output_colorTemp;
-            uav->GetResource(&output_colorTemp);
+            com_ptr<ID3D11Resource> output_color_resource;
+            uav->GetResource(&output_color_resource);
             com_ptr<ID3D11Texture2D> output_color;
-            HRESULT hr = output_colorTemp->QueryInterface(&output_color);
+            HRESULT hr = output_color_resource->QueryInterface(&output_color);
             ASSERT_ONCE(SUCCEEDED(hr));
 
-            D3D11_TEXTURE2D_DESC output_texture_desc;
-            output_color->GetDesc(&output_texture_desc);
+            D3D11_TEXTURE2D_DESC taa_output_texture_desc;
+            output_color->GetDesc(&taa_output_texture_desc);
 
    #if FORCE_SMAA_MIPS // Define from the native plugin (not ever defined here!)
-            ASSERT_ONCE(output_texture_desc.MipLevels > 1); // To improve "Perfect Perspective" lens distortion
+            ASSERT_ONCE(taa_output_texture_desc.MipLevels > 1); // To improve "Perfect Perspective" lens distortion
    #endif
 
-            ASSERT_ONCE(std::lrintf(device_data.output_resolution.x) == output_texture_desc.Width && std::lrintf(device_data.output_resolution.y) == output_texture_desc.Height);
-            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)output_texture_desc.Width * (double)device_data.dlss_render_resolution_scale, (double)output_texture_desc.Height * (double)device_data.dlss_render_resolution_scale, (double)output_texture_desc.Width / (double)output_texture_desc.Height);
+            ASSERT_ONCE(std::lrintf(device_data.output_resolution.x) == taa_output_texture_desc.Width && std::lrintf(device_data.output_resolution.y) == taa_output_texture_desc.Height);
+            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * (double)device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Height * (double)device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Width / (double)taa_output_texture_desc.Height);
             // The "HDR" flag in DLSS SR actually means whether the color is in linear space or "sRGB gamma" (apparently not 2.2) (SDR) space, colors beyond 0-1 don't seem to be clipped either way
             //bool dlss_hdr = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) >= 1; // we are assuming the value was always a number and not empty
             bool dlss_hdr = true;
@@ -515,29 +515,29 @@ public:
             // This function doesn't alter the pipeline state (e.g. shaders, cbuffers, RTs, ...), if not, we need to move it to the "Present()" function, it doesn't seem like we can do it async though (DLSS rendering crashes in deferred context, possibly this would too)
             if (!delay_dlss)
             {
-               NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, output_texture_desc.Width, output_texture_desc.Height, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.prey_drs_detected);
+               NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, taa_output_texture_desc.Width, taa_output_texture_desc.Height, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.prey_drs_detected);
             }
 
-            bool skip_dlss = output_texture_desc.Width < 32 || output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
+            bool skip_dlss = taa_output_texture_desc.Width < 32 || taa_output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
             bool dlss_output_changed = false;
             constexpr bool dlss_use_native_uav = true;
-            bool dlss_output_supports_uav = dlss_use_native_uav && (output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
+            bool dlss_output_supports_uav = dlss_use_native_uav && (taa_output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
             if (!dlss_output_supports_uav)
             {
                ASSERT_ONCE(!dlss_use_native_uav); // Should never happen anymore
 
-               output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+               taa_output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
 
                if (device_data.dlss_output_color.get())
                {
-                  D3D11_TEXTURE2D_DESC dlss_output_texture_desc;
-                  device_data.dlss_output_color->GetDesc(&dlss_output_texture_desc);
-                  dlss_output_changed = dlss_output_texture_desc.Width != output_texture_desc.Width || dlss_output_texture_desc.Height != output_texture_desc.Height || dlss_output_texture_desc.Format != output_texture_desc.Format;
+                  D3D11_TEXTURE2D_DESC dlss_taa_output_texture_desc;
+                  device_data.dlss_output_color->GetDesc(&dlss_taa_output_texture_desc);
+                  dlss_output_changed = dlss_taa_output_texture_desc.Width != taa_output_texture_desc.Width || dlss_taa_output_texture_desc.Height != taa_output_texture_desc.Height || dlss_taa_output_texture_desc.Format != taa_output_texture_desc.Format;
                }
                if (!device_data.dlss_output_color.get() || dlss_output_changed)
                {
                   device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
-                  hr = native_device->CreateTexture2D(&output_texture_desc, nullptr, &device_data.dlss_output_color);
+                  hr = native_device->CreateTexture2D(&taa_output_texture_desc, nullptr, &device_data.dlss_output_color);
                   ASSERT_ONCE(SUCCEEDED(hr));
                }
                if (!device_data.dlss_output_color.get())
@@ -547,6 +547,7 @@ public:
             }
             else
             {
+               ASSERT_ONCE(device_data.dlss_output_color == nullptr);
                device_data.dlss_output_color = output_color;
             }
 
@@ -781,7 +782,7 @@ public:
             {
                game_device_data.final_post_process_command_list = nullptr;
                device_data.has_drawn_main_post_processing = true;
-               if (enable_separate_ui_drawing)
+               if (enable_ui_separation)
                {
                   ID3D11RenderTargetView* const ui_texture_rtv_const = device_data.ui_texture_rtv.get();
                   native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr);
@@ -975,9 +976,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      Globals::GAME_NAME = PROJECT_NAME;
-      Globals::DESCRIPTION = "Dishonored 2 + Death of the Outsider Luma mod";
-      Globals::WEBSITE = "";
+      Globals::SetGlobals(PROJECT_NAME, "Dishonored 2 + Death of the Outsider Luma mod");
       Globals::VERSION = 1;
 
       shader_hashes_TAA.compute_shaders.emplace(std::stoul("06BBC941", nullptr, 16)); // DH2
@@ -1005,7 +1004,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
 
-      enable_separate_ui_drawing = true;
+      enable_ui_separation = false;
 
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
@@ -1027,6 +1026,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       };
       texture_format_upgrades_lut_size = 32;
       texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
+
+      enable_ui_separation = true;
+      ui_separation_format = DXGI_FORMAT_R16G16B16A16_FLOAT; // TODO: pick the best format, it's probably DXGI_FORMAT_R16G16B16A16_UNORM or DXGI_FORMAT_R8G8B8A8_UNORM.
 
       game = new Dishonored2();
    }

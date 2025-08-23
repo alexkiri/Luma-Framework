@@ -1,0 +1,168 @@
+#define GAME_GENERIC 1
+
+#define ENABLE_NGX 0
+#define UPGRADE_SAMPLERS 0
+
+#include "..\..\Core\core.hpp"
+
+namespace
+{
+   std::set<reshade::api::format> toggleable_texture_upgrade_formats;
+}
+
+struct GenericGameDeviceData final : public GameDeviceData
+{
+};
+
+// Generic mod that should work in many games out of the box, configurable at runtime.
+// Texture upgrades and linearized scRGB HDR should work. An SDR to HDR upgrade can be done at the end.
+class GenericGame final : public Game
+{
+   static GenericGameDeviceData& GetGameDeviceData(DeviceData& device_data)
+   {
+      return *static_cast<GenericGameDeviceData*>(device_data.game);
+   }
+
+public:
+   void OnInit(bool async) override
+   {
+      luma_settings_cbuffer_index = 13;
+      luma_data_cbuffer_index = 12;
+   }
+
+   void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      device_data.game = new GenericGameDeviceData;
+   }
+
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   {
+      auto& game_device_data = GetGameDeviceData(device_data);
+
+      return false; // Don't cancel the original draw call
+   }
+   void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+   }
+
+   void DrawImGuiSettings(DeviceData& device_data) override
+   {
+      reshade::api::effect_runtime* runtime = nullptr;
+
+      ImGui::NewLine();
+      // Requires a change in resolution to (~fully) apply (no texture cloning yet)
+      if (enable_swapchain_upgrade ? ImGui::Button("Disable Swapchain Upgrade") : ImGui::Button("Enable Swapchain Upgrade"))
+      {
+         enable_swapchain_upgrade = !enable_swapchain_upgrade;
+      }
+      if (enable_texture_format_upgrades ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
+      {
+         enable_texture_format_upgrades = !enable_texture_format_upgrades;
+      }
+
+      // TODO: serialize all this stuff!
+      if (enable_texture_format_upgrades)
+      {
+         ImGui::NewLine();
+         ImGui::Text("Texture Format Upgrades:");
+         for (auto toggleable_texture_upgrade_format : toggleable_texture_upgrade_formats)
+         {
+            // Dumb stream conversion
+            std::ostringstream oss;
+            oss << toggleable_texture_upgrade_format;
+            std::string toggleable_texture_upgrade_format_name = oss.str();
+
+            bool enabled = texture_upgrade_formats.contains(toggleable_texture_upgrade_format);
+
+            int mode = enabled ? 1 : 0;
+            const char* settings_name_strings[2] = { "Off", "On" };
+            if (ImGui::SliderInt(toggleable_texture_upgrade_format_name.c_str(), &mode, 0, 1, settings_name_strings[mode], ImGuiSliderFlags_NoInput))
+            {
+               if (mode >= 1)
+               {
+                  texture_upgrade_formats.emplace(toggleable_texture_upgrade_format);
+               }
+               else
+               {
+                  texture_upgrade_formats.erase(toggleable_texture_upgrade_format);
+               }
+            }
+         }
+      }
+
+      ImGui::NewLine();
+      if (prevent_fullscreen_state ? ImGui::Button("Allow Fullscreen State") : ImGui::Button("Disallow Fullscreen State"))
+      {
+         prevent_fullscreen_state = !prevent_fullscreen_state;
+      }
+   }
+
+   void PrintImGuiAbout() override
+   {
+      ImGui::Text("Generic Luma mod - Developed by Pumbo", "");
+   }
+};
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+{
+   if (ul_reason_for_call == DLL_PROCESS_ATTACH)
+   {
+      wchar_t file_path_char[MAX_PATH] = L"";
+      GetModuleFileNameW(hModule, file_path_char, ARRAYSIZE(file_path_char));
+      std::filesystem::path file_path = file_path_char;
+      std::string file_name = file_path.stem().string();
+      // Retrieve the dll name and use it as the addon name, so we can re-use this template mod for all games by simply renaming the executable (as long as the mod just involves replacing shaders).
+      bool use_custom_game_name = false;
+      if (file_name.starts_with(std::string(Globals::MOD_NAME) + "-"))
+      {
+         file_name.erase(0, std::string(Globals::MOD_NAME).length() + 1);
+         if (file_name.starts_with('_'))
+            file_name.erase(0, 1);
+         if (file_name != "Generic" && file_name != "Generic Mod" && file_name != "GenericMod")
+            use_custom_game_name = true;
+      }
+
+      const char* project_name = PROJECT_NAME;
+      const char* cleared_project_name = (project_name[0] == '_') ? (project_name + 1) : project_name; // Remove the potential "_" at the beginning
+
+      const char* game_name = use_custom_game_name ? file_name.c_str() : cleared_project_name; // Can include spaces!
+      std::string mod_description = "Generic Luma mod";
+      if (use_custom_game_name)
+         mod_description += " for " + file_name;
+
+      uint32_t mod_version = 1;
+      Globals::SetGlobals(game_name, mod_description.c_str(), "https://github.com/Filoppi/Luma-Framework/", mod_version);
+
+      enable_swapchain_upgrade = true;
+      swapchain_upgrade_type = 1;
+      enable_texture_format_upgrades = true;
+      toggleable_texture_upgrade_formats = {
+            reshade::api::format::r8g8b8a8_unorm,
+            reshade::api::format::r8g8b8a8_unorm_srgb,
+            reshade::api::format::r8g8b8a8_typeless,
+            reshade::api::format::r8g8b8x8_unorm,
+            reshade::api::format::r8g8b8x8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_unorm,
+            reshade::api::format::b8g8r8a8_unorm_srgb,
+            reshade::api::format::b8g8r8a8_typeless,
+            reshade::api::format::b8g8r8x8_unorm,
+            reshade::api::format::b8g8r8x8_unorm_srgb,
+            reshade::api::format::b8g8r8x8_typeless,
+
+            reshade::api::format::r10g10b10a2_unorm,
+            reshade::api::format::r10g10b10a2_typeless,
+
+            //reshade::api::format::r16g16b16a16_unorm,
+
+            reshade::api::format::r11g11b10_float,
+      };
+      texture_upgrade_formats.insert(toggleable_texture_upgrade_formats.begin(), toggleable_texture_upgrade_formats.end());
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
+
+      game = new GenericGame();
+   }
+
+   CoreMain(hModule, ul_reason_for_call, lpReserved);
+
+   return TRUE;
+}

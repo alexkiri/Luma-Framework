@@ -12,6 +12,8 @@
 
 #include <include/reshade.hpp>
 
+#include "system.hpp"
+
 namespace Shader
 {
    static std::mutex s_mutex_shader_compiler;
@@ -132,7 +134,7 @@ namespace Shader
       }
    };
 
-   std::optional<std::string> DisassembleShaderFXC(void* data, size_t size, LPCWSTR library = L"D3DCompiler_47.dll")
+   std::optional<std::string> DisassembleShaderFXC(const void* data, size_t size, LPCWSTR library = L"D3DCompiler_47.dll")
    {
       std::optional<std::string> result;
 
@@ -143,7 +145,7 @@ namespace Shader
          static std::unordered_map<LPCWSTR, HMODULE> d3d_compiler;
          if (d3d_compiler[library] == nullptr)
          {
-            d3d_compiler[library] = LoadLibraryW(library);
+            d3d_compiler[library] = LoadLibraryW((System::GetSystemPath() / library).c_str());
          }
          if (d3d_compiler[library] != nullptr && d3d_disassemble[library] == nullptr)
          {
@@ -202,7 +204,7 @@ namespace Shader
       return dxc_create_instance(CLSID_DxcCompiler, __uuidof(IDxcCompiler), reinterpret_cast<void**>(dxc_compiler));
    }
 
-   std::optional<std::string> DisassembleShaderDXC(void* data, size_t size)
+   std::optional<std::string> DisassembleShaderDXC(const void* data, size_t size)
    {
       CComPtr<IDxcLibrary> library;
       CComPtr<IDxcCompiler> compiler;
@@ -223,7 +225,7 @@ namespace Shader
       return result;
    }
 
-   std::optional<std::string> DisassembleShader(void* code, size_t size)
+   std::optional<std::string> DisassembleShader(const void* code, size_t size)
    {
       auto result = DisassembleShaderFXC(code, size);
       if (!result.has_value())
@@ -268,7 +270,7 @@ namespace Shader
             const std::lock_guard<std::mutex> lock(s_mutex_shader_compiler);
             if (d3d_compiler[fxc_library] == nullptr)
             {
-               d3d_compiler[fxc_library] = LoadLibraryW(fxc_library);
+               d3d_compiler[fxc_library] = LoadLibraryW((System::GetSystemPath() / fxc_library).c_str());
             }
             if (d3d_compiler[fxc_library] != nullptr && d3d_readFileToBlob[fxc_library] == nullptr)
             {
@@ -334,7 +336,7 @@ namespace Shader
          const std::lock_guard<std::mutex> lock(s_mutex_shader_compiler);
          if (d3d_compiler[library] == nullptr)
          {
-            d3d_compiler[library] = LoadLibraryW(library);
+            d3d_compiler[library] = LoadLibraryW((System::GetSystemPath() / library).c_str());
          }
          if (d3d_compiler[library] != nullptr && d3d_readFileToBlob[library] == nullptr)
          {
@@ -388,7 +390,7 @@ namespace Shader
          const std::lock_guard<std::mutex> lock(s_mutex_shader_compiler);
          if (d3d_compiler[library] == nullptr)
          {
-            d3d_compiler[library] = LoadLibraryW(library);
+            d3d_compiler[library] = LoadLibraryW((System::GetSystemPath() / library).c_str());
          }
          if (d3d_compiler[library] != nullptr && d3d_compilefromfile[library] == nullptr)
          {

@@ -13,6 +13,8 @@ namespace
    constexpr uint32_t GAME_POPTLC = 4;
    constexpr uint32_t GAME_COCOON = 5;
    constexpr uint32_t GAME_INSIDE = 6;
+   //TODOFT: add a way to add shader hashes name definitions hardcoded in code for debugging
+   // TODO: 0x2C49DEA4 draws the first pass of blur... Cut off negative values from it
 
    // List of all the games this generic engine mod supports.
    // Other games might be supported too if they use the same shaders.
@@ -124,6 +126,12 @@ public:
       {
          texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_typeless);
          texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_unorm);
+
+#if DEVELOPMENT // INSIDE
+         forced_shader_names.emplace(Shader::Hash_StrToNum("0AAF0B02"), "Draw Motion Vectors");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("A6B71745"), "Downscale 1/2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("E34B6A4A"), "Downscale Bloom");
+#endif
       }
 
       // Games that use the ACES tonemapping LUT should go here
@@ -287,9 +295,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      Globals::GAME_NAME = PROJECT_NAME;
-      Globals::DESCRIPTION = "Unity Engine Luma mod";
-      Globals::WEBSITE = "";
+      Globals::SetGlobals(PROJECT_NAME, "Unity Engine Luma mod");
       Globals::VERSION = 1;
 
       // Unity apparently never uses these

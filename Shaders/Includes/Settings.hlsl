@@ -54,12 +54,16 @@
 // 0 sRGB
 // 1 Gamma 2.2
 // 2 sRGB (color hues) with gamma 2.2 luminance (kinda assuming "VANILLA_ENCODING_TYPE" is 0)
+// 3 sRGB (color hues) with gamma 2.2 luminance (corrected by luminance)
+// 4 Gamma 2.2 (corrected by luminance) with per channel correction chrominance
 #ifndef GAMMA_CORRECTION_TYPE
 #define GAMMA_CORRECTION_TYPE 1
 #endif
 // Whether we correct gamma even on colors beyond the 0-1 range. Usually that's not suggested as they can overshoot due to pow differences (sRGB is completely different below and around zero),
 // and given these colors were never "seen" and we generated them ourselves with tonemapper modifications, it makes no sense to apply gamma correction on them too.
-// 0 the whole range
+// If se set this to 0, we'd also need to pre-acknowledge the later peak shift when tonemapping to the display. Plus, pow changes direction around 1, so doing that would contribute to creating a less contiguous curve.
+// 
+// 0 Whole range
 // 1 0-1 range only
 #ifndef GAMMA_CORRECTION_RANGE_TYPE
 #define GAMMA_CORRECTION_RANGE_TYPE 1
@@ -71,6 +75,7 @@
 #endif
 // Ensures the final colors are valid and contained within the display/output gamut range.
 // It's possibly good to turn this on if "EARLY_DISPLAY_ENCODING" is false, in case late gamma correction generated any invalid luminance or out of gamut colors. Film grain and sharpening etc can also often generated invalid colors.
+// 
 // 0 None
 // 1 Auto (SDR/HDR)
 // 2 SDR - BT.709
@@ -187,6 +192,7 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
 #if DEVELOPMENT
     // These are reflected in ImGui (the number of them is hardcoded in c++).
     // You can add up to 3 numbers as comment to their right to define the UI settings sliders default, min and max values, and their name.
+    // Like: float DevSetting01; // DefaultValue, MinValue, MaxValue, Name
     float DevSetting01; // 0, 0, 1
     float DevSetting02; // 0, 0, 1
     float DevSetting03; // 0, 0, 1

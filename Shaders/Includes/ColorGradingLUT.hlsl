@@ -5,6 +5,8 @@
 #include "Oklab.hlsl"
 #include "DarktableUCS.hlsl"
 
+//TODOFT: try basic extrapolation mode where we simply compress 0.5 to INF input to 0.5 to 1, do LUT and then decompress range again
+
 // Make sure to define these to your value, or set it to 0, so it retrieves the size from the LUT (in some functions)
 #ifndef LUT_SIZE
 #define LUT_SIZE 16u
@@ -306,6 +308,7 @@ float3 NormalizeLUT(float3 vOriginalGamma, float3 vBlackGamma, float3 vMidGrayGa
 // Takes any original color (before some post process is applied to it) and re-applies the same transformation the post process had applied to it on a different (but similar) color.
 // The images are expected to have roughly the same mid gray.
 // It can be used for example to apply any SDR LUT or SDR color correction on an HDR color.
+// The "BT.2020" flag means it will convert to that from "BT.709"
 float3 RestorePostProcess(float3 nonPostProcessedTargetColor, float3 nonPostProcessedSourceColor, float3 postProcessedSourceColor, float hueRestoration = 0.0, bool BT2020 = true)
 {
   static const float MaxShadowsColor = pow(1.f / 3.f, 2.2f); // The lower this value, the more "accurate" is the restoration (math wise), but also more error prone (e.g. division by zero). If the color range is wider than the original one, the higher this value is, the further it will extend, due to working by offset near black (and thus generating negative rgb values).
@@ -838,6 +841,7 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 encoded
 
 //TODOFT: store the acceleration around the lut's last texel in the alpha channel?
 //TODOFT: lower lut extrapolation intensity on brighter colors?
+//TODOFT: as we approach white and beyond (roughly the greyscale, direction of white, but beyond 1 1 1), we should not extrapolate as much, at least if the OG LUT mapped white to white, otherwise we'd hue shift white to other colors and fail to properly desaturate. Maybe add an "SDR" color param for this.
 
 // LUT sample that allows to go beyond the 0-1 coordinates range through extrapolation.
 // It finds the rate of change (acceleration) of the LUT color around the requested clamped coordinates, and guesses what color the sampling would have with the out of range coordinates.

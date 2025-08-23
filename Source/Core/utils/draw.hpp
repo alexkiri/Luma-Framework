@@ -85,6 +85,7 @@ struct DrawStateStack
          device_context->IAGetIndexBuffer(&IndexBuffer, &IndexBufferFormat, &IndexBufferOffset);
          device_context->IAGetVertexBuffers(0, 1, &VertexBuffer, &VertexBufferStride, &VertexBufferOffset);
          device_context->VSGetConstantBuffers(...);
+         device_context->GSGetShader(&gs, nullptr, 0); // And others
 #endif
       }
       else if constexpr (Mode == DrawStateStackType::Compute)
@@ -232,7 +233,7 @@ struct DrawStateStack
 
 #if DEVELOPMENT
 // Expects mutexes to already be locked
-void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data, const DeviceData& device_data, ID3D11DeviceContext* native_device_context, uint64_t pipeline_handle)
+void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data, const DeviceData& device_data, ID3D11DeviceContext* native_device_context, uint64_t pipeline_handle, std::unordered_map<uint32_t, CachedShader*>& shader_cache)
 {
    TraceDrawCallData trace_draw_call_data;
 
@@ -244,16 +245,19 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
 #endif
 
    trace_draw_call_data.command_list = native_device_context;
-   trace_draw_call_data.thread_id = std::this_thread::get_id();
 
    // Note that the pipelines can be run more than once so this will return the first one matching (there's only one actually, we don't have separate settings for their running instance, as that's runtime stuff)
    const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle);
    const bool is_valid = pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr;
    if (is_valid)
    {
-      constexpr bool show_unused_bound_resources = false; // Expose if needed
+      // Expose if needed
+      constexpr bool show_unused_bound_resources = false; // If a resource is bound but not read/written to by the shader (this often happens with SRVs and UAVs, rarely with RTVs, given they almost 1:1 match with the shader)
+      constexpr bool show_used_unbound_resources = true; // If a resource is not bound (null) but it is read/written to by the shader (which will result in black on read, and nothing on writes)
 
       const auto pipeline = pipeline_pair->second;
+      const CachedShader* cached_shader = (!pipeline->shader_hashes.empty() && shader_cache.contains(pipeline->shader_hashes[0])) ? shader_cache[pipeline->shader_hashes[0]] : nullptr; // DX10/11 exclusive behaviour
+      assert(cached_shader);
       if (pipeline->HasPixelShader())
       {
          UINT scissor_viewport_num = 0;
@@ -322,7 +326,21 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                }
             }
 
-            trace_draw_call_data.stencil_enabled = depth_stencil_desc.StencilEnable;
+            trace_draw_call_data.stencil_enabled = depth_stencil_desc.StencilEnable && dsv.get(); // TODO: do better states for it
+
+            if (trace_draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Disabled && trace_draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Invalid)
+            {
+               D3D11_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+               dsv->GetDesc(&dsv_desc);
+               trace_draw_call_data.dsv_format = dsv_desc.Format;
+               ASSERT_ONCE(dsv_desc.Format != DXGI_FORMAT_UNKNOWN); // Unexpected?
+               com_ptr<ID3D11Resource> ds_resource;
+               dsv->GetResource(&ds_resource);
+               uint4 ds_size = {};
+               GetResourceInfo(ds_resource.get(), ds_size, trace_draw_call_data.ds_format, nullptr, &trace_draw_call_data.ds_hash);
+               trace_draw_call_data.ds_size.x = ds_size.x;
+               trace_draw_call_data.ds_size.y = ds_size.y;
+            }
          }
 
          com_ptr<ID3D11BlendState> blend_state;
@@ -338,15 +356,24 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
 
          for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
          {
-            if (rtvs[i] != nullptr && (show_unused_bound_resources || pipeline->rtvs[i]))
+            if ((rtvs[i] != nullptr || (show_used_unbound_resources && cached_shader->rtvs[i])) && (show_unused_bound_resources || cached_shader->rtvs[i]))
             {
-               D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
-               rtvs[i]->GetDesc(&rtv_desc);
+               trace_draw_call_data.rtvs[i] = rtvs[i].get();
+
+               D3D11_RENDER_TARGET_VIEW_DESC rtv_desc = {};
+               rtv_desc.Format = DXGI_FORMAT(-1);
+               if (rtvs[i])
+               {
+                  rtvs[i]->GetDesc(&rtv_desc);
+                  ASSERT_ONCE(rtv_desc.Format != DXGI_FORMAT_UNKNOWN); // Unexpected?
+               }
                trace_draw_call_data.rtv_format[i] = rtv_desc.Format;
-               ASSERT_ONCE(rtv_desc.Format != DXGI_FORMAT_UNKNOWN); // Unexpected?
                com_ptr<ID3D11Resource> rt_resource;
-               rtvs[i]->GetResource(&rt_resource);
-               ASSERT_ONCE(rt_resource != nullptr);
+               if (rtvs[i])
+               {
+                  rtvs[i]->GetResource(&rt_resource);
+                  ASSERT_ONCE(rt_resource != nullptr); // Could happen
+               }
                if (rt_resource)
                {
                   // If any of the set RTs are the swapchain, set it to true
@@ -363,10 +390,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          }
          for (UINT i = 0; i < device_data.uav_max_count; i++)
          {
-            if (uavs[i] != nullptr && (show_unused_bound_resources || pipeline->uavs[i]))
+            if ((uavs[i] != nullptr || (show_used_unbound_resources && cached_shader->uavs[i])) && (show_unused_bound_resources || cached_shader->uavs[i]))
             {
-               D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
-               uavs[i]->GetDesc(&uav_desc);
+               trace_draw_call_data.uavs[i] = uavs[i].get();
+
+               D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+               uav_desc.Format = DXGI_FORMAT(-1);
+               if (uavs[i]) uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
                GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
@@ -377,13 +407,16 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->PSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
-            if (srvs[i] != nullptr && (show_unused_bound_resources || pipeline->srvs[i]))
+            if ((srvs[i] != nullptr || (show_used_unbound_resources && cached_shader->srvs[i])) && (show_unused_bound_resources || cached_shader->srvs[i]))
             {
-               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
-               srvs[i]->GetDesc(&srv_desc);
+               trace_draw_call_data.srvs[i] = srvs[i].get();
+
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+               srv_desc.Format = DXGI_FORMAT(-1);
+               if (srvs[i]) srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
             }
          }
       }
@@ -393,13 +426,16 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->VSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
-            if (srvs[i] != nullptr && (show_unused_bound_resources || pipeline->srvs[i]))
+            if ((srvs[i] != nullptr || (show_used_unbound_resources && cached_shader->srvs[i])) && (show_unused_bound_resources || cached_shader->srvs[i]))
             {
-               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
-               srvs[i]->GetDesc(&srv_desc);
+               trace_draw_call_data.srvs[i] = srvs[i].get();
+
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+               srv_desc.Format = DXGI_FORMAT(-1);
+               if (srvs[i]) srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
             }
          }
       }
@@ -409,13 +445,16 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->CSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, &srvs[0]);
          for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
          {
-            if (srvs[i] != nullptr && (show_unused_bound_resources || pipeline->srvs[i]))
+            if ((srvs[i] != nullptr || (show_used_unbound_resources && cached_shader->srvs[i])) && (show_unused_bound_resources || cached_shader->srvs[i]))
             {
-               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
-               srvs[i]->GetDesc(&srv_desc);
+               trace_draw_call_data.srvs[i] = srvs[i].get();
+
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+               srv_desc.Format = DXGI_FORMAT(-1);
+               if (srvs[i]) srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
             }
          }
 
@@ -423,10 +462,13 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          native_device_context->CSGetUnorderedAccessViews(0, device_data.uav_max_count, &uavs[0]);
          for (UINT i = 0; i < device_data.uav_max_count; i++)
          {
-            if (uavs[i] != nullptr && (show_unused_bound_resources || pipeline->uavs[i]))
+            if ((uavs[i] != nullptr || (show_used_unbound_resources && cached_shader->uavs[i])) && (show_unused_bound_resources || cached_shader->uavs[i]))
             {
-               D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc;
-               uavs[i]->GetDesc(&uav_desc);
+               trace_draw_call_data.srvs[i] = srvs[i].get();
+
+               D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+               uav_desc.Format = DXGI_FORMAT(-1);
+               if (uavs[i]) uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
                GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
@@ -435,6 +477,8 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
       }
    }
 
+   if (trace_draw_calls_data.capacity() - trace_draw_calls_data.size() <= 1)
+      trace_draw_calls_data.reserve(trace_draw_calls_data.size() + 1000); // Possible optimization
    trace_draw_calls_data.push_back(trace_draw_call_data);
 }
 #endif
@@ -493,13 +537,27 @@ void SetViewportFullscreen(ID3D11DeviceContext* device_context, uint2 size = {})
       ASSERT_ONCE(render_target_view_desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2D); // This should always be the case
 #endif // DEVELOPMENT
 
+      D3D11_TEXTURE2D_DESC render_target_texture_2d_desc;
       com_ptr<ID3D11Resource> render_target_resource;
       render_target_view->GetResource(&render_target_resource);
-      com_ptr<ID3D11Texture2D> render_target_texture_2d;
-      HRESULT hr = render_target_resource->QueryInterface(&render_target_texture_2d);
-      ASSERT_ONCE(SUCCEEDED(hr));
-      D3D11_TEXTURE2D_DESC render_target_texture_2d_desc;
-      render_target_texture_2d->GetDesc(&render_target_texture_2d_desc);
+      if (render_target_resource)
+      {
+         com_ptr<ID3D11Texture2D> render_target_texture_2d;
+         HRESULT hr = render_target_resource->QueryInterface(&render_target_texture_2d);
+         ASSERT_ONCE(SUCCEEDED(hr));
+         if (render_target_texture_2d)
+         {
+            render_target_texture_2d->GetDesc(&render_target_texture_2d_desc);
+         }
+         else
+         {
+            return;
+         }
+      }
+      else
+      {
+         return;
+      }
 
 #if DEVELOPMENT
       // Scissors are often set after viewports in games (e.g. Prey), so check them separately.

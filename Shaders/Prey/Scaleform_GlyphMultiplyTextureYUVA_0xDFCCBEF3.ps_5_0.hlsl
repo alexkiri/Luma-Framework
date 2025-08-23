@@ -31,7 +31,7 @@ void main(
   r0.xyz = saturate(r1.w * 1.16438353f + r1.xyz); // LUMA FT: we might not need this saturate() here, but we leave it to conserve the vanilla look
   r0.xyzw = r0.xyzw * cBitmapColorTransform._m00_m01_m02_m03 + cBitmapColorTransform._m10_m11_m12_m13;
   r1.xyzw = float4(-1,-1,-1,-1) + r0.xyzw;
-  r0.xyzw = r0.wwww * r1.xyzw + float4(1,1,1,1);
+  r0.xyzw = r0.w * r1.xyzw + 1.0;
   o0.rgba = PremultiplyAlpha(r0);
 #if TEST_UI
   o0.rgb = float3(0, 2, 0);

@@ -34,11 +34,11 @@ float getRCASLuma(float3 rgb)
 // The color range is roughly expected to be within the SDR 0-1 range, if not, pass in a "paperWhite" scale (which matches the "peak" of the range), that will be used as normalization.
 // It's possible to pass in motion vectors to do additional sharpening based on movement.
 // Sharpness is meant to be between 0 and 1.
-float4 RCAS(int2 pixelCoord, int2 minPixelCoord, int2 maxPixelCoord, float sharpness, Texture2D<float4> linearColorTexture, Texture2D<float2> motionVectorsTexture, float paperWhite = 1.0, bool specifyLinearColor = false, float4 linearColor = 0, bool dynamicSharpening = false)
+float4 RCAS(int2 pixelCoord, int2 minPixelCoord /*= 0*/, int2 maxPixelCoord /*= 0x7FFFFFFF*/, float sharpness, Texture2D<float4> linearColorTexture, Texture2D<float2> motionVectorsTexture, float paperWhite = 1.0, bool specifyCentralLinearColor = false, float4 centralLinearColor = 0, bool dynamicSharpening = false)
 {
     float originalSharpness = sharpness;
 
-    if (dynamicSharpening) //TODO: finish this stuff and the debug view below
+    if (dynamicSharpening) //TODO: finish this stuff and the debug view below. This currently won't skip sharpening if it was already zero!
     {
         static const float MotionSharpness = 1;
         static const float Threshold = 1;
@@ -58,7 +58,8 @@ float4 RCAS(int2 pixelCoord, int2 minPixelCoord, int2 maxPixelCoord, float sharp
     }
     sharpness = saturate(sharpness);
 
-    float4 e4 = specifyLinearColor ? linearColor : linearColorTexture.Load(int3(pixelCoord.x, pixelCoord.y, 0)).rgba; // No need to check "maxPixelCoord" here
+    // Branch to avoid doing an extra sample if we already had it
+    float4 e4 = specifyCentralLinearColor ? centralLinearColor : linearColorTexture.Load(int3(pixelCoord.x, pixelCoord.y, 0)).rgba; // No need to check "maxPixelCoord" here
 
     // Optional optimization: skip sharpening if it's zero
     if (sharpness == 0.0f)

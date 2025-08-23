@@ -38,7 +38,7 @@ public:
       device_data.game = new GameDeviceDataTemplate;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -59,9 +59,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      Globals::GAME_NAME = PROJECT_NAME;
-      Globals::DESCRIPTION = "L.A. Noire Luma mod";
-      Globals::WEBSITE = "";
+      Globals::SetGlobals(PROJECT_NAME, "L.A. Noire Luma mod");
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;

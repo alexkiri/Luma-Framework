@@ -5,6 +5,33 @@
 // ACM Transactions on Graphics (SIGGRAPH), 2002.
 namespace Reinhard 
 {
+  // Only compressed from "shoulderStart", onto "peak" (don't pre-offsetting by the shoulder)
+  float3 ReinhardRange(float3 x, float shoulderStart = MidGray, float peak = 1.f) {
+    return (x > shoulderStart) ? (((x - shoulderStart) / (((x - shoulderStart) / (peak - shoulderStart)) + 1.f)) + shoulderStart) : x;
+  }
+  
+  // This converts a color compressed with Reinhard with a white level to another white level
+  // (it's a shortcut to avoid having to do inverse tonemapping and then tonemapping again with a different white level)
+  float3 ReinhardRebalancePerComponent(float3 L, float L_oldWhite, float L_newWhite, uint clampType = 0)
+  {
+    float3 L_negative = 0.0;
+    if (clampType >= 1)
+    {
+      L_negative = min(L, 0.0);
+      L = max(L, 0.0);
+    }
+    L *= (1.0 + (L / sqr(L_newWhite))) / (1.0 + (L / sqr(L_oldWhite)));
+    if (clampType == 1 )
+    {
+      L += L_negative;
+    }
+    else if (clampType >= 2)
+    {
+      L = saturate(L);
+    }
+    return L;
+  }
+
   float ReinhardSimple(float x, float peak = 1.f) {
     return x / (x / peak + 1.f);
   }

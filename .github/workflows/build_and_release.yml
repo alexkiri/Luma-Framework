@@ -91,6 +91,7 @@ jobs:
 
           Write-Host "Project name extracted: $projectName"
 
+          # TODO: remove "_" from "Generic Mod"
           # We don't care to publish the template project, it's just there for reference
           if ($projectName -like '*_Template*' -or $projectName -eq '*Template*') {
             Write-Host "Project is a template. Skipping ZIP creation and upload."

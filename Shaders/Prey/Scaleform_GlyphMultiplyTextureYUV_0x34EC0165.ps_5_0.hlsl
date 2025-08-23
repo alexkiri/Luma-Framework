@@ -29,6 +29,7 @@ void main(
   r0.w -= 16.f / 255.f;
   r1.xyz = saturate(r0.w * 1.16438353f + r0.xyz); // LUMA FT: we might not need this saturate() here, but we leave it to conserve the vanilla look
   r1.w = 1;
+  
   r0.xyzw = r1.xyzw * cBitmapColorTransform._m00_m01_m02_m03 + cBitmapColorTransform._m10_m11_m12_m13;
   r1.xyzw = float4(-1,-1,-1,-1) + r0.xyzw;
   r0.xyzw = r0.wwww * r1.xyzw + float4(1,1,1,1);

@@ -7,7 +7,15 @@
 
 namespace System
 {
-   // TODO: move these to a cpp body
+   // TODO: move these to a cpp body, they send linking warnings
+
+   // Returns the path to the "System32" directory
+   __forceinline std::filesystem::path GetSystemPath()
+   {
+      WCHAR buf[4096];
+      GetSystemDirectoryW(buf, ARRAYSIZE(buf));
+      return buf;
+   }
 
    std::string GetProcessExecutableName()
    {

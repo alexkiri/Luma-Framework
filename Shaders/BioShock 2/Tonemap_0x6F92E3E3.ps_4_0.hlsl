@@ -79,10 +79,13 @@ void main(
     // apply extrapolated LUT to HDR
     outColor.rgb = SampleLUTWithExtrapolation(s_toneMapTable, s_toneMapTable_s, extrapolationData, extrapolationSettings);
 #else
-  outColor.xyz = pow(abs(r0.xyz), 1.0 / 2.2) * sign(r0.xyz);
+  outColor.xyz = pow(abs(r0.xyz), 1.0 / 2.2) * sign(r0.xyz); // Linear to gamma
 #endif
     
+    // TODO: tonemap in linear space
+  outColor.xyz = pow(abs(outColor.xyz), 2.2) * sign(outColor.xyz);
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
     outColor.rgb = Tonemap_DICE(outColor.rgb * paperWhite, peakWhite) / paperWhite;
+  outColor.xyz = pow(abs(outColor.xyz), 1.0 / 2.2) * sign(outColor.xyz);
 }

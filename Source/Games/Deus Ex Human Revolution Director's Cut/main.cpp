@@ -45,9 +45,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      Globals::GAME_NAME = PROJECT_NAME;
-      Globals::DESCRIPTION = "Deus Ex: Human Revolution - Director's Cut Luma mod";
-      Globals::WEBSITE = "";
+      Globals::SetGlobals(PROJECT_NAME, "Deus Ex: Human Revolution - Director's Cut Luma mod");
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;

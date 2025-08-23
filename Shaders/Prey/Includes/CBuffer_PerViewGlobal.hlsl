@@ -1,29 +1,32 @@
 cbuffer CBPerViewGlobal : register(b13)
 {
-  // View/camera projection matrix but based around the camera zero (???).
-  // It's unclear what that means exactly, this is not the same as "CV_ViewMatr" so it does have some additional transformation to it.
+  // View/camera projection matrix but wihtout camera translation, so based around the level origin.
+  // This is used for a couple things that are independent from the player's view location, like the sky box and monitor grid like effects, and is used in general in many vertex shaders, but then it's replaced by "CV_ViewProjMatr" or "CV_ViewProjNearestMatr" or, gets added with "CV_ScreenToWorldBasis"
+  // It's unclear what that means exactly, this is not the same as "CV_ViewProjMatr" so it does have some additional transformation to it, maybe it has the near depth set to 0, but I don't think that is possible.
   // It also includes jitters.
   row_major float4x4 CV_ViewProjZeroMatr : packoffset(c0);
   float4 CV_AnimGenParams : packoffset(c4);
   // View/camera projection matrix.
-  // This includes jitters (they are baked in the result) until the anti aliasing passes start, at that point, jitters are removed from the matrix (not exactly sure why, but it worked for what they were doing with TAA, and it might have been to avoid jittering lens effects and sun shafts).
+  // This includes jitters (they are baked in the result) until the anti aliasing passes start, at that point, jitters are removed from the matrix (not exactly sure why, but it worked for what they were doing with TAA (it's not jitter aware), and it might have been to avoid jittering lens effects and sun shafts).
   // If you have a world space position (relative to the camera), you can reproject it to where it used to be on screen in the last frame, like "float3 screenPosition = mul(CV_ViewProjMatr, float4(worldPosition, 1))".
   row_major float4x4 CV_ViewProjMatr : packoffset(c5);
   // Like "CV_ViewProjZeroMatr", but based on the nearest projection matrix, which is used to draw first person objects (e.g. player weapons). Also includes jitters.
   row_major float4x4 CV_ViewProjNearestMatr : packoffset(c9);
+  // Completely unused. Name is self explanatory.
   row_major float4x4 CV_InvViewProj : packoffset(c13);
   // LUMA FT: in Prey, this matrix is "wrongly named" and it's set equal to the (current) projection matrix (all the times, except for shadow projection maps draw calls).
   // In vanilla CryEngine, it was set "properly" to the previou frame "view/camera projection matrix" ("CV_ViewProjMatr"), except it used the previous frame "view/camera matrix" combined with the current frame "projection matrix",
-  // meaning that it wouldn't acknowledge the jitters difference, nor any change in FOV.
+  // meaning that it wouldn't acknowledge the jitters difference, nor any changes in FOV.
   // Yet somehow, in Prey, motion vectors (which are based on this), manage to be generated correctly, even if it uses a different matrix from vanilla CryEngine (despite the MVs generation code being ~identical).
   // Supposedly they've also replaced and misnamed other variables in shaders so it all works out even if reading the code makes no sense.
-  // With Luma hooks, we have kept it at it was in vanilla Prey, but included the previous jitters in it (it's now actually entirely based on the previous one).
+  // With Luma hooks, we have kept it at it was in vanilla Prey, but included the previous jitters in it (it's now actually entirely based on the previous projection matrix).
   // Similar variables are called "matReprojection", "mReprojection", "mViewProjPrev" and "PrevViewProjMatrix" around shaders.
   row_major float4x4 CV_PrevViewProjMatr : packoffset(c17);
   // Same logic as in "CV_PrevViewProjMatr" (this was also broken in Prey code without Luma).
   row_major float4x4 CV_PrevViewProjNearestMatr : packoffset(c21);
   // From camera pixel space coordinates (and linear normalized depth) (the camera location, not the near plane) to world space position.
   // This acknowledges jitters and possibly DRS too (through probably not).
+  // This was "CV_WorldViewPos" in vanilla CryEngine.
   row_major float3x4 CV_ScreenToWorldBasis : packoffset(c25);
   float4 CV_TessInfo : packoffset(c28);
   float4 CV_CameraRightVector : packoffset(c29);

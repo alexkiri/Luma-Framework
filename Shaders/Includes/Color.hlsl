@@ -366,4 +366,66 @@ float2 LineIntercept(float MP, float2 FromXYCoords, float2 ToXYCoords, float2 Wh
 	return float2(x, y);
 }
 
+// convert hue, saturation, value to RGB
+// https://en.wikipedia.org/wiki/HSL_and_HSV
+float3 HSV_To_RGB(float3 HSV)
+{
+    float h1 = HSV.x * 6.f;
+    float c = HSV.z * HSV.y;
+    float x = c * ( 1.f - abs(fmod(h1, 2.f) - 1.f));
+    float3 rgb = 0.f;
+    if( h1 <= 1.f )
+        rgb = float3( c, x, 0.f );
+    else if( h1 <= 2.f )
+        rgb = float3( x, c, 0.f );
+    else if( h1 <= 3.f )
+        rgb = float3( 0.f, c, x );
+    else if( h1 <= 4.f )
+        rgb = float3( 0.f, x, c );
+    else if( h1 <= 5.f )
+        rgb = float3( x, 0.f, c );
+    else if( h1 <= 6.f )
+        rgb = float3( c, 0.f, x );
+    float m = HSV.z - c;
+    return float3(rgb.x + m, rgb.y + m, rgb.z + m);
+}
+// Works in every color space
+float3 HueToRGB(float h, bool hideWhite = false)
+{
+    const int raw_N = 7;
+    int N = raw_N;
+	if (hideWhite) N--;
+    float interval = 1.0 / N;
+
+	if (!hideWhite) // Start from white
+		h -= interval;
+    float t = frac(h); // Loop around
+    //float t = abs(frac(h * 0.5) * 2.0 - 1.0); // Loop around
+
+    // 7 non-empty RGB combinations
+	// From left to right (smaller "h" to bigger "h")
+    float3 combos[raw_N] = {
+        float3(1,0,0), // R: Red
+        float3(1,1,0), // R+G: Yellow
+        float3(0,1,0), // G: Green
+        float3(0,1,1), // G+B: Cyan
+        float3(0,0,1), // B: Blue
+        float3(1,0,1), // R+B: Magenta
+        float3(1,1,1)  // R+G+B: White (optional)
+    };
+    
+    int i = min(int(t / interval), N-1);
+    int next = (i + 1) % N;
+    
+    float localT = (t - i * interval) / interval;
+	
+	float powStrength = 0.666; // Makes transitions smoother with higher values
+	localT = (localT - 0.5) * 2.0;
+	localT = pow(abs(localT), powStrength) * sign(localT);
+	localT = (localT * 0.5) + 0.5;
+    
+    // Blend between current and next combination
+    return lerp(combos[i], combos[next], localT);
+}
+
 #endif // SRC_COLOR_HLSL

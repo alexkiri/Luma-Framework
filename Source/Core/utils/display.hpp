@@ -1,7 +1,593 @@
 #pragma once
 
+#if ENABLE_NVAPI
+#include "nvapi.h"
+
+// wstring conversion
+#include <locale>
+#include <codecvt>
+
+#ifdef _DEBUG
+#include <iostream>
+#include <iomanip>
+#define NVIDIA_API_ERROR_MSG(expression, x) if(expression) std::cerr << "[ERROR] " << __FILE__ << " " << __FUNCTION__ << " " << std::hex << std::uppercase << x << std::nouppercase << std::dec << std::endl
+#define NVIDIA_API_INFO_MSG(x) std::cout << "[INFO] " << __FILE__ << " " << __FUNCTION__ << " " << std::hex << std::uppercase << x << std::dec << std::endl
+#else
+#define NVIDIA_API_ERROR_MSG(expression, x) (void)(expression); (void)x
+#define NVIDIA_API_INFO_MSG(x) (void)x
+#endif
+#endif
+
 namespace Display
 {
+#if ENABLE_NVAPI
+	bool InitNVApi()
+	{
+		NvAPI_Status status = NvAPI_Initialize();
+		if (status != NVAPI_OK) {
+			NvAPI_ShortString error;
+			NvAPI_GetErrorMessage(status, error);
+			printf("NVAPI init failed: 0x%x - %s\n", status, error); // Likely a non NV GPU
+			return false;
+		}
+
+		return true;
+	}
+
+	void DeInitNVApi()
+	{
+		NvAPI_Status status = NvAPI_Unload();
+		NVIDIA_API_ERROR_MSG(status != NVAPI_OK, status);
+	}
+
+	NvU32 GetNvapiDisplayIdFromHwnd(HWND hWnd, ID3D11Device* device = nullptr)
+	{
+		HMONITOR hMonitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+
+		MONITORINFOEX monitorInfo = {};
+		monitorInfo.cbSize = sizeof(MONITORINFOEX);
+		if (GetMonitorInfo(hMonitor, &monitorInfo))
+		{
+			std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
+			std::string displayName = converter.to_bytes(monitorInfo.szDevice);
+
+			NvU32 displayId = 0;
+			if (NvAPI_DISP_GetDisplayIdByDisplayName(displayName.c_str(), &displayId) == NVAPI_OK)
+			{
+				return displayId;
+			}
+		}
+
+		return 0;
+	}
+
+#if 0 // TODO: delete?
+	NvDisplayHandle GetNvapiDisplayFromHwnd(ID3D11Device* device, HWND hWnd)
+	{
+#if 1
+		UINT gpu_index = 0;
+		com_ptr<IDXGIDevice> dxgi_device;
+		HRESULT hr = device->QueryInterface(&dxgi_device);
+		if (SUCCEEDED(hr))
+		{
+			com_ptr<IDXGIAdapter> adapter;
+			hr = dxgi_device->GetAdapter(&adapter);
+			if (SUCCEEDED(hr))
+			{
+#if 0
+				DXGI_ADAPTER_DESC adapter_desc;
+				hr = adapter->GetDesc(&adapter_desc);
+				if (SUCCEEDED(hr)) { }
+#endif
+
+				com_ptr<IDXGIFactory7> factory;
+				CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+
+				com_ptr<IDXGIAdapter1> enum_adapter;
+				while (factory->EnumAdapters1(gpu_index, &enum_adapter) != DXGI_ERROR_NOT_FOUND)
+				{
+					if (enum_adapter.get() == adapter.get()) break;
+					++gpu_index;
+				}
+			}
+		}
+		assert(SUCCEEDED(hr));
+#endif
+
+		//HMONITOR hMonitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+		HMONITOR hMonitor = MonitorFromWindow(0, MONITOR_DEFAULTTOPRIMARY);
+
+#if 0
+		MONITORINFOEX monitorInfo = {};
+		monitorInfo.cbSize = sizeof(MONITORINFOEX);
+		if (GetMonitorInfo(hMonitor, &monitorInfo))
+		{
+			DISPLAY_DEVICE displayDevice = {};
+			displayDevice.cb = sizeof(DISPLAY_DEVICE);
+			if (EnumDisplayDevices(monitorInfo.szDevice, 0, &displayDevice, 0))
+			{
+				NvAPI_SYS_GetDisplayIdFromGpuAndOutputId(gpu_index, )
+				return displayDevice.DeviceName; // or DeviceString for a human-readable name
+			}
+		}
+#endif
+
+#if 0
+		// Get connected displays to NVidia GPUs
+		NvU32 displayIdCount = 0;
+		NV_GPU_DISPLAYIDS displayIdArray[NVAPI_MAX_HEADS_PER_GPU] = {};
+		displayIdArray[0].version = NV_GPU_DISPLAYIDS_VER;
+		NvU32 flags = 0;
+		result = NvAPI_GPU_GetConnectedDisplayIds(gpuArray[gpuIndex], nullptr, &displayIdCount, flags);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		result = NvAPI_GPU_GetConnectedDisplayIds(gpuArray[gpuIndex], displayIdArray, &displayIdCount, flags);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		NvAPI_ShortString name = "";
+
+		if (result != NVAPI_OK)
+		{
+			continue;
+		}
+		for (NvU32 displayIndex = 0; displayIndex < displayIdCount; ++displayIndex)
+		{
+			NvDisplayHandle handle = NULL;
+			result = NvAPI_EnumNvidiaDisplayHandle(displayIndex, &handle);
+			NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+			result = NvAPI_GetAssociatedNvidiaDisplayName(handle, name);
+			NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+			displayInfo.push_back({ displayIdArray[displayIndex].displayId, name });
+		}
+#endif
+
+		NvDisplayHandle nv_display_handle = 0;
+		for (NvU32 i = 0; NvAPI_EnumNvidiaDisplayHandle(i, &nv_display_handle) == NVAPI_OK; ++i)
+		{
+			// Get Windows display name from NVAPI
+			NvAPI_ShortString display_name;
+			NvU32 output_id = 0;
+			if (NvAPI_GetAssociatedNvidiaDisplayName(nv_display_handle, display_name) == NVAPI_OK)
+			{
+				// Convert NVAPI display name to an HMONITOR
+				DISPLAY_DEVICEA dd = {};
+				dd.cb = sizeof(dd);
+				if (EnumDisplayDevicesA(display_name, 0, &dd, 0))
+				{
+					MONITORINFOEXA mi = {};
+					mi.cbSize = sizeof(mi);
+					if (GetMonitorInfoA(hMonitor, &mi))
+					{
+						if (_stricmp(mi.szDevice, dd.DeviceName) == 0)
+						{
+							NvAPI_GetAssociatedDisplayOutputId(nv_display_handle, &output_id);
+							break;
+						}
+					}
+				}
+			}
+		}
+
+		return nv_display_handle;
+	}
+#endif
+
+	struct DisplayID
+	{
+		DisplayID(NvU32 _id, const NvAPI_ShortString& _name)
+			: id(_id), name()
+		{
+			strncpy_s(name, _name, NVAPI_SHORT_STRING_MAX);
+			for (int i = 0; i < NVAPI_SHORT_STRING_MAX; i++)
+			{
+				str_name += name[i];
+			}
+		};
+
+		NvU32 id;
+		NvAPI_ShortString name;
+		std::string str_name;
+	};
+
+	NvAPI_Status checkIfNvidiaGpu()
+	{
+		NvAPI_Status result = NVAPI_OK;
+		// Get connected NVidia GPUs to Computer
+		NvU32 gpuCount = 0;
+		NvPhysicalGpuHandle gpuArray[NVAPI_MAX_PHYSICAL_GPUS] = {};
+		result = NvAPI_EnumPhysicalGPUs(gpuArray, &gpuCount);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		if (result != NVAPI_OK)
+		{
+			return result;
+		}
+		return NVAPI_OK;
+	}
+
+	NvAPI_Status getGpuName(std::string& gpu_name)
+	{
+		// Get connected NVidia GPUs to Computer
+		NvU32 gpuCount = 0;
+		NvPhysicalGpuHandle gpuArray[NVAPI_MAX_PHYSICAL_GPUS] = {};
+		NvAPI_Status result = NvAPI_EnumPhysicalGPUs(gpuArray, &gpuCount);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		if (result != NVAPI_OK)
+		{
+			return result;
+		}
+
+		NvAPI_ShortString name = "";
+		for (NvU32 gpuIndex = 0; gpuIndex < gpuCount; ++gpuIndex)
+		{
+			NvAPI_GPU_GetFullName(gpuArray[gpuIndex], name);
+			int i;
+			std::string s = "";
+			for (i = 0; i < NVAPI_SHORT_STRING_MAX; i++)
+			{
+				s = s + name[i];
+			}
+			gpu_name = s; // TODO: display index...?
+		}
+
+		return NVAPI_OK;
+	}
+
+	NvAPI_Status getMonitorIdAndName(OUT std::vector<DisplayID>& displayInfo)
+	{
+		displayInfo.clear();
+		NvAPI_Status result = NVAPI_OK;
+
+		// Get connected NVidia GPUs to Computer
+		NvU32 gpuCount = 0;
+		NvPhysicalGpuHandle gpuArray[NVAPI_MAX_PHYSICAL_GPUS] = {};
+		result = NvAPI_EnumPhysicalGPUs(gpuArray, &gpuCount);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		if (result != NVAPI_OK)
+		{
+			return result;
+		}
+
+		for (NvU32 gpuIndex = 0; gpuIndex < gpuCount; ++gpuIndex)
+		{
+			// Get connected displays to NVidia GPUs
+			NvU32 displayIdCount = 0;
+			NV_GPU_DISPLAYIDS displayIdArray[NVAPI_MAX_HEADS_PER_GPU] = {};
+			displayIdArray[0].version = NV_GPU_DISPLAYIDS_VER;
+			NvU32 flags = 0;
+			result = NvAPI_GPU_GetConnectedDisplayIds(gpuArray[gpuIndex], nullptr, &displayIdCount, flags);
+			NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+			result = NvAPI_GPU_GetConnectedDisplayIds(gpuArray[gpuIndex], displayIdArray, &displayIdCount, flags);
+			NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+			NvAPI_ShortString name = "";
+
+			if (result != NVAPI_OK)
+			{
+				continue;
+			}
+			for (NvU32 displayIndex = 0; displayIndex < displayIdCount; ++displayIndex)
+			{
+				NvDisplayHandle handle = NULL;
+				result = NvAPI_EnumNvidiaDisplayHandle(displayIndex, &handle);
+				NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+				result = NvAPI_GetAssociatedNvidiaDisplayName(handle, name);
+				NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+				displayInfo.push_back({ displayIdArray[displayIndex].displayId, name });
+			}
+		}
+
+		if (displayInfo.empty())
+		{
+			NVIDIA_API_INFO_MSG("NvApi: No displays obtained from NVidia GPU.");
+		}
+		else
+		{
+			NVIDIA_API_INFO_MSG("NvApi: Displays obtained from NVidia GPU.");
+		}
+
+		return NVAPI_OK;
+	}
+
+	NvAPI_Status getMonitorId(NvU32& displayId, const std::string& name)
+	{
+		displayId = 0;
+		NvAPI_Status result = NvAPI_DISP_GetDisplayIdByDisplayName(name.c_str(), &displayId);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status getMonitorCapabilities( NvU32 displayId, NV_HDR_CAPABILITIES& hdrCapabilities)
+	{
+		memset(&hdrCapabilities, 0, sizeof(hdrCapabilities));
+
+		hdrCapabilities.version = NV_HDR_CAPABILITIES_VER;
+		hdrCapabilities.driverExpandDefaultHdrParameters = 1;
+		NvAPI_Status result = NvAPI_Disp_GetHdrCapabilities(displayId, &hdrCapabilities);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+
+		if (result != NVAPI_OK)
+		{
+			hdrCapabilities.version = NV_HDR_CAPABILITIES_VER2;
+			hdrCapabilities.driverExpandDefaultHdrParameters = 1;
+			result = NvAPI_Disp_GetHdrCapabilities(displayId, &hdrCapabilities);
+			NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		}
+		if (result != NVAPI_OK)
+		{
+			hdrCapabilities.version = NV_HDR_CAPABILITIES_VER1;
+			hdrCapabilities.driverExpandDefaultHdrParameters = 1;
+			result = NvAPI_Disp_GetHdrCapabilities(displayId, &hdrCapabilities);
+			NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		}
+
+		return result;
+	}
+
+	NvAPI_Status setHdr10Metadata(NvU32 displayId, NV_HDR_METADATA& hdr10Metadata)
+	{
+		hdr10Metadata.version = NV_HDR_METADATA_VER;
+		NvAPI_Status result = NvAPI_Disp_SetSourceHdrMetadata(displayId, &hdr10Metadata);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status turnOffHdr(NvU32 displayId)
+	{
+		NV_HDR_COLOR_DATA hdrColorData = {};
+		memset(&hdrColorData, 0, sizeof(hdrColorData));
+
+		hdrColorData.version = NV_HDR_COLOR_DATA_VER;
+		hdrColorData.cmd = NV_HDR_CMD_SET;
+		hdrColorData.static_metadata_descriptor_id = NV_STATIC_METADATA_TYPE_1;
+		hdrColorData.hdrMode = NV_HDR_MODE_OFF;
+		NvAPI_Status result = NvAPI_Disp_HdrColorControl(displayId, &hdrColorData);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+
+		// Try again with version 1 (probably useless)
+		if (result != NVAPI_OK)
+		{
+			hdrColorData.version = NV_HDR_COLOR_DATA_VER1;
+			result = NvAPI_Disp_HdrColorControl(displayId, &hdrColorData);
+			NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		}
+
+		return result;
+	}
+
+	NvAPI_Status turnOnHdr(NvU32 displayId)
+	{
+		NV_HDR_COLOR_DATA hdrColorData = {};
+		memset(&hdrColorData, 0, sizeof(hdrColorData));
+
+		hdrColorData.version = NV_HDR_COLOR_DATA_VER;
+		hdrColorData.cmd = NV_HDR_CMD_SET;
+		hdrColorData.static_metadata_descriptor_id = NV_STATIC_METADATA_TYPE_1;
+		hdrColorData.hdrMode = NV_HDR_MODE_UHDA; // scRGB HDR in, HDR10 out
+		NvAPI_Status result = NvAPI_Disp_HdrColorControl(displayId, &hdrColorData);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+
+		// Try again with version 1 (probably useless)
+		if (result != NVAPI_OK)
+		{
+			hdrColorData.version = NV_HDR_COLOR_DATA_VER1;
+			result = NvAPI_Disp_HdrColorControl(displayId, &hdrColorData);
+			NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		}
+
+		return result;
+	}
+
+	NvAPI_Status setOutputMode(NvU32 displayId, NV_DISPLAY_OUTPUT_MODE mode)
+	{
+		NvAPI_Status result = NVAPI_OK;
+		result = NvAPI_Disp_SetOutputMode(displayId, &mode);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status getOutputMode(NvU32 displayId, NV_DISPLAY_OUTPUT_MODE& mode)
+	{
+		NvAPI_Status result = NVAPI_OK;
+		result = NvAPI_Disp_GetOutputMode(displayId, &mode);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status setToneMappingMode(NvU32 displayId, NV_HDR_TONEMAPPING_METHOD mode)
+	{
+		NvAPI_Status result = NVAPI_OK;
+		result = NvAPI_Disp_SetHdrToneMapping(displayId, mode);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status getToneMappingMode(NvU32 displayId, NV_HDR_TONEMAPPING_METHOD& mode)
+	{
+		NvAPI_Status result = NVAPI_OK;
+		result = NvAPI_Disp_GetHdrToneMapping(displayId, &mode);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status setColorSpace(NvU32 displayId, NV_COLORSPACE_TYPE color_space)
+	{
+		NvAPI_Status result = NVAPI_OK;
+		result = NvAPI_Disp_SetSourceColorSpace(displayId, color_space);
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	NvAPI_Status getColorSpace(NvU32 displayId, NV_COLORSPACE_TYPE& color_space)
+	{
+		NvAPI_Status result = NVAPI_OK;
+		result = NvAPI_Disp_GetSourceColorSpace(displayId, &color_space, NvU64(GetCurrentProcessId()));
+		NVIDIA_API_ERROR_MSG(NVAPI_OK != result, result);
+		return result;
+	}
+
+	struct DisplayChromaticities
+	{
+		DisplayChromaticities(float rx,
+			float ry,
+			float gx,
+			float gy,
+			float bx,
+			float by,
+			float wx,
+			float wy)
+			: redX(rx),
+			redY(ry),
+			greenX(gx),
+			greenY(gy),
+			blueX(bx),
+			blueY(by),
+			whiteX(wx),
+			whiteY(wy)
+		{
+		}
+
+		float redX;
+		float redY;
+		float greenX;
+		float greenY;
+		float blueX;
+		float blueY;
+		float whiteX;
+		float whiteY;
+	};
+
+	bool IsHdr10PlusDisplayOutput(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NV_HDR_CAPABILITIES HdrCapabilities = {};
+		NvAPI_Status result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return HdrCapabilities.isHdr10PlusGamingSupported;
+	}
+
+	bool IsHdr10DisplayOutput(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NV_HDR_CAPABILITIES HdrCapabilities = {};
+		NvAPI_Status result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return HdrCapabilities.isST2084EotfSupported;
+	}
+
+	bool EnableHdr10PlusDisplayOutput(HWND hWnd)
+	{
+		//TODO: branch out in case of failures
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+
+		NvAPI_Status result = turnOnHdr(DisplayId);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+
+		result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+
+		result = setToneMappingMode(DisplayId, NV_HDR_TONEMAPPING_GPU);
+		//result = setToneMappingMode(DisplayId, NV_HDR_TONEMAPPING_APP); // Need for GPU?
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+
+		setColorSpace(DisplayId, NV_COLORSPACE_REC2100);
+		//result = setColorSpace(DisplayId, NV_COLORSPACE_xRGB); // Try linear scRGB HDR. Seemengly doesn't work
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+
+		NV_HDR_CAPABILITIES HdrCapabilities = {};
+		result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+
+		NV_HDR_METADATA Hdr10MetadataNv = {};
+		Hdr10MetadataNv.displayPrimary_x0 = HdrCapabilities.display_data.displayPrimary_x0;
+		Hdr10MetadataNv.displayPrimary_y0 = HdrCapabilities.display_data.displayPrimary_y0;
+		Hdr10MetadataNv.displayPrimary_x1 = HdrCapabilities.display_data.displayPrimary_x1;
+		Hdr10MetadataNv.displayPrimary_y1 = HdrCapabilities.display_data.displayPrimary_y1;
+		Hdr10MetadataNv.displayPrimary_x2 = HdrCapabilities.display_data.displayPrimary_x2;
+		Hdr10MetadataNv.displayPrimary_y2 = HdrCapabilities.display_data.displayPrimary_y2;
+		Hdr10MetadataNv.displayWhitePoint_x = HdrCapabilities.display_data.displayWhitePoint_x;
+		Hdr10MetadataNv.displayWhitePoint_y = HdrCapabilities.display_data.displayWhitePoint_y;
+		Hdr10MetadataNv.max_display_mastering_luminance = HdrCapabilities.display_data.desired_content_max_luminance;
+		Hdr10MetadataNv.max_frame_average_light_level = HdrCapabilities.display_data.desired_content_max_frame_average_luminance;
+		Hdr10MetadataNv.min_display_mastering_luminance = HdrCapabilities.display_data.desired_content_min_luminance;
+		Hdr10MetadataNv.max_content_light_level = static_cast<NvU16>(HdrCapabilities.display_data.desired_content_max_luminance);
+		Hdr10MetadataNv.max_display_mastering_luminance = 10000;
+		Hdr10MetadataNv.max_frame_average_light_level = 10000;
+		Hdr10MetadataNv.min_display_mastering_luminance = 0;
+		Hdr10MetadataNv.max_content_light_level = static_cast<NvU16>(10000);
+		result = setHdr10Metadata(DisplayId, Hdr10MetadataNv);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+
+		NV_DISPLAY_OUTPUT_MODE outputMode = NV_DISPLAY_OUTPUT_MODE_SDR;
+		result = getOutputMode(DisplayId, outputMode);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		assert(outputMode == NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
+
+		return (result == NVAPI_OK);
+	}
+
+	bool EnableHdr10DisplayOutput(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NvAPI_Status result = turnOnHdr(DisplayId);
+		result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		setColorSpace(DisplayId, NV_COLORSPACE_REC2100);
+		return (result == NVAPI_OK);
+	}
+
+	bool DisableHdr10PlusDisplayOutput(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NvAPI_Status result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return (result == NVAPI_OK);
+	}
+
+	bool DisableHdr10DisplayOutput(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NvAPI_Status result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_SDR);
+		result = turnOffHdr(DisplayId);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return (result == NVAPI_OK);
+	}
+
+	bool IsHdr10PlusEnabled(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NV_DISPLAY_OUTPUT_MODE outputMode = NV_DISPLAY_OUTPUT_MODE_SDR;
+		NvAPI_Status result = getOutputMode(DisplayId, outputMode);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return (outputMode == NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
+	}
+
+	bool IsHdr10Enabled(HWND hWnd)
+	{
+		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
+		NV_DISPLAY_OUTPUT_MODE outputMode = NV_DISPLAY_OUTPUT_MODE_SDR;
+		NvAPI_Status result = getOutputMode(DisplayId, outputMode);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return (outputMode == NV_DISPLAY_OUTPUT_MODE_HDR10);
+	}
+
+	bool SetMetadataHdr(NvU32 DisplayId, NV_HDR_METADATA& HdrMetadata)
+	{
+		NvAPI_Status result = setHdr10Metadata(DisplayId, HdrMetadata);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return (result == NVAPI_OK);
+	}
+
+	bool GetHdrCapabilities(NvU32 DisplayId, NV_HDR_CAPABILITIES& HdrCapabilities)
+	{
+		NvAPI_Status result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
+		return (result == NVAPI_OK);
+	}
+
+	void SetSDR(NvU32 DisplayId)
+	{
+		turnOffHdr(DisplayId);
+		setColorSpace(DisplayId, NV_COLORSPACE_sRGB);
+	}
+#endif
+
 	// Returns false if failed or if HDR is not engaged (but the white luminance can still be used).
 	bool GetHDRMaxLuminance(IDXGISwapChain* swapChain, float& maxLuminance, float defaultMaxLuminance = 80.f /*Windows sRGB standard luminance*/)
 	{

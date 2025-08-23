@@ -24,7 +24,11 @@
 #define DLSS_FORCE_RENDER_PRESET 1
 // DLSS 4 might already force this, but we can force it ourselves too (though it'd break old DLSS versions). Newer versions already added a new preset so using the default one just seems like a better choice.
 // Note that this has a lot of ghosting and warping on reflections and volumetrics (anything that doesn't match the depth buffer).
+#if GAME_MAFIA_III && DEVELOPMENT // Just for development, to have extra sharpness and notice if it's not etc // TODO: delete!
+#define DLSS_FORCE_K_J_RENDER_PRESET 1
+#else
 #define DLSS_FORCE_K_J_RENDER_PRESET 0
+#endif
 // Theoretically better than F.
 // Better sharpness, less ghosting and more image stability (less shimmering and noise).
 #define DLSS_FORCE_E_RENDER_PRESET 1
@@ -109,20 +113,20 @@ namespace NGX
 				NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
 				//| NVSDK_NGX_DLSS_Feature_Flags_Reserved_0 // Matches the old NVSDK_NGX_DLSS_Feature_Flags_DepthJittered, which has been removed (should already be on by default now)
 //TODOFT: expose settings per game (there's more around the file), when the need will come
-#if GAME_PREY || GAME_FF7_REMAKE // DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality
+#if GAME_PREY || GAME_FF7_REMAKE || GAME_MAFIA_III // DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality
 				| NVSDK_NGX_DLSS_Feature_Flags_DepthInverted
 #endif
 // We modified Prey to make sure this is the case (see "FORCE_MOTION_VECTORS_JITTERED").
 // Previously (dynamic objects) MVs were half jittered (with the current frame's jitters only), because they are rendered with g-buffers, on projection matrices that have jitters.
 // We could't remove these jitters properly when rendering the final motion vectors for DLSS (we tried...), so neither this flag on or off would have been correct.
 // Even if we managed to generate the final MVs without jitters included, it seemengly doesn't look any better anyway.
-#if !GAME_FF7_REMAKE
+#if GAME_PREY || GAME_MAFIA_III
 				| NVSDK_NGX_DLSS_Feature_Flags_MVJittered
 #endif
 #if 0
 				| NVSDK_NGX_DLSS_Feature_Flags_DoSharpening // Sharpening is currently deprecated (in DLSS 2.5.1 and doesn't do anything), this would re-enable it if it was ever re-allowed by DLSS
 #endif
-#if GAME_FF7_REMAKE // We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
+#if GAME_FF7_REMAKE || GAME_MAFIA_III // We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
 				| NVSDK_NGX_DLSS_Feature_Flags_AutoExposure
 #endif
 				;
@@ -136,21 +140,29 @@ namespace NGX
 
 			NVSDK_NGX_DLSS_Hint_Render_Preset renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
 #if DLSS_FORCE_RENDER_PRESET
+
 #if DLSS_FORCE_K_J_RENDER_PRESET
+
 			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset((int)NVSDK_NGX_DLSS_Hint_Render_Preset_K);
-#else
+
+#else // !DLSS_FORCE_K_J_RENDER_PRESET
+
 #if DLSS_FORCE_E_RENDER_PRESET
 			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_E;
-#if DLSS_FORCE_F_RENDER_PRESET
+
+#if DLSS_FORCE_F_RENDER_PRESET // && DLSS_FORCE_F_RENDER_PRESET
 			if (isDLAA)
 			{
 				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
 			}
 #endif // DLSS_FORCE_F_RENDER_PRESET
-#elif DLSS_FORCE_F_RENDER_PRESET
+
+#elif DLSS_FORCE_F_RENDER_PRESET // && !DLSS_FORCE_E_RENDER_PRESET
+
 			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
-#else // DLSS_FORCE_E_RENDER_PRESET
-#endif // DLSS_FORCE_K_J_RENDER_PRESET
+
+#else // Automatically pick the best one if no specific one is forced
+
 			switch (perfQualityValue)
 			{
 			case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
@@ -164,7 +176,7 @@ namespace NGX
 			break;
 			default:
 			{
-				// C: Preset which generally favors current frame information. Generally well-suited for fastpaced game content.
+				// C: Preset which generally favors current frame information. Generally well-suited for fast paced game content.
 				// For First Person games, it might be better than E.
 				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_C;
 			}
@@ -174,7 +186,11 @@ namespace NGX
 			{
 				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
 			}
-#endif
+
+#endif // DLSS_FORCE_E_RENDER_PRESET
+
+#endif // DLSS_FORCE_K_J_RENDER_PRESET
+
 #endif // DLSS_FORCE_RENDER_PRESET
 
 			// Set all of them for simplicity, these params belong to a specific quality mode anyway.
@@ -429,7 +445,7 @@ bool NGX::DLSS::UpdateSettings(DLSSInstanceData* data, ID3D11DeviceContext* comm
 	return data->instance.superSamplingFeature != nullptr && data->instance.runtimeParams != nullptr;
 }
 
-bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandList, ID3D11Resource* outputColor, ID3D11Resource* sourceColor, ID3D11Resource* motionVectors, ID3D11Resource* depthBuffer, ID3D11Resource* exposure, float preExposure, float jitterX, float jitterY, bool reset, unsigned int renderWidth, unsigned int renderHeight)
+bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandList, ID3D11Resource* outputColor, ID3D11Resource* sourceColor, ID3D11Resource* motionVectors, ID3D11Resource* depthBuffer, ID3D11Resource* exposure, float preExposure, float jitterX, float jitterY, bool reset, unsigned int renderWidth, unsigned int renderHeight, bool flipMVsX, bool flipMVsY)
 {
 	assert(data->isSupported);
 	assert(data->instance.superSamplingFeature != nullptr && data->instance.runtimeParams != nullptr);
@@ -463,10 +479,10 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0 // Disabled to avoid sharpening randomly coming back if users used old DLLs or NV restored it
 	evalParams.Feature.InSharpness = data->sharpness; // It's likely clamped between 0 and 1 internally, though a value of 0 might fall back to the internal default
 #endif
-#if !GAME_PREY // Prey uses a different scale for MVs, so we need to use the render resolution instead of the output one
-	evalParams.InMVScaleX = 1.0;
-	evalParams.InMVScaleY = 1.0;
-#else // Needed in Prey
+#if !GAME_PREY && !GAME_MAFIA_III
+	evalParams.InMVScaleX = flipMVsX ? -1.0 : 1.0;
+	evalParams.InMVScaleY = flipMVsY ? -1.0 : 1.0;
+#else // Prey and Mafia have MVs in UV space, so we need to scale by the render resolution to transform to pixel space // TODO: isn't it in NDC space?
 	evalParams.InMVScaleX = static_cast<float>(renderWidth);
 	evalParams.InMVScaleY = static_cast<float>(renderHeight);
 #endif

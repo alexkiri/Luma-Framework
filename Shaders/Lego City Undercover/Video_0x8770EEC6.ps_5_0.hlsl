@@ -67,7 +67,7 @@ void main(
   r0.z = texture2.Sample(texture2_ss_s, uv.xy).x;
   r0.x = texture0.Sample(texture0_ss_s, uv.xy).x;
   r0.w = 1;
-  r1.y = dot(float4(1.16412354,-0.813476563,-0.391448975,0.529705048), r0.xyzw);
+  r1.y = dot(float4(1.16412354,-0.813476563,-0.391448975,0.529705048), r0.xyzw); // BT.601?
   r1.x = dot(float3(1.16412354,1.59579468,-0.87065506), r0.xyw);
   r1.z = dot(float3(1.16412354,2.01782227,-1.08166885), r0.xzw);
   r0.xyz = v1.xyz * r1.xyz;

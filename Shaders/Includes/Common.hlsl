@@ -118,8 +118,9 @@ float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
 // AdvancedAutoHDR pass to generate some HDR brightess out of an SDR signal.
 // This is hue conserving and only really affects highlights.
 // "SDRColor" is meant to be in "SDR range" (linear), as in, a value of 1 matching SDR white (something between 80, 100, 203, 300 nits, or whatever else)
+// This function already knows your Luma peak white nits setting, so actually pass in the max value (e.g. 400-750, beyond that it looks bad)
 // https://github.com/Filoppi/PumboAutoHDR
-float3 PumboAutoHDR(float3 SDRColor, float _PeakWhiteNits, float _PaperWhiteNits, float ShoulderPow = 2.75f)
+float3 PumboAutoHDR(float3 SDRColor, float MaxPeakWhiteNits, float _PaperWhiteNits, float ShoulderPow = 2.75f)
 {
 #if 0 // This might disproportionally brighten up pure colors
 	const float SDRRatio = max3(SDRColor);
@@ -130,7 +131,7 @@ float3 PumboAutoHDR(float3 SDRColor, float _PeakWhiteNits, float _PaperWhiteNits
 #endif
 	// Limit AutoHDR brightness, it won't look good beyond a certain level.
 	// The paper white multiplier is applied later so we account for that.
-	const float AutoHDRMaxWhite = max(min(_PeakWhiteNits, PeakWhiteNits) / _PaperWhiteNits, 1.f);
+	const float AutoHDRMaxWhite = max(min(MaxPeakWhiteNits, PeakWhiteNits) / _PaperWhiteNits, 1.f);
 	const float AutoHDRExtraRatio = pow(saturate(SDRRatio), ShoulderPow) * (AutoHDRMaxWhite - 1.f);
 	const float AutoHDRTotalRatio = SDRRatio + AutoHDRExtraRatio;
 	return SDRColor * safeDivision(AutoHDRTotalRatio, SDRRatio, 1);

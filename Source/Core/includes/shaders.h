@@ -37,7 +37,7 @@ namespace Shader
          Skip,
          // Tries to draw purple instead. Doesn't always work (it will probably skip the shader if it doesn't, and send some warnings due to pixel and vertex shader signatures not matching)
          Purple,
-         // TODO: add (draw) NaN to see how they'd spread etc
+         // TODO: add (draw) NaN to see how they'd spread etc. Add a way to skip testing depth. Add a way to draw on a black render target to see the raw difference? Add a way to only draw 1 on alpha or RGB?
       };
       static constexpr const char* shader_skip_type_names[] = { "None", "Skip", "Draw Purple" };
       ShaderSkipType skip_type = ShaderSkipType::None;
@@ -61,14 +61,6 @@ namespace Shader
          RedirectTargetType target_type = RedirectTargetType::None;
          int target_index = 0;
       } redirect_data;
-
-      // Reflections data:
-      // Render Target Views
-      bool rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-      // Shader Resource Views
-      bool srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-      // Unordered Access Views
-      bool uavs[D3D11_1_UAV_SLOT_COUNT] = {};
 #endif
 
       bool HasGeometryShader() const
@@ -107,10 +99,36 @@ namespace Shader
 
    struct CachedShader
    {
-      void* data = nullptr; // Shader binary, allocated by this
+#if ALLOW_SHADERS_DUMPING || DEVELOPMENT
+      void* data = nullptr; // Shader binary, allocated by ourselves. Immutable once set.
       size_t size = 0;
-      reshade::api::pipeline_subobject_type type;
-      std::string disasm; // Disassembled shader (generally only used if "DEVELOPMENT" is on)
+#endif
+      reshade::api::pipeline_subobject_type type = reshade::api::pipeline_subobject_type::unknown;
+
+#if ALLOW_SHADERS_DUMPING || DEVELOPMENT
+      std::string type_and_version;
+      std::string disasm;
+#endif
+
+#if DEVELOPMENT
+      // Reflections data:
+      // Constant Buffers
+      bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
+      // Render Target Views
+      bool rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+      // Shader Resource Views
+      bool srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+      // Unordered Access Views
+      bool uavs[D3D11_1_UAV_SLOT_COUNT] = {};
+#endif
+
+#if ALLOW_SHADERS_DUMPING || DEVELOPMENT
+      ~CachedShader()
+      {
+         free(data);
+         data = nullptr;
+      }
+#endif
    };
 
    struct CachedCustomShader
@@ -260,10 +278,12 @@ namespace Shader
 	// Note that these can fail to put them around a try catch if you need to handle the exception
    uint32_t Hash_StrToNum(const char* hash_hex_string)
    {
+      assert(strlen(hash_hex_string) == 8 /*HASH_CHARACTERS_LENGTH*/);
       return std::stoul(hash_hex_string, nullptr, 16);
    }
    uint32_t Hash_StrToNum(const std::string& hash_hex_string)
    {
+      assert(hash_hex_string.length() == 8 /*HASH_CHARACTERS_LENGTH*/);
       return std::stoul(hash_hex_string, nullptr, 16);
    }
    std::string Hash_NumToStr(uint32_t hash, bool hex_prefix = false)

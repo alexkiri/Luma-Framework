@@ -14,7 +14,7 @@ std::optional<std::string> GetD3DName(ID3D11DeviceChild* obj)
    return std::nullopt;
 }
 
-// Wide string with normal string fallback
+// Searcg fir wide string debug names as well, with normal string fallback. Both are converted back to non wide string.
 std::optional<std::string> GetD3DNameW(ID3D11DeviceChild* obj)
 {
    if (obj == nullptr) return std::nullopt;
@@ -39,7 +39,7 @@ std::optional<std::string> GetD3DNameW(ID3D11DeviceChild* obj)
 }
 #endif
 
-void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, bool* render_target_flag = nullptr)
+void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, bool* render_target_flag = nullptr, bool* unordered_access_flag = nullptr)
 {
    size = { };
    format = DXGI_FORMAT_UNKNOWN;
@@ -55,7 +55,19 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
    {
       *render_target_flag = false;
    }
+   if (unordered_access_flag)
+   {
+      *unordered_access_flag = false;
+   }
    if (!resource) return;
+
+#if DEVELOPMENT // TODO: add debug string names!
+   if (hash)
+   {
+      ASSERT_ONCE(!GetD3DNameW(resource).has_value()); // Note: this game has debug names for textures! We should add support and show them in the UI
+   }
+#endif
+
    // Go in order of popularity
    com_ptr<ID3D11Texture2D> texture_2d;
    HRESULT hr = resource->QueryInterface(&texture_2d);
@@ -90,9 +102,13 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
       {
          *hash = std::to_string(std::hash<void*>{}(resource));
       }
-      if (render_target_flag)
+      if (render_target_flag) 
       {
          *render_target_flag = (texture_2d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
+      }
+      if (unordered_access_flag)
+      {
+         *unordered_access_flag = (texture_2d_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
       }
       return;
    }
@@ -116,6 +132,10 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
       if (render_target_flag)
       {
          *render_target_flag = (texture_3d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
+      }
+      if (unordered_access_flag)
+      {
+         *unordered_access_flag = (texture_3d_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
       }
       return;
    }
@@ -144,6 +164,10 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
       {
          *render_target_flag = (texture_1d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
       }
+      if (unordered_access_flag)
+      {
+         *unordered_access_flag = (texture_1d_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
+      }
       return;
    }
    com_ptr<ID3D11Buffer> buffer;
@@ -165,21 +189,25 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
       {
          *render_target_flag = false; // Implied by being a buffer!
       }
+      if (unordered_access_flag)
+      {
+         *unordered_access_flag = (buffer_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
+      }
       return;
    }
-   ASSERT_ONCE_MSG(false, "Unknwon texture type");
+   ASSERT_ONCE_MSG(false, "Unknown texture type");
 }
-void GetResourceInfo(ID3D11View* view, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, bool* render_target_flag = nullptr)
+void GetResourceInfo(ID3D11View* view, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, bool* render_target_flag = nullptr, bool* unordered_access_flag = nullptr)
 {
    if (!view)
    {
-      GetResourceInfo((ID3D11Resource*)nullptr, size, format, type_name, hash, render_target_flag);
+      GetResourceInfo((ID3D11Resource*)nullptr, size, format, type_name, hash, render_target_flag, unordered_access_flag);
       return;
    }
    // Note that specific cast views have a desc that could tell us the resource type
    com_ptr<ID3D11Resource> view_resource;
    view->GetResource(&view_resource);
-   return GetResourceInfo(view_resource.get(), size, format, type_name, hash, render_target_flag);
+   return GetResourceInfo(view_resource.get(), size, format, type_name, hash, render_target_flag, unordered_access_flag);
 }
 
 // Note: this is a bit approximate!
@@ -207,7 +235,7 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
       if (SUCCEEDED(hr) && texture)
       {
          D3D11_RESOURCE_DESC<T> texture_desc;
-         if constexpr (typeid(T) == typeid(ID3D11Texture2D) || typeid(T) == typeid(ID3D11Texture3D) || typeid(T) == typeid(ID3D11Texture1D))
+         if constexpr (std::is_same_v<T, ID3D11Texture2D> || std::is_same_v<T, ID3D11Texture3D> || std::is_same_v<T, ID3D11Texture1D>)
          {
             texture->GetDesc(&texture_desc);
          }
@@ -222,15 +250,18 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
          }
          texture_desc.BindFlags |= add_bind_flags;
          texture_desc.BindFlags &= ~remove_bind_flags;
-         // Hack to clear unwanted flags
+         // Hack to clear unwanted flags, we likely don't need any CPU write
          if ((add_bind_flags & (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET)) != 0)
          {
-            ASSERT_ONCE(texture_desc.Usage == 0 && texture_desc.CPUAccessFlags == 0);
+            if ((add_bind_flags & (D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS)) == 0) // A bit random tests
+            {
+               ASSERT_ONCE(texture_desc.Usage == 0 && texture_desc.CPUAccessFlags == 0);
+            }
             texture_desc.Usage = D3D11_USAGE_DEFAULT;
             texture_desc.CPUAccessFlags = 0;
          }
          bool is_ms = false;
-         if constexpr (typeid(T) == typeid(ID3D11Texture2D))
+         if constexpr (std::is_same_v<T, ID3D11Texture2D>)
          {
             is_ms = texture_desc.SampleDesc.Count != 1;
          }
@@ -240,7 +271,7 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
          // Initial data isn't supported on MSAA textures
          if (black_initial_data && !is_ms)
          {
-            ASSERT_ONCE_MSG(texture_desc.MipLevels != 1, "We only define the initial data for the first mip, the rest will be uncleared memory");
+            ASSERT_ONCE_MSG(texture_desc.MipLevels == 1, "We only define the initial data for the first mip, the rest will be uncleared memory");
 
             uint8_t channels = 0;
             uint8_t bits_per_channel = 0;
@@ -250,19 +281,19 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
             {
                // Mips are not included in the initial data
                UINT width, height, depth;
-               if constexpr (typeid(T) == typeid(ID3D11Texture2D))
+               if constexpr (std::is_same_v<T, ID3D11Texture2D>)
                {
                   width = texture_desc.Width;
                   height = texture_desc.Height;
                   depth = texture_desc.ArraySize;
                }
-               else if constexpr (typeid(T) == typeid(ID3D11Texture3D))
+               else if constexpr (std::is_same_v<T, ID3D11Texture3D>)
                {
                   width = texture_desc.Width;
                   height = texture_desc.Height;
                   depth = texture_desc.Depth;
                }
-               else if constexpr (typeid(T) == typeid(ID3D11Texture1D))
+               else if constexpr (std::is_same_v<T, ID3D11Texture1D>)
                {
                   width = texture_desc.Width;
                   height = 1;
@@ -272,35 +303,24 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
                if (bits_per_channel == 8)
                {
                   data = (uint8_t*)malloc(width * height * depth * channels * sizeof(uint8_t));
-                  for (int i = 0; i < width * height * depth * channels; i++)
-                  {
-                     data[i] = (uint8_t)0;
-                  }
+                  memset(data, 0, width * height * depth * channels * sizeof(uint8_t));
                }
                else if (bits_per_channel == 16)
                {
                   uint16_t* data_16 = nullptr;
                   data_16 = (uint16_t*)malloc(width * height * depth * channels * sizeof(uint16_t));
-                  for (int i = 0; i < width * height * depth * channels; i++)
-                  {
-                     data_16[i] = (uint16_t)0;
-                  }
+                  memset(data_16, 0, width * height * depth * channels * sizeof(uint16_t));
                   data = (uint8_t*)data_16;
                }
                ASSERT_ONCE(bits_per_channel % 8 == 0);
 
                initial_data.pSysMem = data;
-               if constexpr (typeid(T) == typeid(ID3D11Texture2D))
+               if constexpr (std::is_same_v<T, ID3D11Texture2D> || std::is_same_v<T, ID3D11Texture3D>)
                {
                   initial_data.SysMemPitch = texture_desc.Width * channels * (bits_per_channel / 8); // Width * bytes per pixel
                   initial_data.SysMemSlicePitch = initial_data.SysMemPitch * texture_desc.Height; // Pitch * Height
                }
-               else if constexpr (typeid(T) == typeid(ID3D11Texture3D))
-               {
-                  initial_data.SysMemPitch = texture_desc.Width * channels * (bits_per_channel / 8);
-                  initial_data.SysMemSlicePitch = initial_data.SysMemPitch * texture_desc.Height;
-               }
-               else if constexpr (typeid(T) == typeid(ID3D11Texture1D))
+               else if constexpr (std::is_same_v<T, ID3D11Texture1D>)
                {
                   initial_data.SysMemPitch = texture_desc.Width * channels * (bits_per_channel / 8);
                   initial_data.SysMemSlicePitch = 0;
@@ -308,15 +328,15 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
             }
          }
 
-         if constexpr (typeid(T) == typeid(ID3D11Texture2D))
+         if constexpr (std::is_same_v<T, ID3D11Texture2D>)
          {
             hr = native_device->CreateTexture2D(&texture_desc, black_initial_data ? &initial_data : nullptr, &cloned_resource);
          }
-         else if constexpr (typeid(T) == typeid(ID3D11Texture3D))
+         else if constexpr (std::is_same_v<T, ID3D11Texture3D>)
          {
             hr = native_device->CreateTexture3D(&texture_desc, black_initial_data ? &initial_data : nullptr, &cloned_resource);
          }
-         else if constexpr (typeid(T) == typeid(ID3D11Texture1D))
+         else if constexpr (std::is_same_v<T, ID3D11Texture1D>)
          {
             hr = native_device->CreateTexture1D(&texture_desc, black_initial_data ? &initial_data : nullptr, &cloned_resource);
          }
@@ -358,10 +378,18 @@ enum class DebugDrawTextureOptionsMask : uint32_t
    // If this is true and Texture3D is also true, the texture is a cube. If both are false it's 1D.
    Texture2D = 1 << 13,
    Texture3D = 1 << 14,
+   Abs = 1 << 15,
+   Zoom4x = 1 << 16,
+   Bilinear = 1 << 17,
+   Tonemap = 1 << 18,
+   SRGB = 1 << 19,
+   UVToPixelSpace = 1 << 20,
+   Denormalize = 1 << 21,
 };
 // If true we are drawing the render target texture, otherwise the shader resource texture
 enum class DebugDrawMode : uint32_t
 {
+   // TODO: rename all of these to "View", or not (and also Depth to Depth+Stencil?)
    RenderTarget,
    UnorderedAccessView,
    ShaderResource,

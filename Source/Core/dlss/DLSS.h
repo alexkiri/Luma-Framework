@@ -34,7 +34,8 @@ namespace NGX
 
 		// Returns true if drawing didn't fail
 		// Expects the same command list all the times
-		static bool Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandList, ID3D11Resource* outputColor, ID3D11Resource* sourceColor, ID3D11Resource* motionVectors, ID3D11Resource* depthBuffer, ID3D11Resource* exposure /*= nullptr*/, float preExposure /*= 0*/, float fJitterX, float fJitterY, bool reset = false, unsigned int renderWidth = 0, unsigned int renderHeight = 0);
+		static bool Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandList, ID3D11Resource* outputColor, ID3D11Resource* sourceColor, ID3D11Resource* motionVectors, ID3D11Resource* depthBuffer, ID3D11Resource* exposure /*= nullptr*/, float preExposure /*= 0*/, float fJitterX, float fJitterY,
+			bool reset = false, unsigned int renderWidth = 0, unsigned int renderHeight = 0, bool flipMVsX = false, bool flipMVsY = false);
 	};
 }
 

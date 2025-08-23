@@ -1,5 +1,6 @@
 #include "../Includes/Common.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl" // Use this as it has some gamma correction helpers
+#include "../Includes/Reinhard.hlsl"
 
 Texture2D<float4> sourceTexture : register(t0);
 Texture2D<float4> uiTexture : register(t1); // Optional: Pre-multiplied UI
@@ -14,6 +15,7 @@ Texture1DArray<float4> debugTexture1DArray : register(t8);
 // TODO: add TextureCube(s) support... Update "debug_draw_srv_slot_numbers" in c++ if you change this.
 #endif
 
+// Note: this might not always be set, only use in known cases
 SamplerState linearSampler : register(s0);
 
 // Custom Luma shader to apply the display (or output) transfer function from a linear input (or apply custom gamma correction)
@@ -61,6 +63,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 	{
 		debugTexture2D.GetDimensions(debugWidth, debugHeightOrArraySize);
 	}
+	// TODO: add better support for depth stencil formats? uint?
 	// Skip if there's no texture. It might be undefined behaviour, but it seems to work on Nvidia
 	if (debugWidth != 0.0)
 	{
@@ -70,76 +73,123 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool showAlpha = (LumaData.CustomData2 & (1 << 2)) != 0;
 		bool premultiplyAlpha = (LumaData.CustomData2 & (1 << 3)) != 0;
 		bool invertColors = (LumaData.CustomData2 & (1 << 4)) != 0;
-		bool gammaToLinear = (LumaData.CustomData2 & (1 << 5)) != 0;
-		bool linearToGamma = (LumaData.CustomData2 & (1 << 6)) != 0;
+		bool linearToGamma = (LumaData.CustomData2 & (1 << 5)) != 0;
+		bool gammaToLinear = (LumaData.CustomData2 & (1 << 6)) != 0;
 		bool flipY = (LumaData.CustomData2 & (1 << 7)) != 0;
+		bool doAbs = (LumaData.CustomData2 & (1 << 15)) != 0;
 		bool doSaturate = (LumaData.CustomData2 & (1 << 8)) != 0;
 		bool redOnly = (LumaData.CustomData2 & (1 << 9)) != 0;
 		bool backgroundPassthrough = (LumaData.CustomData2 & (1 << 10)) != 0;
+		bool zoom4x = (LumaData.CustomData2 & (1 << 16)) != 0;
+		bool bilinear = (LumaData.CustomData2 & (1 << 17)) != 0;
+		bool tonemap = (LumaData.CustomData2 & (1 << 18)) != 0;
+		bool sRGB = (LumaData.CustomData2 & (1 << 19)) != 0; // sRGB in/out (instead of gamma 2.2)
+		bool UVToPixelSpace = (LumaData.CustomData2 & (1 << 20)) != 0;
+		bool denormalize = (LumaData.CustomData2 & (1 << 21)) != 0;
 	
+		float3 debugPos = float3(pos.xy, 0.5);
 		int sliceWidth = debugWidth + 0.5;
-		int depthOrArrayIndex = uint(pos.x) / sliceWidth;
-		//pos.x = (uint(pos.x) % sliceWidth) + 0.5;
+		debugPos.z = (uint(debugPos.x) / sliceWidth) + 0.5; // Basically: "depthOrArrayIndex"
 
+		float targetWidth;
+		float targetHeight;
+		sourceTexture.GetDimensions(targetWidth, targetHeight);
+
+		bool size2DMatches = debugWidth == targetWidth && debugHeightOrArraySize == targetHeight;
+		fullscreen = fullscreen || size2DMatches;
+		
 		if (fullscreen) // Stretch to fullscreen
 		{
-			float targetWidth;
-			float targetHeight;
-			sourceTexture.GetDimensions(targetWidth, targetHeight);
 			resolutionScale = float2(debugWidth / targetWidth, debugHeightOrArraySize / targetHeight);
-
 			if (flipY)
 			{
-				pos.y = targetHeight - pos.y;
+				debugPos.y = targetHeight - debugPos.y;
 			}
 		}
-		if (renderResolutionScale) // Scale by rendering resolution (so to stretch the used part of the image to the full texture range)
+		else
+		{
+			if (debugDepthOrArraySize != 1) // TODO: what is this for exactly? Some array textures?
+			{
+				debugPos.x = (uint(debugPos.x) % sliceWidth) + 0.5;
+			}
+			// TODO: handle if this works with "renderResolutionScale" (e.g. Prey)
+			if (flipY)
+			{
+				debugPos.y = debugHeightOrArraySize - debugPos.y;
+			}
+		}
+		if (renderResolutionScale) // Scale by rendering resolution (so to stretch the used part of the image to the full texture range) (note that this might not work so well if the game draws at a different aspect ratio and then adds black bars)
 		{
 			resolutionScale *= LumaData.RenderResolutionScale;
 		}
 		
-		// TODO: handle if this works with "renderResolutionScale" (e.g. Prey)
-		if (!fullscreen && flipY)
-		{
-			pos.y = debugHeightOrArraySize - pos.y;
-		}
+		// Zoom around the center		
+		float zoom = zoom4x ? 4.0 : 1.0;
+		float3 debugSize = float3(debugWidth, debugHeightOrArraySize, debugDepthOrArraySize); // I don't think we need -1 on this
+		float3 center = fullscreen ? 0 : (-debugSize * 0.5); // Zoom around the center if non fullscreen mode // TODO: polish... not right
+		debugPos.xyz = ((debugPos.xyz - center) / zoom) + center;
+		// TODO: add a brightness scale to convert from UV space to pixel space (e.g. motion vectors)
 
-		pos.xy = round((pos.xy - 0.5) * resolutionScale) + 0.5;
+		// TODO: should we also apply the "resolutionScale" around the center?
+		int3 debugPosInt;
+		debugPosInt.xy = round((debugPos.xy - 0.5) * resolutionScale) + 0.5;
+		debugPosInt.z = debugPos.z * resolutionScale.x;
+
+		debugPos.xy *= resolutionScale;
+		debugPos.z *= resolutionScale.x;
 	
-		bool validTexel = pos.x < debugWidth && pos.y < debugHeightOrArraySize && depthOrArrayIndex < debugDepthOrArraySize;
-		float4 color;
+		bool validTexel = debugPos.x < debugSize.x && debugPos.y < debugSize.y && debugPos.z < debugSize.z && debugPos.x >= 0.0 && debugPos.y >= 0.0 && debugPos.z >= 0.0;
+		float4 color = 0.0;
 		int sampleIndex = 0; // Not really relevant, from 0 to 3 with MSAA 4 for example, ideally we'd take the average of all samples (maybe we should use a linear sampler instead)
 		int mipLevel = 0; // TODO: add support for exposing this?
 		if (_texture1D && _textureArray)
 		{
-			debugTexture1DArray.Load(int3(pos.x, pos.y, mipLevel)); // The array elements are spread vertically
+			debugTexture1DArray.Load(int3(debugPosInt.x, debugPosInt.y, mipLevel)); // The array elements are spread vertically
 		}
 		else if (_texture1D)
 		{
-			debugTexture1D.Load(int2(pos.x, mipLevel));
+			debugTexture1D.Load(int2(debugPosInt.x, mipLevel));
 		}
 		else if (_texture3D)
 		{
-			color = debugTexture3D.Load(int4(pos.x, pos.y, depthOrArrayIndex, mipLevel)); // The array elements are spread horizontally
+			color = debugTexture3D.Load(int4(debugPosInt.x, debugPosInt.y, debugPosInt.z, mipLevel)); // The array elements are spread horizontally
 		}
+		// All "_texture2D" from here
 		else if (_textureMS && _textureArray)
 		{
-			color = debugTexture2DMSArray.Load(int3(pos.x, pos.y, depthOrArrayIndex), sampleIndex); // The array elements are spread horizontally
+			color = debugTexture2DMSArray.Load(int3(debugPosInt.x, debugPosInt.y, debugPosInt.z), sampleIndex); // The array elements are spread horizontally
 		}
 		else if (_textureMS)
 		{
-			color = debugTexture2DMS.Load(int2(pos.xy), sampleIndex);
+			color = debugTexture2DMS.Load(int2(debugPosInt.xy), sampleIndex);
 		}
 		else if (_textureArray)
 		{
-			color = debugTexture2DArray.Load(int4(pos.x, pos.y, depthOrArrayIndex, mipLevel)); // The array elements are spread horizontally
+			color = debugTexture2DArray.Load(int4(debugPosInt.x, debugPosInt.y, debugPosInt.z, mipLevel)); // The array elements are spread horizontally
 		}
-		else // _texture2D
+		else
 		{
-			color = debugTexture2D.Load(int3(pos.x, pos.y, mipLevel)); // We don't have a sampler here so we just approimate to the closest texel
+			if (bilinear) // TODO: implement for other texture types
+				color = debugTexture2D.Sample(linearSampler, debugPos.xy / debugSize.xy);
+			else
+				color = debugTexture2D.Load(int3(debugPosInt.x, debugPosInt.y, mipLevel)); // Approximate to the closest texel (sharp!)
 		}
 
+		// Samples on invalid coordinates should already return 0, but we force it anyway
+		if (!validTexel)
+		{
+       		color.rgb = 0;
+		}
+
+		if (denormalize)
+		{
+			color.rgb = (color.rgb - 0.5) * 2.0; // Note: 0.5 wouldn't have been the exact center in UNORM textures, but it should do (otherwise we'd need to branch based on the format precision)
+		}
 		// Do it early so it also fixes nans
+		if (doAbs)
+		{
+			color = abs(color);
+		}
 		if (doSaturate)
 		{
 			color = saturate(color);
@@ -156,17 +206,26 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		{
 			color.rgb *= color.a;
 		}
+		if (UVToPixelSpace)
+		{
+			color.rgb *= debugSize;
+		}
+		if (tonemap)
+		{
+    		const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+  			color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, peakWhite / gamePaperWhite);
+		}
 		if (invertColors) // Only works on in SDR range
 		{
 			color.rgb = 1.0 - color.rgb;
 		}
-		if (gammaToLinear) // Linearize (output expects linear)
+		if (gammaToLinear) // Linearize (output expects linear) (use if image appeared too bright (gamma space viewed as linear))
 		{
-        	color.rgb = pow(abs(color.rgb), DefaultGamma) * sign(color.rgb);
+        	color.rgb = sRGB ? gamma_sRGB_to_linear(color.rgb, GCT_MIRROR) : (pow(abs(color.rgb), DefaultGamma) * sign(color.rgb));
 		}
-		if (linearToGamma) // Gammify (usually not necessary)
+		if (linearToGamma) // Gammify (usually not necessary) (use if image appeared too dark (linear space viewed as gamma))
 		{
-       		color.rgb = pow(abs(color.rgb), 1.f / DefaultGamma) * sign(color.rgb);
+       		color.rgb = sRGB ? linear_to_sRGB_gamma(color.rgb, GCT_MIRROR) : (pow(abs(color.rgb), 1.f / DefaultGamma) * sign(color.rgb));
 		}
 		if (validTexel || !backgroundPassthrough)
 		{
@@ -175,23 +234,21 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
     }
 #endif
 
-#if DEVELOPMENT && 0 // TEST: zoom into the image to analyze it
-	float targetWidth;
-	float targetHeight;
-	sourceTexture.GetDimensions(targetWidth, targetHeight);
+	float sourceWidth;
+	float sourceHeight;
+	sourceTexture.GetDimensions(sourceWidth, sourceHeight);
+
+#if TEST_2X_ZOOM // TEST: zoom into the image to analyze it
 	const float scale = 2.0;
-	pos.xy = pos.xy / scale + float2(targetWidth, targetHeight) / (scale * 2.0);
+	pos.xy = pos.xy / scale + float2(sourceWidth, sourceHeight) / (scale * 2.0);
 #endif
 
-	float sizeWidth;
-	float sizeHeight;
-	sourceTexture.GetDimensions(sizeWidth, sizeHeight);
-	float2 uv = pos.xy / float2(sizeWidth, sizeHeight);
+	float2 uv = pos.xy / float2(sourceWidth, sourceHeight);
 
 	float targetHeight1 = 1080.0 * DVS4;
 	float targetHeight2 = targetHeight1 * DVS5 * 0.5;
-	float mipLevel1 = log2(sizeHeight / targetHeight1);
-	float mipLevel2 = log2(sizeHeight / targetHeight2);
+	float mipLevel1 = log2(sourceHeight / targetHeight1);
+	float mipLevel2 = log2(sourceHeight / targetHeight2);
 	float4 color = sourceTexture.Load((int3)pos.xyz);
 	float4 mipColor1 = sourceTexture.SampleLevel(linearSampler, uv, mipLevel1);
 	float4 mipColor2 = sourceTexture.SampleLevel(linearSampler, uv, mipLevel2);
@@ -452,6 +509,38 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			gamutMap = false;
 		}
 #endif
+#if SDR_HDR_SPLIT_VIEW_TEST_MODE >= 1
+#if SDR_HDR_SPLIT_VIEW_TEST_MODE == 1 || SDR_HDR_SPLIT_VIEW_TEST_MODE == 3 // 2 bars (1 split)
+		static const float numberOfBars = 2.0;
+#else // 4 bars (3 splits)
+		static const float numberOfBars = 4.0;
+#endif
+		float barLength = 0.00125;
+#if SDR_HDR_SPLIT_VIEW_TEST_MODE <= 2 // Horizontal
+		float targetUV = uv.x;
+		float sourceAspectRatio = sourceWidth / (float)sourceHeight;
+		barLength /= sourceAspectRatio; // Scale by the usually wider side to match the thickness on both axes
+#else // Vertical
+		float targetUV = uv.y;
+#endif
+
+		float barIndex = floor(targetUV * numberOfBars);
+		// Apply effect only to even bars
+		if (fmod(barIndex, 2.0) == 0.0)
+		{
+			color.rgb = saturate(color.rgb);
+		}
+#if 1 // Draw black bars
+		for (uint i = 1; i < (uint)numberOfBars; i++)
+		{
+			float barUV = (float)i / numberOfBars;
+			if (targetUV > barUV - barLength && targetUV < barUV + barLength)
+			{
+				color.rgb = 0.0;
+			}
+		}
+#endif
+#endif // SDR_HDR_SPLIT_VIEW_TEST_MODE
 
 		if (gamutMap)
 		{

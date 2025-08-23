@@ -15,10 +15,12 @@ class Thief final : public Game
 public:
    void OnLoad(std::filesystem::path& file_path, bool failed) override
    {
+#if 0 // This warning isn't needed anymore, as we load the system version of the dll, and the game supposedly doesn't compile shaders live
       if (std::filesystem::is_regular_file(file_path.parent_path().append("d3dcompiler_47.dll")))
       {
          MessageBoxA(game_window, "Please delete \"d3dcompiler_47.dll\" from the game's executable path,\n\"Luma\" works better without it (Windows already includes the latest version).", NAME, MB_SETFOREGROUND);
       }
+#endif
    }
 
    // The final swapchain copy is through an sRGB view, whether the swapchain is sRGB or not (we force it to not be sRGB, because sRGB swapchains don't support flip models).
@@ -37,7 +39,7 @@ public:
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       if (!device_data.has_drawn_main_post_processing && original_shader_hashes.Contains(shader_hashes_FinalPostProcess))
       {
@@ -139,9 +141,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      Globals::GAME_NAME = PROJECT_NAME;
-      Globals::DESCRIPTION = "Thief (2014) Luma mod";
-      Globals::WEBSITE = "";
+      Globals::SetGlobals(PROJECT_NAME, "Thief (2014) Luma mod");
       Globals::VERSION = 1;
 
       luma_settings_cbuffer_index = 13;
@@ -150,7 +150,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Needed as the UI can both generate NaNs (I think) and also do subtractive blends that result in colors with invalid (or overly low) luminances,
       // thus drawing it separately and composing it on top, is better.
       // The game also casts a TYPELESS texture as UNORM, while it was previously cast as UNORM_SRGB (linear) (float textures can't preserve this behaviour)
-      enable_separate_ui_drawing = false; //TODOFT
+      enable_ui_separation = false; //TODOFT
 
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;

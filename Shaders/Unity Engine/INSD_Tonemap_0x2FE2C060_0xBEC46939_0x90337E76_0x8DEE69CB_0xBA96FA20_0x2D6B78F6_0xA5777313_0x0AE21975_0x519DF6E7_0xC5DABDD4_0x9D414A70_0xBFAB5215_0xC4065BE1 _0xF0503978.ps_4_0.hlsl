@@ -52,6 +52,7 @@ SamplerState s0_s : register(s0);
 // 
 // TODO: play the whole game to get all permutations, e.g. death in water, or water without color filter etc
 // (e.g. search for "0x7ef311c3", there seems to be 64 in total, so 8 base setings, there's a copy of each shader without lens distortion (and thus chromatic aberration))
+// TODO: make sure that with our settings disabled, it looks identical to vanilla (e.g. try the trailer scene with the guys looking at the curved window)
 
 cbuffer cb0 : register(b0)
 {
@@ -123,6 +124,7 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
   // Changing these will automatically output images in the HDR range!
   if (LumaSettings.DisplayMode == 1) // HDR mode, leave SDR as it was
   {
+    // TODO: further raise highlights if our peak is beyond 1000 nits?
     polynomialParams.x += 1.0; // Raise highlights (we could afford to go a bit higher too, but it looks too much in some scenes, AutoHDR like)
     polynomialParams.y += 1.0; // Raise midtones and highlights
   }
@@ -173,10 +175,10 @@ void main(
 
   const float fadeToWhite = cb0[11].x; // White at 1
   const float colorFilterIntensity = cb0[6].z; // Neutral (unfiltered) at 0. Color filtering isn't always used
-  const float blackFloor = cb0[10].x * DVS2;
+  const float blackFloor = cb0[10].x * DVS2; // TODO: clear
   const float colorPow = cb0[10].z;
 #if _8DEE69CB || _BEC46939 || _C5DABDD4 || _BFAB5215 || _0AE21975 || _2D6B78F6 || _F0503978
-  const float fadeToBlackOrVignetteOrUserBrightness = 1.0;
+  const float fadeToBlackOrVignetteOrUserBrightness = 1.0; // TODO: rename
 #else
   // Black at 0 (could also be vignette (exclusively based on the horizontal axis), though that's not used (at least not in every scene))
   // Update: this is likely to be the user brightness (if the brightness is >= default), as it's not in the shader if the user lowers the brightness
@@ -331,7 +333,7 @@ void main(
 
   // The main tonemapping (it seemengly darkens the game usually)
 #if ENABLE_LUMA // Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
-  const float3 zeroShift = ApplyCustomCurve(0.0, v3.y, v3.x, v2);
+  const float3 zeroShift = ApplyCustomCurve(0.0, v3.y, v3.x, v2); //TODO: run in BT.2020?
   float3 scaledComposedColorSigns = sign(scaledComposedColor);
   scaledComposedColor = ApplyCustomCurve(abs(scaledComposedColor), v3.y, v3.x, v2);
   scaledComposedColor -= zeroShift;

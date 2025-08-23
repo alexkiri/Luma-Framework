@@ -229,123 +229,123 @@ namespace
    {
       switch (value)
       {
-      case reshade::api::format::r1_unorm:              return os << "r1_unorm";
-      case reshade::api::format::l8_unorm:              return os << "l8_unorm";
-      case reshade::api::format::a8_unorm:              return os << "a8_unorm";
-      case reshade::api::format::r8_typeless:           return os << "r8_typeless";
-      case reshade::api::format::r8_uint:               return os << "r8_uint";
-      case reshade::api::format::r8_sint:               return os << "r8_sint";
-      case reshade::api::format::r8_unorm:              return os << "r8_unorm";
-      case reshade::api::format::r8_snorm:              return os << "r8_snorm";
-      case reshade::api::format::l8a8_unorm:            return os << "l8a8_unorm";
-      case reshade::api::format::r8g8_typeless:         return os << "r8g8_typeless";
-      case reshade::api::format::r8g8_uint:             return os << "r8g8_uint";
-      case reshade::api::format::r8g8_sint:             return os << "r8g8_sint";
-      case reshade::api::format::r8g8_unorm:            return os << "r8g8_unorm";
-      case reshade::api::format::r8g8_snorm:            return os << "r8g8_snorm";
-      case reshade::api::format::r8g8b8a8_typeless:     return os << "r8g8b8a8_typeless";
-      case reshade::api::format::r8g8b8a8_uint:         return os << "r8g8b8a8_uint";
-      case reshade::api::format::r8g8b8a8_sint:         return os << "r8g8b8a8_sint";
-      case reshade::api::format::r8g8b8a8_unorm:        return os << "r8g8b8a8_unorm";
-      case reshade::api::format::r8g8b8a8_unorm_srgb:   return os << "r8g8b8a8_unorm_srgb";
-      case reshade::api::format::r8g8b8a8_snorm:        return os << "r8g8b8a8_snorm";
-      case reshade::api::format::r8g8b8x8_unorm:        return os << "r8g8b8x8_unorm";
-      case reshade::api::format::r8g8b8x8_unorm_srgb:   return os << "r8g8b8x8_unorm_srgb";
-      case reshade::api::format::b8g8r8a8_typeless:     return os << "b8g8r8a8_typeless";
-      case reshade::api::format::b8g8r8a8_unorm:        return os << "b8g8r8a8_unorm";
-      case reshade::api::format::b8g8r8a8_unorm_srgb:   return os << "b8g8r8a8_unorm_srgb";
-      case reshade::api::format::b8g8r8x8_typeless:     return os << "b8g8r8x8_typeless";
-      case reshade::api::format::b8g8r8x8_unorm:        return os << "b8g8r8x8_unorm";
-      case reshade::api::format::b8g8r8x8_unorm_srgb:   return os << "b8g8r8x8_unorm_srgb";
-      case reshade::api::format::r10g10b10a2_typeless:  return os << "r10g10b10a2_typeless";
-      case reshade::api::format::r10g10b10a2_uint:      return os << "r10g10b10a2_uint";
-      case reshade::api::format::r10g10b10a2_unorm:     return os << "r10g10b10a2_unorm";
-      case reshade::api::format::r10g10b10a2_xr_bias:   return os << "r10g10b10a2_xr_bias";
-      case reshade::api::format::b10g10r10a2_typeless:  return os << "b10g10r10a2_typeless";
-      case reshade::api::format::b10g10r10a2_uint:      return os << "b10g10r10a2_uint";
-      case reshade::api::format::b10g10r10a2_unorm:     return os << "b10g10r10a2_unorm";
-      case reshade::api::format::l16_unorm:             return os << "l16_unorm";
-      case reshade::api::format::r16_typeless:          return os << "r16_typeless";
-      case reshade::api::format::r16_uint:              return os << "r16_uint";
-      case reshade::api::format::r16_sint:              return os << "r16_sint";
-      case reshade::api::format::r16_unorm:             return os << "r16_unorm";
-      case reshade::api::format::r16_snorm:             return os << "r16_snorm";
-      case reshade::api::format::r16_float:             return os << "r16_float";
-      case reshade::api::format::l16a16_unorm:          return os << "l16a16_unorm";
-      case reshade::api::format::r16g16_typeless:       return os << "r16g16_typeless";
-      case reshade::api::format::r16g16_uint:           return os << "r16g16_uint";
-      case reshade::api::format::r16g16_sint:           return os << "r16g16_sint";
-      case reshade::api::format::r16g16_unorm:          return os << "r16g16_unorm";
-      case reshade::api::format::r16g16_snorm:          return os << "r16g16_snorm";
-      case reshade::api::format::r16g16_float:          return os << "r16g16_float";
-      case reshade::api::format::r16g16b16a16_typeless: return os << "r16g16b16a16_typeless";
-      case reshade::api::format::r16g16b16a16_uint:     return os << "r16g16b16a16_uint";
-      case reshade::api::format::r16g16b16a16_sint:     return os << "r16g16b16a16_sint";
-      case reshade::api::format::r16g16b16a16_unorm:    return os << "r16g16b16a16_unorm";
-      case reshade::api::format::r16g16b16a16_snorm:    return os << "r16g16b16a16_snorm";
-      case reshade::api::format::r16g16b16a16_float:    return os << "r16g16b16a16_float";
-      case reshade::api::format::r32_typeless:          return os << "r32_typeless";
-      case reshade::api::format::r32_uint:              return os << "r32_uint";
-      case reshade::api::format::r32_sint:              return os << "r32_sint";
-      case reshade::api::format::r32_float:             return os << "r32_float";
-      case reshade::api::format::r32g32_typeless:       return os << "r32g32_typeless";
-      case reshade::api::format::r32g32_uint:           return os << "r32g32_uint";
-      case reshade::api::format::r32g32_sint:           return os << "r32g32_sint";
-      case reshade::api::format::r32g32_float:          return os << "r32g32_float";
-      case reshade::api::format::r32g32b32_typeless:    return os << "r32g32b32_typeless";
-      case reshade::api::format::r32g32b32_uint:        return os << "r32g32b32_uint";
-      case reshade::api::format::r32g32b32_sint:        return os << "r32g32b32_sint";
-      case reshade::api::format::r32g32b32_float:       return os << "r32g32b32_float";
-      case reshade::api::format::r32g32b32a32_typeless: return os << "r32g32b32a32_typeless";
-      case reshade::api::format::r32g32b32a32_uint:     return os << "r32g32b32a32_uint";
-      case reshade::api::format::r32g32b32a32_sint:     return os << "r32g32b32a32_sint";
-      case reshade::api::format::r32g32b32a32_float:    return os << "r32g32b32a32_float";
-      case reshade::api::format::r9g9b9e5:              return os << "r9g9b9e5";
-      case reshade::api::format::r11g11b10_float:       return os << "r11g11b10_float";
-      case reshade::api::format::b5g6r5_unorm:          return os << "b5g6r5_unorm";
-      case reshade::api::format::b5g5r5a1_unorm:        return os << "b5g5r5a1_unorm";
-      case reshade::api::format::b5g5r5x1_unorm:        return os << "b5g5r5x1_unorm";
-      case reshade::api::format::b4g4r4a4_unorm:        return os << "b4g4r4a4_unorm";
-      case reshade::api::format::a4b4g4r4_unorm:        return os << "a4b4g4r4_unorm";
-      case reshade::api::format::s8_uint:               return os << "s8_uint";
-      case reshade::api::format::d16_unorm:             return os << "d16_unorm";
-      case reshade::api::format::d16_unorm_s8_uint:     return os << "d16_unorm_s8_uint";
-      case reshade::api::format::d24_unorm_x8_uint:     return os << "d24_unorm_x8_uint";
-      case reshade::api::format::d24_unorm_s8_uint:     return os << "d24_unorm_s8_uint";
-      case reshade::api::format::d32_float:             return os << "d32_float";
-      case reshade::api::format::d32_float_s8_uint:     return os << "d32_float_s8_uint";
-      case reshade::api::format::r24_g8_typeless:       return os << "r24_g8_typeless";
-      case reshade::api::format::r24_unorm_x8_uint:     return os << "r24_unorm_x8_uint";
-      case reshade::api::format::x24_unorm_g8_uint:     return os << "x24_unorm_g8_uint";
-      case reshade::api::format::r32_g8_typeless:       return os << "r32_g8_typeless";
-      case reshade::api::format::r32_float_x8_uint:     return os << "r32_float_x8_uint";
-      case reshade::api::format::x32_float_g8_uint:     return os << "x32_float_g8_uint";
-      case reshade::api::format::bc1_typeless:          return os << "bc1_typeless";
-      case reshade::api::format::bc1_unorm:             return os << "bc1_unorm";
-      case reshade::api::format::bc1_unorm_srgb:        return os << "bc1_unorm_srgb";
-      case reshade::api::format::bc2_typeless:          return os << "bc2_typeless";
-      case reshade::api::format::bc2_unorm:             return os << "bc2_unorm";
-      case reshade::api::format::bc2_unorm_srgb:        return os << "bc2_unorm_srgb";
-      case reshade::api::format::bc3_typeless:          return os << "bc3_typeless";
-      case reshade::api::format::bc3_unorm:             return os << "bc3_unorm";
-      case reshade::api::format::bc3_unorm_srgb:        return os << "bc3_unorm_srgb";
-      case reshade::api::format::bc4_typeless:          return os << "bc4_typeless";
-      case reshade::api::format::bc4_unorm:             return os << "bc4_unorm";
-      case reshade::api::format::bc4_snorm:             return os << "bc4_snorm";
-      case reshade::api::format::bc5_typeless:          return os << "bc5_typeless";
-      case reshade::api::format::bc5_unorm:             return os << "bc5_unorm";
-      case reshade::api::format::bc5_snorm:             return os << "bc5_snorm";
-      case reshade::api::format::bc6h_typeless:         return os << "bc6h_typeless";
-      case reshade::api::format::bc6h_ufloat:           return os << "bc6h_ufloat";
-      case reshade::api::format::bc6h_sfloat:           return os << "bc6h_sfloat";
-      case reshade::api::format::bc7_typeless:          return os << "bc7_typeless";
-      case reshade::api::format::bc7_unorm:             return os << "bc7_unorm";
-      case reshade::api::format::bc7_unorm_srgb:        return os << "bc7_unorm_srgb";
-      case reshade::api::format::r8g8_b8g8_unorm:       return os << "r8g8_b8g8_unorm";
-      case reshade::api::format::g8r8_g8b8_unorm:       return os << "g8r8_g8b8_unorm";
-      case reshade::api::format::intz:                  return os << "intz";
-      case reshade::api::format::unknown:
-      default:                                          return os << "unknown";
+      case reshade::api::format::r1_unorm:              return os << "R1 UNORM";
+      case reshade::api::format::l8_unorm:              return os << "L8 UNORM";
+      case reshade::api::format::a8_unorm:              return os << "A8 UNORM";
+      case reshade::api::format::r8_typeless:           return os << "R8 TYPELESS";
+      case reshade::api::format::r8_uint:               return os << "R8 UINT";
+      case reshade::api::format::r8_sint:               return os << "R8 SINT";
+      case reshade::api::format::r8_unorm:              return os << "R8 UNORM";
+      case reshade::api::format::r8_snorm:              return os << "R8 SNORM";
+      case reshade::api::format::l8a8_unorm:            return os << "L8A8 UNORM";
+      case reshade::api::format::r8g8_typeless:         return os << "R8G8 TYPELESS";
+      case reshade::api::format::r8g8_uint:             return os << "R8G8 UINT";
+      case reshade::api::format::r8g8_sint:             return os << "R8G8 SINT";
+      case reshade::api::format::r8g8_unorm:            return os << "R8G8 UNORM";
+      case reshade::api::format::r8g8_snorm:            return os << "R8G8 SNORM";
+      case reshade::api::format::r8g8b8a8_typeless:     return os << "R8G8B8A8 TYPELESS";
+      case reshade::api::format::r8g8b8a8_uint:         return os << "R8G8B8A8 UINT";
+      case reshade::api::format::r8g8b8a8_sint:         return os << "R8G8B8A8 SINT";
+      case reshade::api::format::r8g8b8a8_unorm:        return os << "R8G8B8A8 UNORM";
+      case reshade::api::format::r8g8b8a8_unorm_srgb:   return os << "R8G8B8A8 UNORM SRGB";
+      case reshade::api::format::r8g8b8a8_snorm:        return os << "R8G8B8A8 SNORM";
+      case reshade::api::format::r8g8b8x8_unorm:        return os << "R8G8B8X8 UNORM";
+      case reshade::api::format::r8g8b8x8_unorm_srgb:   return os << "R8G8B8X8 UNORM SRGB";
+      case reshade::api::format::b8g8r8a8_typeless:     return os << "B8G8R8A8 TYPELESS";
+      case reshade::api::format::b8g8r8a8_unorm:        return os << "B8G8R8A8 UNORM";
+      case reshade::api::format::b8g8r8a8_unorm_srgb:   return os << "B8G8R8A8 UNORM SRGB";
+      case reshade::api::format::b8g8r8x8_typeless:     return os << "B8G8R8X8 TYPELESS";
+      case reshade::api::format::b8g8r8x8_unorm:        return os << "B8G8R8X8 UNORM";
+      case reshade::api::format::b8g8r8x8_unorm_srgb:   return os << "B8G8R8X8 UNORM SRGB";
+      case reshade::api::format::r10g10b10a2_typeless:  return os << "R10G10B10A2 TYPELESS";
+      case reshade::api::format::r10g10b10a2_uint:      return os << "R10G10B10A2 UINT";
+      case reshade::api::format::r10g10b10a2_unorm:     return os << "R10G10B10A2 UNORM";
+      case reshade::api::format::r10g10b10a2_xr_bias:   return os << "R10G10B10A2 XR BIAS";
+      case reshade::api::format::b10g10r10a2_typeless:  return os << "B10G10R10A2 TYPELESS";
+      case reshade::api::format::b10g10r10a2_uint:      return os << "B10G10R10A2 UINT";
+      case reshade::api::format::b10g10r10a2_unorm:     return os << "B10G10R10A2 UNORM";
+      case reshade::api::format::l16_unorm:             return os << "L16 UNORM";
+      case reshade::api::format::r16_typeless:          return os << "R16 TYPELESS";
+      case reshade::api::format::r16_uint:              return os << "R16 UINT";
+      case reshade::api::format::r16_sint:              return os << "R16 SINT";
+      case reshade::api::format::r16_unorm:             return os << "R16 UNORM";
+      case reshade::api::format::r16_snorm:             return os << "R16 SNORM";
+      case reshade::api::format::r16_float:             return os << "R16 FLOAT";
+      case reshade::api::format::l16a16_unorm:          return os << "L16A16 UNORM";
+      case reshade::api::format::r16g16_typeless:       return os << "R16G16 TYPELESS";
+      case reshade::api::format::r16g16_uint:           return os << "R16G16 UINT";
+      case reshade::api::format::r16g16_sint:           return os << "R16G16 SINT";
+      case reshade::api::format::r16g16_unorm:          return os << "R16G16 UNORM";
+      case reshade::api::format::r16g16_snorm:          return os << "R16G16 SNORM";
+      case reshade::api::format::r16g16_float:          return os << "R16G16 FLOAT";
+      case reshade::api::format::r16g16b16a16_typeless: return os << "R16G16B16A16 TYPELESS";
+      case reshade::api::format::r16g16b16a16_uint:     return os << "R16G16B16A16 UINT";
+      case reshade::api::format::r16g16b16a16_sint:     return os << "R16G16B16A16 SINT";
+      case reshade::api::format::r16g16b16a16_unorm:    return os << "R16G16B16A16 UNORM";
+      case reshade::api::format::r16g16b16a16_snorm:    return os << "R16G16B16A16 SNORM";
+      case reshade::api::format::r16g16b16a16_float:    return os << "R16G16B16A16 FLOAT";
+      case reshade::api::format::r32_typeless:          return os << "R32 TYPELESS";
+      case reshade::api::format::r32_uint:              return os << "R32 UINT";
+      case reshade::api::format::r32_sint:              return os << "R32 SINT";
+      case reshade::api::format::r32_float:             return os << "R32 FLOAT";
+      case reshade::api::format::r32g32_typeless:       return os << "R32G32 TYPELESS";
+      case reshade::api::format::r32g32_uint:           return os << "R32G32 UINT";
+      case reshade::api::format::r32g32_sint:           return os << "R32G32 SINT";
+      case reshade::api::format::r32g32_float:          return os << "R32G32 FLOAT";
+      case reshade::api::format::r32g32b32_typeless:    return os << "R32G32B32 TYPELESS";
+      case reshade::api::format::r32g32b32_uint:        return os << "R32G32B32 UINT";
+      case reshade::api::format::r32g32b32_sint:        return os << "R32G32B32 SINT";
+      case reshade::api::format::r32g32b32_float:       return os << "R32G32B32 FLOAT";
+      case reshade::api::format::r32g32b32a32_typeless: return os << "R32G32B32A32 TYPELESS";
+      case reshade::api::format::r32g32b32a32_uint:     return os << "R32G32B32A32 UINT";
+      case reshade::api::format::r32g32b32a32_sint:     return os << "R32G32B32A32 SINT";
+      case reshade::api::format::r32g32b32a32_float:    return os << "R32G32B32A32 FLOAT";
+      case reshade::api::format::r9g9b9e5:              return os << "R9G9B9E5";
+      case reshade::api::format::r11g11b10_float:       return os << "R11G11B10 FLOAT";
+      case reshade::api::format::b5g6r5_unorm:          return os << "B5G6R5 UNORM";
+      case reshade::api::format::b5g5r5a1_unorm:        return os << "B5G5R5A1 UNORM";
+      case reshade::api::format::b5g5r5x1_unorm:        return os << "B5G5R5X1 UNORM";
+      case reshade::api::format::b4g4r4a4_unorm:        return os << "B4G4R4A4 UNORM";
+      case reshade::api::format::a4b4g4r4_unorm:        return os << "A4B4G4R4 UNORM";
+      case reshade::api::format::s8_uint:               return os << "S8 UINT";
+      case reshade::api::format::d16_unorm:             return os << "D16 UNORM";
+      case reshade::api::format::d16_unorm_s8_uint:     return os << "D16 UNORM S8 UINT";
+      case reshade::api::format::d24_unorm_x8_uint:     return os << "D24 UNORM X8 UINT";
+      case reshade::api::format::d24_unorm_s8_uint:     return os << "D24 UNORM S8 UINT";
+      case reshade::api::format::d32_float:             return os << "D32 FLOAT";
+      case reshade::api::format::d32_float_s8_uint:     return os << "D32 FLOAT S8 UINT";
+      case reshade::api::format::r24_g8_typeless:       return os << "R24 G8 TYPELESS";
+      case reshade::api::format::r24_unorm_x8_uint:     return os << "R24 UNORM X8 UINT";
+      case reshade::api::format::x24_unorm_g8_uint:     return os << "X24 UNORM G8 UINT";
+      case reshade::api::format::r32_g8_typeless:       return os << "R32 G8 TYPELESS";
+      case reshade::api::format::r32_float_x8_uint:     return os << "R32 FLOAT X8 UINT";
+      case reshade::api::format::x32_float_g8_uint:     return os << "X32 FLOAT G8 UINT";
+      case reshade::api::format::bc1_typeless:          return os << "BC1 TYPELESS";
+      case reshade::api::format::bc1_unorm:             return os << "BC1 UNORM";
+      case reshade::api::format::bc1_unorm_srgb:        return os << "BC1 UNORM SRGB";
+      case reshade::api::format::bc2_typeless:          return os << "BC2 TYPELESS";
+      case reshade::api::format::bc2_unorm:             return os << "BC2 UNORM";
+      case reshade::api::format::bc2_unorm_srgb:        return os << "BC2 UNORM SRGB";
+      case reshade::api::format::bc3_typeless:          return os << "BC3 TYPELESS";
+      case reshade::api::format::bc3_unorm:             return os << "BC3 UNORM";
+      case reshade::api::format::bc3_unorm_srgb:        return os << "BC3 UNORM SRGB";
+      case reshade::api::format::bc4_typeless:          return os << "BC4 TYPELESS";
+      case reshade::api::format::bc4_unorm:             return os << "BC4 UNORM";
+      case reshade::api::format::bc4_snorm:             return os << "BC4 SNORM";
+      case reshade::api::format::bc5_typeless:          return os << "BC5 TYPELESS";
+      case reshade::api::format::bc5_unorm:             return os << "BC5 UNORM";
+      case reshade::api::format::bc5_snorm:             return os << "BC5 SNORM";
+      case reshade::api::format::bc6h_typeless:         return os << "BC6H TYPELESS";
+      case reshade::api::format::bc6h_ufloat:           return os << "BC6H UFLOAT";
+      case reshade::api::format::bc6h_sfloat:           return os << "BC6H SFLOAT";
+      case reshade::api::format::bc7_typeless:          return os << "BC7 TYPELESS";
+      case reshade::api::format::bc7_unorm:             return os << "BC7 UNORM";
+      case reshade::api::format::bc7_unorm_srgb:        return os << "BC7 UNORM SRGB";
+      case reshade::api::format::r8g8_b8g8_unorm:       return os << "R8G8 B8G8 UNORM";
+      case reshade::api::format::g8r8_g8b8_unorm:       return os << "G8R8 G8B8 UNORM";
+      case reshade::api::format::intz:                  return os << "INTZ";
+      case reshade::api::format::unknown:               return os << "UNKNOWN";
+      default:                                          assert(false); return os << "UNKNOWN"; // We shouldn't get here unless we are missing a format
       }
    }
 
@@ -497,6 +497,25 @@ namespace
       case DXGI_FORMAT_BC2_UNORM_SRGB:
       case DXGI_FORMAT_BC3_UNORM_SRGB:
       case DXGI_FORMAT_BC7_UNORM_SRGB:
+         return true;
+      }
+      return false;
+   }
+
+   // If true, the format is "HDR" and can go beyond 1. Depth formats are ignored.
+   bool IsFloatFormat(DXGI_FORMAT format)
+   {
+      switch (format)
+      {
+      case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+      case DXGI_FORMAT_R16_FLOAT:
+      case DXGI_FORMAT_R16G16_FLOAT:
+      case DXGI_FORMAT_R16G16B16A16_FLOAT:
+      case DXGI_FORMAT_R32_FLOAT:
+      case DXGI_FORMAT_R32G32_FLOAT:
+      case DXGI_FORMAT_R32G32B32_FLOAT:
+      case DXGI_FORMAT_R32G32B32A32_FLOAT:
+      case DXGI_FORMAT_R11G11B10_FLOAT:
          return true;
       }
       return false;

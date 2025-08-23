@@ -82,6 +82,32 @@ float3 Tonemap_Hable(in float3 color, float inShoulderScale = HableShoulderScale
 	return result;
 }
 
+float3 Tonemap_Uncharted2_Eval(float3 x, float a, float b, float c, float d, float e, float f)
+{
+  return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - (e / f);
+}
+
+// One channel only, given they are all the same
+float Tonemap_Uncharted2_Inverse_Eval(float y, float a, float b, float c, float d, float e, float f)
+{
+  float ef = e / f;
+  float yp = y + ef;
+
+  float A = a * (yp - 1.0);
+  float B = b * (yp - c);
+  float C = d * (f * yp - e);
+
+  float discriminant = B * B - 4.0 * A * C;
+
+  float sqrtD = sqrt(abs(discriminant)) * sign(discriminant);
+
+  float x1 = (-B + sqrtD) / (2.0 * A);
+  float x2 = (-B - sqrtD) / (2.0 * A);
+
+  // Choose the root that makes sense in your context (e.g., positive, in [0,1])
+  return (x1 >= 0.0) ? x1 : x2;
+}
+
 float3 Tonemap_DICE(float3 color, float peakWhite, float paperWhite = 1.0)
 {
 	DICESettings settings = DefaultDICESettings();

@@ -1,6 +1,7 @@
 #define GAME_PREY 1
 
 #define ENABLE_NGX 1
+#define ENABLE_NVAPI 0
 #define UPGRADE_SAMPLERS 1
 
 #include "..\..\Core\core.hpp"
@@ -263,6 +264,9 @@ public:
          }
       }
 
+#if 0 // This warning isn't needed anymore, as we load the system version of the dll, and the game supposedly doesn't compile shaders live
+      // TODO: move this code to generic Luma code, it applies to (almost) all games (e.g. not LEGO Undercover City?), also do the 46 etc. Or...? Or ship with the latest one (for Linux)?
+
       // Make sure the user deleted the d3dcompiler_47 dll
       std::filesystem::path shader_compiler_path = file_path.parent_path();
       shader_compiler_path.append("d3dcompiler_47.dll");
@@ -303,6 +307,7 @@ public:
             prevent_shader_cache_saving = true;
          }
       }
+#endif
 
 #if ENABLE_NATIVE_PLUGIN
       if (!failed)
@@ -366,7 +371,7 @@ public:
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
@@ -475,8 +480,8 @@ public:
             native_device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, dsv.get());
 
 #if DEVELOPMENT // Currently we'd only ever need these in development modes to make tweaks, or for in development code paths that are still disabled
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaSettings);
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData);
 #endif
 
             native_device_context->Draw(3, 0);
@@ -497,8 +502,8 @@ public:
       if (game_device_data.has_drawn_ssr && !game_device_data.has_drawn_ssr_blend && native_device_context == game_device_data.ssr_command_list && is_custom_pass && (original_shader_hashes.Contains(shader_hash_PostEffectsGaussBlurBilinear, reshade::api::shader_stage::pixel) || original_shader_hashes.Contains(shader_hash_PostEffectsTextureToTextureResampled, reshade::api::shader_stage::pixel)))
       {
          uint32_t custom_data = 1; // This value will make the SSR mip map generation and blurring shaders take choices specifically designed for SSR
-         SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaSettings);
-         SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
+         SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+         SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
          updated_cbuffers = true;
          return false;
       }
@@ -601,7 +606,7 @@ public:
             native_device_context->PSGetShader(&ps, nullptr, 0);
 
             bool has_sunshafts = original_shader_hashes.Contains(shader_hashes_HDRPostProcessHDRFinalScene_Sunshafts); // These shaders use a different cbuffer layout
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData, has_sunshafts);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, has_sunshafts);
 
             // Draw the exposure
             native_device_context->PSSetShader(game_device_data.draw_exposure_pixel_shader.get(), nullptr, 0);
@@ -613,12 +618,14 @@ public:
             const std::shared_lock lock_trace(s_mutex_trace);
             if (trace_running)
             {
-               CommandListData& cmd_list_data = *global_cmd_list->get_private_data<CommandListData>();
                const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
                TraceDrawCallData trace_draw_call_data;
                trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+               trace_draw_call_data.command_list = native_device_context;
                trace_draw_call_data.custom_name = "DLSS Draw Exposure";
-               cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+               // Re-use the RTV data for simplicity
+               GetResourceInfo(game_device_data.exposure_buffer_gpu.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+               cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
             }
 #endif
 
@@ -777,8 +784,8 @@ public:
             ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(rtvs[0]);
             native_device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, dsv.get());
 
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaSettings);
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData);
             updated_cbuffers = true; // This is ignored anyway as we return true
 
             native_device_context->Draw(3, 0);
@@ -1023,8 +1030,8 @@ public:
             native_device_context->PSSetSamplers(10, 1, &lens_distortion_sampler_state);
 
             // We don't need to set send our cbuffers again as they'd already have the latest values, but... let's do it anyway
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaSettings);
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
             updated_cbuffers = true;
 
             // In case DLSS upscaled earlier (it does)
@@ -1052,8 +1059,8 @@ public:
 
          if (is_custom_pass && !updated_cbuffers)
          {
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaSettings);
-            SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
             updated_cbuffers = true;
          }
 
@@ -1193,21 +1200,21 @@ public:
          ASSERT_ONCE(dlss_inputs_valid);
          if (dlss_inputs_valid)
          {
-            com_ptr<ID3D11Resource> output_colorTemp;
-            render_target_views[0]->GetResource(&output_colorTemp);
+            com_ptr<ID3D11Resource> output_color_resource;
+            render_target_views[0]->GetResource(&output_color_resource);
             com_ptr<ID3D11Texture2D> output_color;
-            HRESULT hr = output_colorTemp->QueryInterface(&output_color);
+            HRESULT hr = output_color_resource->QueryInterface(&output_color);
             ASSERT_ONCE(SUCCEEDED(hr));
 
-            D3D11_TEXTURE2D_DESC output_texture_desc;
-            output_color->GetDesc(&output_texture_desc);
+            D3D11_TEXTURE2D_DESC taa_output_texture_desc;
+            output_color->GetDesc(&taa_output_texture_desc);
 
 #if FORCE_SMAA_MIPS // Define from the native plugin (not ever defined here!)
-            ASSERT_ONCE(output_texture_desc.MipLevels > 1); // To improve "Perfect Perspective" lens distortion
+            ASSERT_ONCE(taa_output_texture_desc.MipLevels > 1); // To improve "Perfect Perspective" lens distortion
 #endif
 
-            ASSERT_ONCE(std::lrintf(device_data.output_resolution.x) == output_texture_desc.Width && std::lrintf(device_data.output_resolution.y) == output_texture_desc.Height);
-            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)output_texture_desc.Width * (double)device_data.dlss_render_resolution_scale, (double)output_texture_desc.Height * (double)device_data.dlss_render_resolution_scale, (double)output_texture_desc.Width / (double)output_texture_desc.Height);
+            ASSERT_ONCE(std::lrintf(device_data.output_resolution.x) == taa_output_texture_desc.Width && std::lrintf(device_data.output_resolution.y) == taa_output_texture_desc.Height);
+            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * (double)device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Height * (double)device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Width / (double)taa_output_texture_desc.Height);
             // The "HDR" flag in DLSS SR actually means whether the color is in linear space or "sRGB gamma" (apparently not 2.2) (SDR) space, colors beyond 0-1 don't seem to be clipped either way
             bool dlss_hdr = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) >= 1; // we are assuming the value was always a number and not empty
 
@@ -1224,7 +1231,7 @@ public:
             // At lower quality modes (non DLAA), DLSS actually seems to allow for a wider input resolution range that it actually claims when queried for it, but if we declare a resolution scale below 50% here, we can get an hitch,
             // still, DLSS will keep working at any input resolution (or at least with a pretty big tolerance range).
             // This function doesn't alter the pipeline state (e.g. shaders, cbuffers, RTs, ...), if not, we need to move it to the "Present()" function
-            NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, output_texture_desc.Width, output_texture_desc.Height, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.prey_drs_detected);
+            NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, taa_output_texture_desc.Width, taa_output_texture_desc.Height, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.prey_drs_detected);
 
 #if TEST_DLSS // Verify that DLSS never alters the pipeline state (it doesn't, not in the "DLSS::UpdateSettings()"
             com_ptr<ID3D11ShaderResourceView> ps_shader_resources_post[ARRAYSIZE(ps_shader_resources)];
@@ -1250,28 +1257,28 @@ public:
             ps_post = nullptr;
 #endif // TEST_DLSS
 
-            bool skip_dlss = output_texture_desc.Width < 32 || output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
+            bool skip_dlss = taa_output_texture_desc.Width < 32 || taa_output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
             bool dlss_output_changed = false;
             constexpr bool dlss_use_native_uav = true;
-            bool dlss_output_supports_uav = dlss_use_native_uav && (output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
+            bool dlss_output_supports_uav = dlss_use_native_uav && (taa_output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
             if (!dlss_output_supports_uav)
             {
 #if ENABLE_NATIVE_PLUGIN
                ASSERT_ONCE(!dlss_use_native_uav); // Should never happen anymore ("FORCE_DLSS_SMAA_UAV" is true)
 #endif
 
-               output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+               taa_output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
 
                if (device_data.dlss_output_color.get())
                {
-                  D3D11_TEXTURE2D_DESC dlss_output_texture_desc;
-                  device_data.dlss_output_color->GetDesc(&dlss_output_texture_desc);
-                  dlss_output_changed = dlss_output_texture_desc.Width != output_texture_desc.Width || dlss_output_texture_desc.Height != output_texture_desc.Height || dlss_output_texture_desc.Format != output_texture_desc.Format;
+                  D3D11_TEXTURE2D_DESC dlss_taa_output_texture_desc;
+                  device_data.dlss_output_color->GetDesc(&dlss_taa_output_texture_desc);
+                  dlss_output_changed = dlss_taa_output_texture_desc.Width != taa_output_texture_desc.Width || dlss_taa_output_texture_desc.Height != taa_output_texture_desc.Height || dlss_taa_output_texture_desc.Format != taa_output_texture_desc.Format;
                }
                if (!device_data.dlss_output_color.get() || dlss_output_changed)
                {
                   device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
-                  hr = native_device->CreateTexture2D(&output_texture_desc, nullptr, &device_data.dlss_output_color);
+                  hr = native_device->CreateTexture2D(&taa_output_texture_desc, nullptr, &device_data.dlss_output_color);
                   ASSERT_ONCE(SUCCEEDED(hr));
                }
                if (!device_data.dlss_output_color.get())
@@ -1281,6 +1288,7 @@ public:
             }
             else
             {
+               ASSERT_ONCE(device_data.dlss_output_color == nullptr);
                device_data.dlss_output_color = output_color;
             }
 
@@ -1358,7 +1366,7 @@ public:
                      {
                         D3D11_TEXTURE2D_DESC dlss_motion_vectors_desc;
                         game_device_data.dlss_motion_vectors->GetDesc(&dlss_motion_vectors_desc);
-                        dlss_output_changed = dlss_motion_vectors_desc.Width != output_texture_desc.Width || dlss_motion_vectors_desc.Height != output_texture_desc.Height;
+                        dlss_output_changed = dlss_motion_vectors_desc.Width != taa_output_texture_desc.Width || dlss_motion_vectors_desc.Height != taa_output_texture_desc.Height;
                         dlss_motion_vectors_changed = dlss_output_changed;
                      }
                   }
@@ -1379,8 +1387,8 @@ public:
                      native_device->CreateRenderTargetView(game_device_data.dlss_motion_vectors.get(), &object_velocity_render_target_view_desc, &game_device_data.dlss_motion_vectors_rtv);
                   }
 
-                  SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaSettings);
-                  SetLumaConstantBuffers(native_device_context, device_data, stages, LumaConstantBufferType::LumaData);
+                  SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+                  SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData);
 
                   ID3D11RenderTargetView* const dlss_motion_vectors_rtv_const = game_device_data.dlss_motion_vectors_rtv.get();
                   native_device_context->OMSetRenderTargets(1, &dlss_motion_vectors_rtv_const, depth_stencil_view.get());
@@ -1430,12 +1438,14 @@ public:
                   const std::shared_lock lock_trace(s_mutex_trace);
                   if (trace_running)
                   {
-                     CommandListData& cmd_list_data = *global_cmd_list->get_private_data<CommandListData>();
                      const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
                      TraceDrawCallData trace_draw_call_data;
                      trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+                     trace_draw_call_data.command_list = native_device_context;
                      trace_draw_call_data.custom_name = "DLSS";
-                     cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+                     // Re-use the RTV data for simplicity
+                     GetResourceInfo(device_data.dlss_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+                     cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
                   }
 #endif
                }
@@ -1597,7 +1607,7 @@ public:
 #endif // ENABLE_NGX && ENABLE_NATIVE_PLUGIN
    }
 
-   void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data) override
+   void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override
    {
       data.GameData.CameraJitters = projection_jitters; // TODO: pre-multiply these by float2(0.5, -0.5) (NDC to UV space) given that they are always used in UV space by shaders. It doesn't really matter as they end up as "mad" single instructions
       data.GameData.PreviousCameraJitters = previous_projection_jitters;
@@ -1966,6 +1976,7 @@ public:
 #if 0 // Not needed anymore, but here in case
             const Matrix44F mViewProjPrev = Matrix44D(cb_per_view_global_actual_previous.CV_ViewMatr.GetTransposed()) * projection_matrix_native * Matrix44D(mScaleBias1);
 #endif
+            // TODO: we don't need this until we do DLSS later on, once.
             // We calculate all in double for extra precision (this stuff is delicate)
             Matrix44D projection_matrix_native = current_projection_matrix.GetTransposed();
             Matrix44D previous_projection_matrix_native = Matrix44D(previous_projection_matrix.GetTransposed());
@@ -2391,10 +2402,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      Globals::GAME_NAME = PROJECT_NAME;
-      Globals::DESCRIPTION = "Prey (2017) Luma mod";
-      Globals::WEBSITE = "https://www.nexusmods.com/prey2017/mods/149";
-      Globals::VERSION = 5;
+      Globals::SetGlobals(PROJECT_NAME, "Prey (2017) Luma mod", "https://www.nexusmods.com/prey2017/mods/149");
+      Globals::VERSION = 6;
 
       // Registers 2, 4, 7, 8, 9, 10, 11 and 12 are 100% safe to be used for any post processing or late rendering passes.
       // Register 2 is never used in the whole Prey code. Register 4, 7 and 8 are also seemingly never actively used by Prey.

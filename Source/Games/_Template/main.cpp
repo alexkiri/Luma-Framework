@@ -11,23 +11,6 @@
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
 
-// Alternative implementation in case we used "Core" as static library
-#if defined(RESHADE_EXTERNS) && 0
-#define RESHADE_EXTERNS
-extern "C" __declspec(dllexport) const char* NAME = Globals::MOD_NAME;
-extern "C" __declspec(dllexport) const char* DESCRIPTION = Globals::DESCRIPTION;
-extern "C" __declspec(dllexport) const char* WEBSITE = Globals::WEBSITE;
-extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE reshade_module)
-{
-   Init(true);
-   return true;
-}
-extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon_module, HMODULE reshade_module)
-{
-   Uninit();
-}
-#endif
-
 // Instead of "manually" including the "core" library, we simply include its main code file (which is a header).
 // The library in itself is standalone, as in, it compiles fine and could directly be used as a template addon etc if built as dll but,
 // there's a major limitation in how libraries dependencies work by nature, and that is that you can only make
@@ -42,17 +25,17 @@ extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon_module, HMODULE 
 // To compile in different modes (e.g. "DEVELOPMENT", "TEST" etc see "global_defines.h").
 #include "..\..\Core\core.hpp"
 
-struct GameDeviceDataTemplate final : public GameDeviceData
+struct TemplateGameDeviceData final : public GameDeviceData
 {
    bool has_drawn_tonemap = false;
 };
 
-class GameTemplate final : public Game
+class TemplateGame final : public Game
 {
    // Optional helper to hide ugly casts
-   static GameDeviceDataTemplate& GetGameDeviceData(DeviceData& device_data)
+   static TemplateGameDeviceData& GetGameDeviceData(DeviceData& device_data)
    {
-      return *static_cast<GameDeviceDataTemplate*>(device_data.game);
+      return *static_cast<TemplateGameDeviceData*>(device_data.game);
    }
 
 public:
@@ -95,10 +78,10 @@ public:
    // This needs to be overridden with your own "GameDeviceData" sub-class (destruction is automatically handled)
    void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
    {
-      device_data.game = new GameDeviceDataTemplate;
+      device_data.game = new TemplateGameDeviceData;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -133,30 +116,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      // TODO: move this to a "Generic" mod project?
-      wchar_t file_path_char[MAX_PATH] = L"";
-      GetModuleFileNameW(hModule, file_path_char, ARRAYSIZE(file_path_char));
-      std::filesystem::path file_path = file_path_char;
-      std::string file_name = file_path.stem().string();
-		bool use_generic_name = false;
-		// Retrieve the dll name and use it as the addon name, so we can re-use this template mod for all games by simply renaming the executable (as long as the mod just involves replacing shaders).
-		if (file_name.starts_with(std::string(Globals::MOD_NAME) + "-"))
-		{
-			// This is the D3D11 proxy DLL, we don't want to initialize the game here
-         file_name.erase(0, std::string(Globals::MOD_NAME).length() + 1);
-         if (file_name != "Template")
-         {
-            use_generic_name = true;
-         }
-		}
-      
       // Setup the globals (e.g. name etc). It's good to do this stuff before registering the ReShade addon, to make sure the names are up to date.
       const char* project_name = PROJECT_NAME;
-      const char* cleared_project_name = (project_name[0] == '_') ? (project_name + 1) : project_name; // Remove the potential "_" at the beginning
-      Globals::GAME_NAME = use_generic_name ? file_name.c_str() : cleared_project_name; // Can include spaces!
-      Globals::DESCRIPTION = use_generic_name ? "Generic Luma mod" : "Template Luma mod";
-      Globals::WEBSITE = ""; // E.g. Nexus link
-      Globals::VERSION = 1; // Increase this to reset the game settings and shader binaries after making large changes to your mod
+      const char* cleared_project_name = (project_name[0] == '_') ? (project_name + 1) : project_name; // Remove the potential "_" at the beginning. This can include spaces!
+
+      uint32_t mod_version = 1; // Increase this to reset the game settings and shader binaries after making large changes to your mod
+      Globals::SetGlobals(cleared_project_name, "Template Luma mod", nullptr /*E.g. Nexus link*/, mod_version);
 
       // The following can be toggled in the dev settings (it generally only fully applies after changing the game's resolution).
       // Default these to "false" for the mod to not do "anything" that might cause issues with the game by default.
@@ -190,9 +155,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		// In case the textures failed to upgrade, tweak the filtering conditions to be more lenient (e.g. aspect ratio checks etc).
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
+#if DEVELOPMENT // If you want to track any shader names over time, you can hardcode them here by hash (they can be a useful reference in the pipeline)
+      forced_shader_names.emplace(std::stoul("FD2925B4", nullptr, 16), "Tracked Shader Name");
+#endif
+
       // Create your game sub-class instance (it will be automatically destroyed on exit).
       // You do not need to do this if you have no custom data to store.
-      game = new GameTemplate();
+      game = new TemplateGame();
    }
 
    CoreMain(hModule, ul_reason_for_call, lpReserved);

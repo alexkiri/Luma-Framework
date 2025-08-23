@@ -131,7 +131,9 @@ void main(
   const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
 
   DICESettings settings = DefaultDICESettings();
+#if !STRETCH_ORIGINAL_TONEMAPPER
   settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
+#endif
   settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
   outColor.rgb = DICETonemap(outColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
 #endif
