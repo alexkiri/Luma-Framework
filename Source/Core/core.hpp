@@ -4979,6 +4979,9 @@ namespace
       DeviceData& device_data = *device->get_private_data<DeviceData>();
       const std::unique_lock lock(device_data.mutex);
       device_data.upgraded_resources.erase(resource.handle);
+#if DEVELOPMENT
+      device_data.original_upgraded_resources_formats.erase(resource.handle);
+#endif // DEVELOPMENT
    }
 
    bool OnCreateResourceView(
