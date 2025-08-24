@@ -589,7 +589,7 @@ public:
 		device_data.has_drawn_main_post_processing = false;
 		game_device_data.has_drawn_upscaling = false;
 		game_device_data.has_drawn_taa = false;
-		device_data.taa_detected = true;
+		device_data.taa_detected = false;
 		device_data.has_drawn_dlss_sr = false;
 		game_device_data.found_per_view_globals = false;
 	}
