@@ -511,20 +511,36 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #endif
 #if TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1
 #if TEST_SDR_HDR_SPLIT_VIEW_MODE == 1 || TEST_SDR_HDR_SPLIT_VIEW_MODE == 3 // 2 bars (1 split)
-		static const float numberOfBars = 2.0;
-#else // 4 bars (3 splits)
-		static const float numberOfBars = 4.0;
+		static const uint numberOfBars = 2;
+#else // 3 bars (2 splits, 2 SDR and 1 HDR)
+		static const uint numberOfBars = 3;
 #endif
 		float barLength = 0.00125;
 #if TEST_SDR_HDR_SPLIT_VIEW_MODE <= 2 // Horizontal
 		float targetUV = uv.x;
-		float sourceAspectRatio = sourceWidth / (float)sourceHeight;
-		barLength /= sourceAspectRatio; // Scale by the usually wider side to match the thickness on both axes
+		float aspectRatio = sourceWidth / (float)sourceHeight;
+		barLength /= aspectRatio; // Scale by the usually wider side to match the thickness on both axes
 #else // Vertical
 		float targetUV = uv.y;
 #endif
 
-		float barIndex = floor(targetUV * numberOfBars);
+		float uvScale = numberOfBars / 2.0;
+		uvScale = 1.0;
+		if (numberOfBars == 3)
+			targetUV = ((targetUV - 0.5) / uvScale) + 0.5;
+
+		float barIndex = floor(targetUV * (float)numberOfBars);
+		// Custom split: make central bar as wide as the sum of the other two
+		if (numberOfBars == 3)
+		{
+			if (targetUV <= 0.25)
+				barIndex = 0.0;       // left
+			else if (targetUV >= 0.75)
+				barIndex = 0.0;       // middle (double width)
+			else
+				barIndex = 1.0;       // right
+		}
+		
 		// Apply effect only to even bars
 		if (fmod(barIndex, 2.0) == 0.0)
 		{
@@ -534,10 +550,12 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			color.rgb = saturate(color.rgb);
 #endif
 		}
-#if 1 // Draw black bars
-		for (uint i = 1; i < (uint)numberOfBars; i++)
+#if 0 // Draw black bars
+		for (uint i = 1; i < numberOfBars; i++)
 		{
 			float barUV = (float)i / numberOfBars;
+			if (numberOfBars == 3)
+				barUV = ((barUV - 0.5) / uvScale) + 0.5;
 			if (targetUV > barUV - barLength && targetUV < barUV + barLength)
 			{
 				color.rgb = 0.0;

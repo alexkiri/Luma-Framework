@@ -2220,9 +2220,21 @@ namespace
          mi.cbSize = sizeof(mi);
          if (GetMonitorInfo(hMonitor, &mi))
          {
-            RECT rcMonitor = mi.rcWork; // work area (excludes taskbar)
+            constexpr bool exclude_task_bar = true;
+            RECT rcMonitor = exclude_task_bar ? mi.rcMonitor : mi.rcWork; // work area (excludes taskbar)
             int screenW = rcMonitor.right - rcMonitor.left;
             int screenH = rcMonitor.bottom - rcMonitor.top;
+
+            // Remove window borders (force borderless)
+            LONG style = GetWindowLong(game_window, GWL_STYLE);
+            style &= ~WS_OVERLAPPEDWINDOW; // remove title bar + borders
+            style |= WS_POPUP | WS_VISIBLE; // popup style, no borders
+            SetWindowLong(game_window, GWL_STYLE, style);
+
+            // Also remove extended window styles that may add shadows/borders (extra safety, probably useless)
+            LONG ex_style = GetWindowLong(game_window, GWL_EXSTYLE);
+            ex_style &= ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
+            SetWindowLong(game_window, GWL_EXSTYLE, ex_style);
 
             // Get current window rectangle
             RECT rcWindow;
@@ -2233,7 +2245,14 @@ namespace
             int x = rcMonitor.left + (screenW - winW) / 2;
             int y = rcMonitor.top + (screenH - winH) / 2;
 
-            SetWindowPos(game_window, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(
+               game_window,
+               HWND_TOPMOST, // Force always on top, so it renders on top of the start bar etc // TODO: this makes the game "minimize" when alt tabbing out of it, do we really want it?
+               x, y,
+               0, 0,
+               SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+               SWP_FRAMECHANGED | SWP_SHOWWINDOW  // apply style changes
+            );
          }
       }
       // TODO: keep track of FS state

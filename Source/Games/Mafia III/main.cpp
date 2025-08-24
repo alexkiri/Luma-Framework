@@ -1096,12 +1096,6 @@ public:
       game_device_data.taa_jitters.x = Halton(temporal_frame + 1, 2) - 0.5f;
       game_device_data.taa_jitters.y = Halton(temporal_frame + 1, 3) - 0.5f;
 
-      // To NDC space
-      cb_luma_global_settings.GameSettings.CameraJitters = game_device_data.taa_jitters;
-      cb_luma_global_settings.GameSettings.CameraJitters.x *= 2.f / device_data.render_resolution.x;
-      cb_luma_global_settings.GameSettings.CameraJitters.y *= -2.f / device_data.render_resolution.y;
-      device_data.cb_luma_global_settings_dirty = true;
-
 #if DEVELOPMENT
       bool dlss_jit_mod = cb_luma_global_settings.DevSettings[4] > 0.0; //TODOFT: delete
       if (dlss_jit_mod)
@@ -1117,6 +1111,12 @@ public:
          no_jitters = true;
          game_device_data.taa_jitters = {};
       }
+
+      // To NDC space
+      cb_luma_global_settings.GameSettings.CameraJitters = game_device_data.taa_jitters;
+      cb_luma_global_settings.GameSettings.CameraJitters.x *= 2.f / device_data.render_resolution.x;
+      cb_luma_global_settings.GameSettings.CameraJitters.y *= -2.f / device_data.render_resolution.y;
+      device_data.cb_luma_global_settings_dirty = true;
 
       {
          std::shared_lock shared_lock_samplers(s_mutex_samplers);
@@ -1816,7 +1816,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       // TODO: distribute DLSS with the build! Also test for crashes when going back to the menu! Also remove the memory patching library if not used. Also add compat with the NO TAA mod? Reduce fog?
       // Also fix when pressing square in the car, screen became darker!? Add photo mode and hide UI buttons.
-      // Also.. test mirrors!
+      // Also.. test mirrors! Also check FOG... sometimes it's too much?
 
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;
