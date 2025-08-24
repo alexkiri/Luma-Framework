@@ -112,7 +112,7 @@ void main(
 #if ENABLE_SHARPENING // Note that this is possibly after film grain, but so far I haven't noticed any in the game
     //if (skipAA) // Theoretically we can't do both at the same time, given they both do 4 surrounding samples and do an average thing, so we'd need an extra pass, but whatever, this mod is meant to be played with DLSS/FSR etc, which already disable FXAA above (it won't look super broken otherwise)
     {
-      float sharpenAmount = LumaData.CustomData3;
+      float sharpenAmount = LumaSettings.GameSettings.Sharpening;
 	    r0.rgb = RCAS(v0.xy, 0, 0x7FFFFFFF, sharpenAmount, t0, dummyFloat2Texture, 1.0, true, float4(r0.rgb, 1.0)).rgb;
     }
 #endif // !ENABLE_SHARPENING
@@ -147,7 +147,7 @@ void main(
     r2.xyz = sqrt(max(0, r0.xyz));
 #endif
     float3 ditherScale = min(cb0[1].z, r2.xyz + cb0[1].w); // TODO: reduce these from 8bit to 10bit or something for HDR?
-    r2.xyz += dither * ditherScale;
+    r2.xyz += dither * ditherScale; // Apply dither in gamma space
 #if ENABLE_LUMA
     r0.xyz = sqr(r2.xyz) * sign(r2.xyz);
 #else

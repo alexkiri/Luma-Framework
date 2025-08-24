@@ -21,7 +21,7 @@ namespace CB
     	float2 PreviousCameraJitters;
 #if 0
     	row_major float4x4 ViewProjectionMatrix;
-    	row_major float4x4 PreviousViewProjectionMatrix;
+    	row_major float4x4 PrevViewProjectionMatrix;
 #endif
     	// Same as the one on "PostAA" "AA" but fixed to include jitters as well
     	row_major float4x4 ReprojectionMatrix;

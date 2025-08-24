@@ -115,7 +115,7 @@ void main(
     r2.xyz = sqrt(max(0, r0.xyz));
 #endif
     float3 ditherScale = min(cb0[1].z, r2.xyz + cb0[1].w);
-    r2.xyz += dither * ditherScale;
+    r2.xyz += dither * ditherScale; // Apply dither in gamma space
 #if ENABLE_LUMA
     r0.xyz = sqr(r2.xyz) * sign(r2.xyz);
 #else

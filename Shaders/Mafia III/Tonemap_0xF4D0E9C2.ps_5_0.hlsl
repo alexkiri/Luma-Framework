@@ -252,7 +252,7 @@ void main(
     t1.GetDimensions(sourceWidth, sourceHeight);
     float2 distortedPos = v1.yz * float2(sourceWidth, sourceHeight);
 
-    float sharpenAmount = asfloat(LumaData.CustomData2);
+    float sharpenAmount = LumaSettings.GameSettings.Sharpening;
 	  sceneColor.rgb = RCAS(distortedPos, 0, 0x7FFFFFFF, sharpenAmount, t1, dummyFloat2Texture, 1.0, true, float4(sceneColor, 1.0)).rgb;
 #endif // !ENABLE_SHARPENING
   }
@@ -406,7 +406,7 @@ void main(
 #endif
 #if ENABLE_LUMA
     if (LumaSettings.DisplayMode != 1)
-      tonemappedColor = SDRColor;
+      tonemappedColor = SDRColor; // TODO: this isn't the actual SDR color if we had features like the expanded gamut enabled etc
 #endif
   } else {
     tonemappedColor = sceneColor.xyz;
@@ -538,7 +538,7 @@ void main(
     r2.xyz = sqrt(max(0, tonemappedColor));
 #endif
     float3 ditherScale = min(cb0[6].z, r2.xyz + cb0[6].w);
-    r2.xyz += dither * ditherScale;
+    r2.xyz += dither * ditherScale; // Apply dither in gamma space
 #if ENABLE_LUMA
     tonemappedColor = sqr(r2.xyz) * sign(r2.xyz);
 #else

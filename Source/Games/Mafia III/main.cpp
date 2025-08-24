@@ -744,7 +744,7 @@ public:
             uint32_t custom_data_1 = 0;
             custom_data_1 |= (should_sharpen_and_tonemap ? 1u : 0u) << 0; // set bit 0
             custom_data_1 |= (should_gammify ? 1u : 0u) << 1; // set bit 1
-            uint32_t custom_data_2 = Math::AsUInt(sharpening);
+            uint32_t custom_data_2 = 0;
             float custom_data_3 = luts_strength;
             float custom_data_4 = luts_yellow_filter_removal;
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
@@ -905,9 +905,8 @@ public:
          // If we are writing on the swapchain, then we need to convert to gamma space.
          uint32_t custom_data_1 = is_rt_swapchain ? 1 : 0;
          uint32_t custom_data_2 = is_rt_swapchain_or_back_buffer ? (device_data.dlss_sr && !device_data.dlss_sr_suppressed) : 0;
-         float custom_data_3 = sharpening;
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
-         SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3);
+         SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2);
          updated_cbuffers = true;
 
          return false;
@@ -1086,6 +1085,12 @@ public:
       game_device_data.taa_jitters.x = Halton(temporal_frame + 1, 2) - 0.5f;
       game_device_data.taa_jitters.y = Halton(temporal_frame + 1, 3) - 0.5f;
 
+      // To NDC space
+      cb_luma_global_settings.GameSettings.CameraJitters = game_device_data.taa_jitters;
+      cb_luma_global_settings.GameSettings.CameraJitters.x *= 2.f / device_data.render_resolution.x;
+      cb_luma_global_settings.GameSettings.CameraJitters.y *= -2.f / device_data.render_resolution.y;
+      device_data.cb_luma_global_settings_dirty = true;
+
 #if DEVELOPMENT
       bool dlss_jit_mod = cb_luma_global_settings.DevSettings[4] > 0.0; //TODOFT: delete
       if (dlss_jit_mod)
@@ -1124,19 +1129,16 @@ public:
       reshade::get_config_value(runtime, NAME, "Sharpening", sharpening);
       reshade::get_config_value(runtime, NAME, "MotionBlur", allow_motion_blur);
       reshade::get_config_value(runtime, NAME, "Vignette", enable_vignette);
+
+      cb_luma_global_settings.GameSettings.Sharpening = sharpening; // "device_data.cb_luma_global_settings_dirty" should already be true at this point
    }
 
    void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
-      // To NDC space
-      data.GameData.CameraJitters = game_device_data.taa_jitters;
-      data.GameData.CameraJitters.x *= 2.f / device_data.render_resolution.x;
-      data.GameData.CameraJitters.y *= -2.f / device_data.render_resolution.y;
-
       memcpy(&data.GameData.ViewProjectionMatrix, &game_device_data.view_projection_mat, sizeof(game_device_data.view_projection_mat));
-      memcpy(&data.GameData.PreviousViewProjectionMatrix, &game_device_data.prev_view_projection_mat, sizeof(game_device_data.prev_view_projection_mat));
+      memcpy(&data.GameData.PrevViewProjectionMatrix, &game_device_data.prev_view_projection_mat, sizeof(game_device_data.prev_view_projection_mat));
    }
 
    void DrawImGuiSettings(DeviceData& device_data) override
@@ -1177,6 +1179,8 @@ public:
 
       if (ImGui::SliderFloat("Sharpening", &sharpening, 0.f, 1.f))
       {
+         cb_luma_global_settings.GameSettings.Sharpening = sharpening;
+         device_data.cb_luma_global_settings_dirty = true;
          reshade::set_config_value(runtime, NAME, "Sharpening", sharpening);
       }
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))

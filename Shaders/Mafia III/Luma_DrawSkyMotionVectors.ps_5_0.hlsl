@@ -48,7 +48,7 @@ float4x4 InverseMatrix(float4x4 m)
 
 float2 CurrentToPreviousNDC(float2 ndc, float depth)
 {
-    float4x4 reprojectionMatrix = mul(LumaData.GameData.PreviousViewProjectionMatrix, InverseMatrix(LumaData.GameData.ViewProjectionMatrix));
+    float4x4 reprojectionMatrix = mul(LumaData.GameData.PrevViewProjectionMatrix, InverseMatrix(LumaData.GameData.ViewProjectionMatrix));
 	const float4 vPosHPrev = mul(reprojectionMatrix, float4(ndc, depth, 1.0));
 	return vPosHPrev.xy / vPosHPrev.w;
 }

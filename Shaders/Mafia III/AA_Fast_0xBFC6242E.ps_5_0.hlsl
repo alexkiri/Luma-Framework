@@ -29,7 +29,7 @@ void main(
     // Do TM at the very very last
 
 #if ENABLE_SHARPENING
-    float sharpenAmount = LumaData.CustomData3;
+    float sharpenAmount = LumaSettings.GameSettings.Sharpening;
 	  o0.rgb = RCAS(v0.xy, 0, 0x7FFFFFFF, sharpenAmount, t0, dummyFloat2Texture, 1.0, true, float4(o0.rgb, 1.0)).rgb;
 #endif // !ENABLE_SHARPENING
 
