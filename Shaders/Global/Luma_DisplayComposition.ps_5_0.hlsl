@@ -509,7 +509,8 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			gamutMap = false;
 		}
 #endif
-#if TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1
+
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1 // TODO: move to function!
 #if TEST_SDR_HDR_SPLIT_VIEW_MODE == 1 || TEST_SDR_HDR_SPLIT_VIEW_MODE == 3 // 2 bars (1 split)
 		static const uint numberOfBars = 2;
 #else // 3 bars (2 splits, 2 SDR and 1 HDR)
@@ -524,11 +525,6 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		float targetUV = uv.y;
 #endif
 
-		float uvScale = numberOfBars / 2.0;
-		uvScale = 1.0;
-		if (numberOfBars == 3)
-			targetUV = ((targetUV - 0.5) / uvScale) + 0.5;
-
 		float barIndex = floor(targetUV * (float)numberOfBars);
 		// Custom split: make central bar as wide as the sum of the other two
 		if (numberOfBars == 3)
@@ -540,25 +536,36 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			else
 				barIndex = 1.0;       // right
 		}
-		
+
 		// Apply effect only to even bars
 		if (fmod(barIndex, 2.0) == 0.0)
 		{
 #if 1 // Tonemap instead of raw clipping
-  			color.rgb = Reinhard::ReinhardRange(color.rgb);
+  			color.rgb = Reinhard::ReinhardRange(color.rgb); // TODO: acknowledge the previous peak tonemapping to better compress from the HDR display to the SDR range
 #else
 			color.rgb = saturate(color.rgb);
 #endif
 		}
-#if 0 // Draw black bars
-		for (uint i = 1; i < numberOfBars; i++)
+
+#if 1 // Draw black bars
+		if (numberOfBars != 3)
 		{
-			float barUV = (float)i / numberOfBars;
-			if (numberOfBars == 3)
-				barUV = ((barUV - 0.5) / uvScale) + 0.5;
-			if (targetUV > barUV - barLength && targetUV < barUV + barLength)
+			for (uint i = 1; i < numberOfBars; i++)
 			{
-				color.rgb = 0.0;
+				float barUV = (float)i / numberOfBars;
+				if (targetUV > barUV - barLength && targetUV < barUV + barLength)
+					color.rgb = 0.0;
+			}
+		}
+    	// Custom separators at 0.25 and 0.75
+		else
+		{
+    		float2 splits = float2(0.25, 0.75);
+			for (uint i = 0; i < 2; i++)
+			{
+				float barUV = splits[i];
+				if (targetUV > barUV - barLength && targetUV < barUV + barLength)
+					color.rgb = 0.0;
 			}
 		}
 #endif
