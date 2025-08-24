@@ -1620,7 +1620,7 @@ public:
 
                memcpy(&game_device_data.view_projection_mat, &float_data[22], sizeof(DirectX::XMMATRIX));
 
-               if (game_device_data.last_motion_vectors_rtv.get())
+               if (dlss_sr && game_device_data.last_motion_vectors_rtv.get()) // TODO: do it for non DLSS SR path too?
                {
 #if DEVELOPMENT
                   ASSERT_ONCE(game_device_data.has_cleared_motion_vectors); // Might happen in menus?
