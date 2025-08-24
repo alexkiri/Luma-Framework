@@ -6501,19 +6501,20 @@ namespace
                      size_t actual_trace_count = 0;
                      for (auto index = 0; index < trace_count; index++) {
                         trace_draw_calls_index_redirector.emplace_back(uint32_t(trace_draw_calls_index_inverse_redirector.size())); // The closest one
-                        if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Shader) {
-                           auto pipeline_handle = cmd_list_data.trace_draw_calls_data.at(index).pipeline_handle;
+                        auto& draw_call_data = cmd_list_data.trace_draw_calls_data.at(index);
+                        if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::Shader) {
+                           auto pipeline_handle = draw_call_data.pipeline_handle;
                            const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle);
                            const bool is_valid = pipeline_pair != device_data.pipeline_cache_by_pipeline_handle.end() && pipeline_pair->second != nullptr;
                            if (is_valid) {
                               if (trace_ignore_vertex_shaders && pipeline_pair->second->HasVertexShader()) continue; // DX11 exclusive behaviour
                            }
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CPUWrite) {
-                           if (trace_ignore_buffer_writes && cmd_list_data.trace_draw_calls_data.at(index).rt_type_name[0] == "Buffer") continue;
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CPUWrite) {
+                           if (trace_ignore_buffer_writes && draw_call_data.rt_type_name[0] == "Buffer") continue;
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::BindPipeline
-                           || cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::BindResource) {
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::BindPipeline
+                           || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::BindResource) {
                            if (trace_ignore_bindings) continue;
                         }
                         actual_trace_count++;
@@ -6543,8 +6544,10 @@ namespace
 #else
                      for (uint32_t index = 0; index < trace_count; index++) {
 #endif
-                        auto pipeline_handle = cmd_list_data.trace_draw_calls_data.at(index).pipeline_handle;
-                        auto thread_id = cmd_list_data.trace_draw_calls_data.at(index).thread_id._Get_underlying_id(); // Possibly compiler dependent but whatever, cast to int alternatively
+                        auto& draw_call_data = cmd_list_data.trace_draw_calls_data.at(index);
+                        ASSERT_ONCE_MSG(draw_call_data.command_list, "The code below will probably crash if the command list isn't valid, remember to always assign it when adding a new element to the list");
+                        auto pipeline_handle = draw_call_data.pipeline_handle;
+                        auto thread_id = draw_call_data.thread_id._Get_underlying_id(); // Possibly compiler dependent but whatever, cast to int alternatively
                         const bool is_selected = selected_index == index;
                         // Note that the pipelines can be run more than once so this will return the first one matching (there's only one actually, we don't have separate settings for their running instance, as that's runtime stuff)
                         const auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle);
@@ -6559,28 +6562,28 @@ namespace
                            for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
                            {
                               if (found_highlighted_resource_read) break;
-                              found_highlighted_resource_read |= cmd_list_data.trace_draw_calls_data.at(index).sr_hash[i] == highlighted_resource;
+                              found_highlighted_resource_read |= draw_call_data.sr_hash[i] == highlighted_resource;
                            }
                            for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
                            {
                               if (found_highlighted_resource_write) break;
-                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).ua_hash[i] == highlighted_resource; // We consider UAV as write even if it's not necessarily one
+                              found_highlighted_resource_write |= draw_call_data.ua_hash[i] == highlighted_resource; // We consider UAV as write even if it's not necessarily one
                            }
                            for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
                            {
                               if (found_highlighted_resource_write) break;
-                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).rt_hash[i] == highlighted_resource;
+                              found_highlighted_resource_write |= draw_call_data.rt_hash[i] == highlighted_resource;
                            }
                            // Don't set "found_highlighted_resource_read" for the test and write case, it'd just be more confusing
-                           if (cmd_list_data.trace_draw_calls_data.at(index).depth_state == TraceDrawCallData::DepthStateType::TestAndWrite
-                              || cmd_list_data.trace_draw_calls_data.at(index).depth_state == TraceDrawCallData::DepthStateType::WriteOnly)
-                              found_highlighted_resource_write |= cmd_list_data.trace_draw_calls_data.at(index).ds_hash == highlighted_resource;
+                           if (draw_call_data.depth_state == TraceDrawCallData::DepthStateType::TestAndWrite
+                              || draw_call_data.depth_state == TraceDrawCallData::DepthStateType::WriteOnly)
+                              found_highlighted_resource_write |= draw_call_data.ds_hash == highlighted_resource;
                            else
-                              found_highlighted_resource_read |= cmd_list_data.trace_draw_calls_data.at(index).ds_hash == highlighted_resource;
+                              found_highlighted_resource_read |= draw_call_data.ds_hash == highlighted_resource;
                         }
 
                         // TODO: merge pixel and vertex shader traces if they are both present? Maybe not...
-                        if (is_valid && cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Shader)
+                        if (is_valid && draw_call_data.type == TraceDrawCallData::TraceDrawCallType::Shader)
                         {
                            const auto pipeline = pipeline_pair->second;
 
@@ -6607,7 +6610,7 @@ namespace
                            // Index - Thread ID (command list) - Shader Hash(es) - Shader Name
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0); // Fill up 3 slots for the index so the text is aligned
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
@@ -6716,11 +6719,11 @@ namespace
                               }
                            }
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CopyResource)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CopyResource)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
@@ -6729,13 +6732,13 @@ namespace
                            
                            text_color = IM_COL32(255, 105, 0, 255); // Orange
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::BindPipeline)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::BindPipeline)
                         {
                            if (trace_ignore_bindings) continue;
 
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
@@ -6744,13 +6747,13 @@ namespace
 
                            text_color = IM_COL32(30, 200, 10, 255); // Some green
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::BindResource)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::BindResource)
                         {
                            if (trace_ignore_bindings) continue;
 
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
@@ -6759,11 +6762,11 @@ namespace
 
                            text_color = IM_COL32(30, 200, 10, 255); // Some green
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CPURead)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CPURead)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
@@ -6772,17 +6775,17 @@ namespace
 
                            text_color = IM_COL32(255, 40, 0, 255); // Bright Red
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::CPUWrite)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CPUWrite)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
 
                            // Hacky resource type name check
-                           if (trace_ignore_buffer_writes && cmd_list_data.trace_draw_calls_data.at(index).rt_type_name[0] == "Buffer")
+                           if (trace_ignore_buffer_writes && draw_call_data.rt_type_name[0] == "Buffer")
                            {
                               continue;
                            }
@@ -6791,11 +6794,11 @@ namespace
 
                            text_color = IM_COL32(255, 105, 0, 255); // Orange
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::ClearResource)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::ClearResource)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
 
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
@@ -6804,21 +6807,21 @@ namespace
 
                            text_color = IM_COL32(255, 105, 0, 255); // Orange
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::AppendCommandList)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::AppendCommandList)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
                            name << " - " << thread_id;
                            name << " - Append Command List";
                            text_color = IM_COL32(50, 80, 190, 255); // Some Blue
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::FlushCommandList)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::FlushCommandList)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
                            name << " - " << thread_id;
                            name << " - Flush Command List";
                            text_color = IM_COL32(50, 80, 190, 255); // Some Blue
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Present)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::Present)
                         {
                            name << std::setfill('0') << std::setw(3) << index << std::setw(0);
                            name << " - " << thread_id;
@@ -6842,15 +6845,15 @@ namespace
                               }
                            }
                         }
-                        else if (cmd_list_data.trace_draw_calls_data.at(index).type == TraceDrawCallData::TraceDrawCallType::Custom)
+                        else if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::Custom)
                         {
-                           text_color = IM_COL32(70, 130, 180, 255); // Steel Blue
-                           if (cmd_list_data.trace_draw_calls_data.at(index).command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
+                           name << std::setfill('0') << std::setw(3) << index << std::setw(0);
+                           if (draw_call_data.command_list->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE) // Deferred
                               name << " - ~>" << thread_id;
                            else // Immediate
                               name << " - " << thread_id;
-                           name << std::setfill('0') << std::setw(3) << index << std::setw(0);
-                           name << " - " << cmd_list_data.trace_draw_calls_data.at(index).custom_name;
+                           name << " - " << draw_call_data.custom_name;
+                           text_color = IM_COL32(70, 130, 180, 255); // Steel Blue
                         }
                         else
                         {
@@ -6921,7 +6924,8 @@ namespace
                      const std::shared_lock lock_trace(cmd_list_data.mutex_trace);
                      if (selected_index >= 0 && cmd_list_data.trace_draw_calls_data.size() >= selected_index + 1)
                      {
-                        auto pipeline_handle = cmd_list_data.trace_draw_calls_data.at(selected_index).pipeline_handle;
+                        auto& draw_call_data = cmd_list_data.trace_draw_calls_data.at(selected_index);
+                        auto pipeline_handle = draw_call_data.pipeline_handle;
                         bool reload = false;
                         bool recompile = false;
 
@@ -7017,7 +7021,7 @@ namespace
                                  {
                                     debug_draw_shader_enabled = debug_draw_shader_hash == pipeline_pair->second->shader_hashes[0];
 
-                                    const auto& trace_draw_call_data = cmd_list_data.trace_draw_calls_data.at(selected_index);
+                                    const auto& trace_draw_call_data = draw_call_data;
 
                                     int32_t target_instance = -1;
                                     // Automatically calculate the index of the instance of this pipeline run, to directly select it on selection (this works as long as the current scene draw calls match the ones in the trace)
@@ -7087,7 +7091,7 @@ namespace
                                        }
                                        debug_draw_mode = pipeline_pair->second->HasPixelShader() ? DebugDrawMode::RenderTarget : (pipeline_pair->second->HasComputeShader() ? DebugDrawMode::UnorderedAccessView : DebugDrawMode::ShaderResource); // Do it regardless of "debug_draw_shader_enabled"
                                        // Fall back on depth if there main RT isn't valid
-                                       if (debug_draw_mode == DebugDrawMode::RenderTarget && trace_draw_call_data.rt_format[0] == DXGI_FORMAT_UNKNOWN && cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Disabled)
+                                       if (debug_draw_mode == DebugDrawMode::RenderTarget && trace_draw_call_data.rt_format[0] == DXGI_FORMAT_UNKNOWN && draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Disabled)
                                        {
                                           debug_draw_mode = DebugDrawMode::Depth;
                                           debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::RedOnly;
@@ -7233,7 +7237,7 @@ namespace
                                     {
                                        for (UINT i = 0; i < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; i++)
                                        {
-                                          auto srv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).srv_format[i];
+                                          auto srv_format = draw_call_data.srv_format[i];
                                           if (srv_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                           {
                                              continue;
@@ -7243,12 +7247,12 @@ namespace
                                           {
                                              continue;
                                           }
-                                          auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[i];
-                                          auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[i];
-                                          auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[i];
-                                          auto sr_type_name = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_type_name[i];
-                                          auto sr_is_rt = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_is_rt[i];
-                                          auto sr_is_ua = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_is_ua[i];
+                                          auto sr_format = draw_call_data.sr_format[i];
+                                          auto sr_size = draw_call_data.sr_size[i];
+                                          auto sr_hash = draw_call_data.sr_hash[i];
+                                          auto sr_type_name = draw_call_data.sr_type_name[i];
+                                          auto sr_is_rt = draw_call_data.sr_is_rt[i];
+                                          auto sr_is_ua = draw_call_data.sr_is_ua[i];
 
                                           ImGui::PushID(i);
 
@@ -7295,7 +7299,7 @@ namespace
 
                                                    ImGui::Text("R Original Format: %s", GetFormatName(DXGI_FORMAT(upgraded_resource_pair.second)));
 
-                                                   if (const auto it = device_data.original_upgraded_resource_views_formats.find(reinterpret_cast<uint64_t>(cmd_list_data.trace_draw_calls_data.at(selected_index).srvs[i])); it != device_data.original_upgraded_resource_views_formats.end())
+                                                   if (const auto it = device_data.original_upgraded_resource_views_formats.find(reinterpret_cast<uint64_t>(draw_call_data.srvs[i])); it != device_data.original_upgraded_resource_views_formats.end())
                                                    {
                                                       const auto& [native_resource, original_view_format] = it->second;
                                                       ASSERT_ONCE(native_resource == upgraded_resource_pair.first); // Uh!?
@@ -7346,7 +7350,7 @@ namespace
                                     {
                                        for (UINT i = 0; i < D3D11_1_UAV_SLOT_COUNT; i++)
                                        {
-                                          auto uav_format = cmd_list_data.trace_draw_calls_data.at(selected_index).uav_format[i];
+                                          auto uav_format = draw_call_data.uav_format[i];
                                           if (uav_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                           {
                                              continue;
@@ -7356,11 +7360,11 @@ namespace
                                           {
                                              continue;
                                           }
-                                          auto ua_format = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_format[i];
-                                          auto ua_size = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_size[i];
-                                          auto ua_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_hash[i];
-                                          auto ua_type_name = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_type_name[i];
-                                          auto ua_is_rt = cmd_list_data.trace_draw_calls_data.at(selected_index).ua_is_rt[i];
+                                          auto ua_format = draw_call_data.ua_format[i];
+                                          auto ua_size = draw_call_data.ua_size[i];
+                                          auto ua_hash = draw_call_data.ua_hash[i];
+                                          auto ua_type_name = draw_call_data.ua_type_name[i];
+                                          auto ua_is_rt = draw_call_data.ua_is_rt[i];
 
                                           ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT); // Offset by the max amount of previous iterations from above
 
@@ -7405,7 +7409,7 @@ namespace
 
                                                    ImGui::Text("R Original Format: %s", GetFormatName(DXGI_FORMAT(upgraded_resource_pair.second)));
 
-                                                   if (const auto it = device_data.original_upgraded_resource_views_formats.find(reinterpret_cast<uint64_t>(cmd_list_data.trace_draw_calls_data.at(selected_index).uavs[i])); it != device_data.original_upgraded_resource_views_formats.end())
+                                                   if (const auto it = device_data.original_upgraded_resource_views_formats.find(reinterpret_cast<uint64_t>(draw_call_data.uavs[i])); it != device_data.original_upgraded_resource_views_formats.end())
                                                    {
                                                       const auto& [native_resource, original_view_format] = it->second;
                                                       ASSERT_ONCE(native_resource == upgraded_resource_pair.first); // Uh!?
@@ -7476,11 +7480,11 @@ namespace
 
                                     if (pipeline_pair->second->HasPixelShader())
                                     {
-                                       auto blend_desc = cmd_list_data.trace_draw_calls_data.at(selected_index).blend_desc;
+                                       auto blend_desc = draw_call_data.blend_desc;
 
                                        for (UINT i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
                                        {
-                                          auto rtv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rtv_format[i];
+                                          auto rtv_format = draw_call_data.rtv_format[i];
                                           if (rtv_format == DXGI_FORMAT_UNKNOWN) // Resource was not valid
                                           {
                                              continue;
@@ -7490,10 +7494,10 @@ namespace
                                           {
                                              continue;
                                           }
-                                          auto rt_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_format[i];
-                                          auto rt_size = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_size[i];
-                                          auto rt_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_hash[i];
-                                          auto rt_type_name = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_type_name[i];
+                                          auto rt_format = draw_call_data.rt_format[i];
+                                          auto rt_size = draw_call_data.rt_size[i];
+                                          auto rt_hash = draw_call_data.rt_hash[i];
+                                          auto rt_type_name = draw_call_data.rt_type_name[i];
 
                                           ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT); // Offset by the max amount of previous iterations from above
 
@@ -7538,7 +7542,7 @@ namespace
 
                                                    ImGui::Text("R Original Format: %s", GetFormatName(DXGI_FORMAT(upgraded_resource_pair.second)));
 
-                                                   if (const auto it = device_data.original_upgraded_resource_views_formats.find(reinterpret_cast<uint64_t>(cmd_list_data.trace_draw_calls_data.at(selected_index).rtvs[i])); it != device_data.original_upgraded_resource_views_formats.end())
+                                                   if (const auto it = device_data.original_upgraded_resource_views_formats.find(reinterpret_cast<uint64_t>(draw_call_data.rtvs[i])); it != device_data.original_upgraded_resource_views_formats.end())
                                                    {
                                                       const auto& [native_resource, original_view_format] = it->second;
                                                       ASSERT_ONCE(native_resource == upgraded_resource_pair.first); // Uh!?
@@ -7556,7 +7560,7 @@ namespace
                                                 }
                                              }
                                           }
-                                          ImGui::Text("R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[i] ? "True" : "False"); // TODO: add this for computer shaders / UAVs toos
+                                          ImGui::Text("R Swapchain: %s", draw_call_data.rt_is_swapchain[i] ? "True" : "False"); // TODO: add this for computer shaders / UAVs toos
 
                                           // See "ui_data.blend_mode" for details on usage
                                           if (blend_desc.RenderTarget[i].BlendEnable)
@@ -7776,16 +7780,16 @@ namespace
                                        }
 
                                        if (!is_first_view) { ImGui::Text(""); }; // No views drew before, skip space
-                                       ImGui::Text("Depth State: %s", TraceDrawCallData::depth_state_names[(size_t)cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state]);
-                                       ImGui::Text("Stencil Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).stencil_enabled ? "True" : "False");
+                                       ImGui::Text("Depth State: %s", TraceDrawCallData::depth_state_names[(size_t)draw_call_data.depth_state]);
+                                       ImGui::Text("Stencil Enabled: %s", draw_call_data.stencil_enabled ? "True" : "False");
 
-                                       auto dsv_format = cmd_list_data.trace_draw_calls_data.at(selected_index).dsv_format;
-                                       if (dsv_format != DXGI_FORMAT_UNKNOWN && cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Disabled && cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Invalid)
+                                       auto dsv_format = draw_call_data.dsv_format;
+                                       if (dsv_format != DXGI_FORMAT_UNKNOWN && draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Disabled && draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Invalid)
                                        {
                                           // Note: "trace_ignore_non_bound_shader_referenced_resources" isn't implemented here
-                                          auto ds_format = cmd_list_data.trace_draw_calls_data.at(selected_index).ds_format;
-                                          auto ds_size = cmd_list_data.trace_draw_calls_data.at(selected_index).ds_size;
-                                          auto ds_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).ds_hash;
+                                          auto ds_format = draw_call_data.ds_format;
+                                          auto ds_size = draw_call_data.ds_size;
+                                          auto ds_hash = draw_call_data.ds_hash;
 
                                           ImGui::PushID(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT); // Offset by the max amount of previous iterations from above
 
@@ -7819,8 +7823,8 @@ namespace
                                           ImGui::PopID();
                                        }
 
-                                       const bool has_valid_depth = cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Disabled
-                                          && cmd_list_data.trace_draw_calls_data.at(selected_index).depth_state != TraceDrawCallData::DepthStateType::Invalid;
+                                       const bool has_valid_depth = draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Disabled
+                                          && draw_call_data.depth_state != TraceDrawCallData::DepthStateType::Invalid;
                                        if (has_valid_depth && debug_draw_shader_enabled && debug_draw_mode != DebugDrawMode::Depth && ImGui::Button("Debug Draw Depth Resource"))
                                        {
                                           debug_draw_mode = DebugDrawMode::Depth;
@@ -7829,12 +7833,12 @@ namespace
                                        }
 
                                        ImGui::Text("");
-                                       ImGui::Text("Scissors Enabled: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).scissors ? "True" : "False");
+                                       ImGui::Text("Scissors Enabled: %s", draw_call_data.scissors ? "True" : "False");
                                        ImGui::Text("Viewport 0: x: %s y:%s w: %s h: %s",
-                                          std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.x).c_str(),
-                                          std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.y).c_str(),
-                                          std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.z).c_str(),
-                                          std::to_string(cmd_list_data.trace_draw_calls_data.at(selected_index).viewport_0.w).c_str());
+                                          std::to_string(draw_call_data.viewport_0.x).c_str(),
+                                          std::to_string(draw_call_data.viewport_0.y).c_str(),
+                                          std::to_string(draw_call_data.viewport_0.z).c_str(),
+                                          std::to_string(draw_call_data.viewport_0.w).c_str());
                                     }
                                  }
                                  ImGui::EndChild(); // StateAnalysisScroll
@@ -7845,28 +7849,28 @@ namespace
                            }
                            lock.unlock(); // Needed to prevent "LoadCustomShaders()" from deadlocking, and anyway, there's no need to lock it beyond the for loop above
 
-                           if (cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CopyResource
-                              || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CPURead
-                              || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CPUWrite
-                              || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::BindResource
-                              || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::ClearResource
-                              || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::Custom)
+                           if (draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CopyResource
+                              || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CPURead
+                              || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CPUWrite
+                              || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::BindResource
+                              || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::ClearResource
+                              || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::Custom)
                            {
                               if (ImGui::BeginChild("Settings and Info"))
                               {
-                                 const bool has_source_resource = cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CopyResource
-                                    || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::CPURead
-                                    || cmd_list_data.trace_draw_calls_data.at(selected_index).type == TraceDrawCallData::TraceDrawCallType::BindResource;
-                                 const bool has_target_resource = cmd_list_data.trace_draw_calls_data.at(selected_index).type != TraceDrawCallData::TraceDrawCallType::CPURead
-                                    && cmd_list_data.trace_draw_calls_data.at(selected_index).type != TraceDrawCallData::TraceDrawCallType::BindResource;
+                                 const bool has_source_resource = draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CopyResource
+                                    || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::CPURead
+                                    || draw_call_data.type == TraceDrawCallData::TraceDrawCallType::BindResource;
+                                 const bool has_target_resource = draw_call_data.type != TraceDrawCallData::TraceDrawCallType::CPURead
+                                    && draw_call_data.type != TraceDrawCallData::TraceDrawCallType::BindResource;
 
                                  if (has_source_resource)
                                  {
                                     ImGui::PushID(0);
-                                    auto sr_format = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_format[0];
-                                    auto sr_size = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_size[0];
-                                    auto sr_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_hash[0];
-                                    auto sr_type_name = cmd_list_data.trace_draw_calls_data.at(selected_index).sr_type_name[0];
+                                    auto sr_format = draw_call_data.sr_format[0];
+                                    auto sr_size = draw_call_data.sr_size[0];
+                                    auto sr_hash = draw_call_data.sr_hash[0];
+                                    auto sr_type_name = draw_call_data.sr_type_name[0];
                                     ImGui::Text("Source R Hash: %s", sr_hash.c_str());
                                     ImGui::Text("Source R Type: %s", sr_type_name.c_str());
                                     if (GetFormatName(sr_format) != nullptr)
@@ -7898,10 +7902,10 @@ namespace
                                     if (has_source_resource)
                                        ImGui::Text(""); // Empty line for spacing
 
-                                    auto rt_format = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_format[0];
-                                    auto rt_size = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_size[0];
-                                    auto rt_hash = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_hash[0];
-                                    auto rt_type_name = cmd_list_data.trace_draw_calls_data.at(selected_index).rt_type_name[0];
+                                    auto rt_format = draw_call_data.rt_format[0];
+                                    auto rt_size = draw_call_data.rt_size[0];
+                                    auto rt_hash = draw_call_data.rt_hash[0];
+                                    auto rt_type_name = draw_call_data.rt_type_name[0];
 
                                     ImGui::PushID(1);
                                     ImGui::Text("Target R Hash: %s", rt_hash.c_str());
@@ -7925,7 +7929,7 @@ namespace
                                        }
                                     }
 #if 0 // TODO: implement for this case (and above)
-                                    ImGui::Text("Target R Swapchain: %s", cmd_list_data.trace_draw_calls_data.at(selected_index).rt_is_swapchain[0] ? "True" : "False");
+                                    ImGui::Text("Target R Swapchain: %s", draw_call_data.rt_is_swapchain[0] ? "True" : "False");
 #endif
 
                                     const bool is_highlighted_resource = highlighted_resource == rt_hash;
@@ -8029,7 +8033,7 @@ namespace
                      if (selected_index >= 0 && cmd_list_data.trace_draw_calls_data.size() >= (selected_index + 1) && refresh_live_code)
                      {
                         bool hlsl_set = false;
-                        auto pipeline_handle = cmd_list_data.trace_draw_calls_data.at(selected_index).pipeline_handle;
+                        const auto pipeline_handle = cmd_list_data.trace_draw_calls_data.at(selected_index).pipeline_handle;
 
                         const std::shared_lock lock(s_mutex_generic);
                         if (auto pipeline_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline_handle);

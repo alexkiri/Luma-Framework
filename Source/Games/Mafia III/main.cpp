@@ -1612,13 +1612,11 @@ public:
                   // Draw motion vectors for the sky, given that they don't have a separate draw call for it.
                   // We know the first time this is called, the jitters and view projection matrix are already final
                   ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-                  com_ptr<ID3D11DeviceContext> immediate_device_context;
-                  native_device->GetImmediateContext(&immediate_device_context); // The game always only uses this one
 
                   DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
-                  draw_state_stack.Cache(immediate_device_context.get(), device_data.uav_max_count);
+                  draw_state_stack.Cache(device_data.primary_command_list.get(), device_data.uav_max_count);
 
-                  CommandListData& cmd_list_data = *device_data.primary_command_list_data;
+                  CommandListData& cmd_list_data = *device_data.primary_command_list_data; // The game always uses the immediate device context (primary command list)
 #if DEVELOPMENT
                   const std::shared_lock lock_trace(s_mutex_trace);
                   if (trace_running)
@@ -1626,6 +1624,7 @@ public:
                      const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
                      TraceDrawCallData trace_draw_call_data;
                      trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+                     trace_draw_call_data.command_list = device_data.primary_command_list.get();
                      trace_draw_call_data.custom_name = "Draw Sky Motion Vectors";
                      // Re-use the RTV data for simplicity
                      GetResourceInfo(device_data.dlss_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
@@ -1635,17 +1634,17 @@ public:
 
                   com_ptr<ID3D11GeometryShader> gs;
                   com_ptr<ID3D11ClassInstance> gs_i; // TODO: delete once we know it's nullptr (it seems to be)
-                  immediate_device_context->GSGetShader(&gs, &gs_i, 0);
+                  device_data.primary_command_list->GSGetShader(&gs, &gs_i, 0);
                   ASSERT_ONCE(gs_i.get() == nullptr);
 
-                  immediate_device_context->GSSetShader(nullptr, nullptr, 0);
+                  device_data.primary_command_list->GSSetShader(nullptr, nullptr, 0);
 
-                  SetLumaConstantBuffers(immediate_device_context.get(), cmd_list_data, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData);
-                  DrawCustomPixelShader(immediate_device_context.get(), nullptr, nullptr, device_data.copy_vertex_shader.get(), game_device_data.draw_sky_motion_vectors_pixel_shader.get(), nullptr, game_device_data.last_motion_vectors_rtv.get(), device_data.render_resolution.x, device_data.render_resolution.y, false);
+                  SetLumaConstantBuffers(device_data.primary_command_list.get(), cmd_list_data, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData);
+                  DrawCustomPixelShader(device_data.primary_command_list.get(), nullptr, nullptr, device_data.copy_vertex_shader.get(), game_device_data.draw_sky_motion_vectors_pixel_shader.get(), nullptr, game_device_data.last_motion_vectors_rtv.get(), device_data.render_resolution.x, device_data.render_resolution.y, false);
 
-                  immediate_device_context->GSSetShader(gs.get(), nullptr, 0);
+                  device_data.primary_command_list->GSSetShader(gs.get(), nullptr, 0);
 
-                  draw_state_stack.Restore(immediate_device_context.get());
+                  draw_state_stack.Restore(device_data.primary_command_list.get());
                }
             }
 			}
