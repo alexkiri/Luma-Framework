@@ -7186,7 +7186,7 @@ namespace
                                        {
                                           ImGui::NewLine();
                                           ImGui::Text("Tracked Constant Buffer:");
-                                          ImGui::Text("Resource Hash:", device_data.track_buffer_data.hash.c_str());
+                                          ImGui::Text("Resource Hash: %s", device_data.track_buffer_data.hash.c_str());
                                           if (ImGui::BeginChild("TrackBufferScroll", ImVec2(0, 500), ImGuiChildFlags_Border))
                                           {
                                              // TODO: match with the shader assembly cbs etc (if the data is available)
