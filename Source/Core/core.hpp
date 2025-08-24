@@ -8014,7 +8014,7 @@ namespace
                   opened_disassembly_tab_item = open_disassembly_tab_item;
 
                   ImGui::PushID("##LiveCodeTabItem");
-                  const bool open_live_tab_item = ImGui::BeginTabItem("Live Code");
+                  const bool open_live_tab_item = ImGui::BeginTabItem("HLSL");
                   ImGui::PopID();
                   static bool opened_live_tab_item = false;
                   if (open_live_tab_item)
@@ -8134,7 +8134,7 @@ namespace
                         ImGui::PopStyleColor();
                      }
                      ImGui::EndChild(); // LiveCode
-                     ImGui::EndTabItem(); // Live Code
+                     ImGui::EndTabItem(); // HLSL
                   }
 
                   ImGui::EndTabBar(); // ShadersCodeTab
