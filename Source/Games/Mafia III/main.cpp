@@ -219,6 +219,7 @@ namespace
    ShaderHashesList shader_hashes_TAA; // Temporal AA
    ShaderHashesList shader_hashes_AA; // Non temporal AA
    ShaderHashesList shader_hashes_Tonemap;
+   ShaderHashesList shader_hashes_PostAAPostProcess;
    ShaderHashesList shader_hashes_EncodeMotionVectors;
    ShaderHashesList shader_hashes_MotionBlur;
    ShaderHashesList shader_hashes_DownscaleMotionVectors;
@@ -249,6 +250,7 @@ namespace
    std::vector<std::array<float, 4>> prevs2;
 #endif
 
+   // TODO: move to luma shared tools?
    bool IsRTSwapchain(ID3D11DeviceContext* native_device_context, const DeviceData& device_data)
    {
       bool is_rt_swapchain = false;
@@ -668,7 +670,7 @@ public:
          }
          uint32_t custom_data_1 = 0;
          uint32_t custom_data_2 = 0;
-         // We don't flip the Y as we had instead flipped it in the matrix, given that that was NDC, but this is UV space. Same for the 2x scaling.
+         // We don't flip the Y as we had instead flipped it in the projection matrix, given that that was NDC, but this is UV space. Same for the 2x scaling.
          float custom_data_3 = is_motion_blur ? (-game_device_data.taa_jitters.x / (float)device_data.render_resolution.x) : 0.f;
          float custom_data_4 = is_motion_blur ? (-game_device_data.taa_jitters.y / (float)device_data.render_resolution.y) : 0.f;
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
@@ -887,6 +889,9 @@ public:
             if (is_rt_swapchain_or_back_buffer)
             {
                game_device_data.has_drawn_aa = true;
+            }
+            if (is_rt_swapchain)
+            {
                // If there's no depth, AA would be running immediately on a cleared black textures, every frame
                if (!game_device_data.depth || game_device_data.has_drawn_tonemap)
                {
@@ -910,6 +915,12 @@ public:
          updated_cbuffers = true;
 
          return false;
+      }
+
+      if (original_shader_hashes.Contains(shader_hashes_PostAAPostProcess))
+      {
+         ASSERT_ONCE(IsRTSwapchain(native_device_context, device_data)); // Should always be the case unless these shaders are used for other things
+         device_data.has_drawn_main_post_processing = true;
       }
 
       // Skip all post post processing draw calls if we hide the UI (it only runs when the scene in rendering).
@@ -1418,7 +1429,8 @@ public:
 #endif
             {
                DirectX::XMMATRIX view_projection_mat;
-               memcpy(&view_projection_mat, &float_data[22], sizeof(DirectX::XMMATRIX));
+               view_projection_mat = DirectX::XMLoadFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(&float_data[22]));
+               //memcpy(&view_projection_mat, &float_data[22], sizeof(DirectX::XMMATRIX));
 
 #if DEVELOPMENT
                if (prevs.size() >= 250)
@@ -1432,7 +1444,7 @@ public:
                DirectX::XMMATRIX view_projection_mat_3;
                memcpy(&view_projection_mat_3, &float_data[30], sizeof(DirectX::XMMATRIX));
 
-               if (test_index == 15)
+               if (test_index == 15) // bad!
                view_projection_mat = DirectX::XMMatrixTranspose(view_projection_mat);
 
                if (enable_camera_mode)
@@ -1531,10 +1543,11 @@ public:
                view_projection_mat_3.r[0].m128_f32[3] += (game_device_data.taa_jitters.x * 2.f) / (float)device_data.render_resolution.x;
                view_projection_mat_3.r[1].m128_f32[3] += (game_device_data.taa_jitters.y * -2.f) / (float)device_data.render_resolution.y;
 
-               if (test_index != 15)
+               if (test_index == 15)
                view_projection_mat = DirectX::XMMatrixTranspose(view_projection_mat);
 
-               memcpy(&float_data[22], &view_projection_mat, sizeof(DirectX::XMMATRIX));
+               DirectX::XMStoreFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(&float_data[22]), view_projection_mat);
+               //memcpy(&float_data[22], &view_projection_mat, sizeof(DirectX::XMMATRIX));
 
 #if DEVELOPMENT
                if (cb_luma_global_settings.DevSettings[4] > 0)
@@ -1714,6 +1727,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       shader_hashes_AA.pixel_shaders.emplace(std::stoul("6C3629F1", nullptr, 16));
 
       shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("F4D0E9C2", nullptr, 16));
+
+      // Final post processes that run after AA and directly write on the swapchain
+      shader_hashes_PostAAPostProcess.pixel_shaders.emplace(std::stoul("DA76D42E", nullptr, 16)); // Sniper Scope View
+      shader_hashes_PostAAPostProcess.pixel_shaders.emplace(std::stoul("D4433701", nullptr, 16)); // Intel View
 
       // TODO: ... won't work, not reliable
       shader_hashes_Vignette_UI.vertex_shaders.emplace(std::stoul("5D9627AA", nullptr, 16));

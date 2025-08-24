@@ -387,7 +387,6 @@ public:
       game_device_data.has_drawn_scene = false;
 
       //TODOFT: do this in the super?
-      device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_main_post_processing = false;
 
       device_data.taa_detected = true;

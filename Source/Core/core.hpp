@@ -3631,6 +3631,7 @@ namespace
       }
 #endif // ENABLE_NGX
 
+      device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_dlss_sr_imgui = device_data.has_drawn_dlss_sr;
 
       game->OnPresent(native_device, device_data);
@@ -7261,7 +7262,9 @@ namespace
 
                                           if (!is_first_view) { ImGui::Text(""); };
                                           is_first_view = false;
+                                          ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(245, 230, 140, 255)); // Faint Yellow
                                           ImGui::Text("SRV Index: %u", i);
+                                          ImGui::PopStyleColor();
                                           if (non_referenced)
                                           {
                                              ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255)); // Red
@@ -7373,7 +7376,9 @@ namespace
 
                                           if (!is_first_view) { ImGui::Text(""); };
                                           is_first_view = false;
+                                          ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(200, 170, 230, 255)); // Faint Purple
                                           ImGui::Text("UAV Index: %u", i);
+                                          ImGui::PopStyleColor();
                                           if (non_referenced)
                                           {
                                              ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255)); // Red
@@ -7506,7 +7511,9 @@ namespace
 
                                           if (!is_first_view) { ImGui::Text(""); };
                                           is_first_view = false;
+                                          ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(160, 200, 255, 255)); // Faint Blue
                                           ImGui::Text("RTV Index: %u", i);
+                                          ImGui::PopStyleColor();
                                           if (non_referenced)
                                           {
                                              ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255)); // Red
@@ -7797,7 +7804,9 @@ namespace
                                           ImGui::PushID(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT); // Offset by the max amount of previous iterations from above
 
                                           ImGui::Text("");
+                                          ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(190, 160, 120, 255)); // Faint Brown
                                           ImGui::Text("Depth");
+                                          ImGui::PopStyleColor();
                                           ImGui::Text("R Hash: %s", ds_hash.c_str());
                                           if (GetFormatName(ds_format) != nullptr)
                                           {
@@ -7815,7 +7824,7 @@ namespace
                                           {
                                              ImGui::Text("RV Format: %u", dsv_format);
                                           }
-                                          ImGui::Text("R Size: %ux%ux", ds_size.x, ds_size.y); // Should match all the Render Targets size
+                                          ImGui::Text("R Size: %ux%u", ds_size.x, ds_size.y); // Should match all the Render Targets size
 
                                           const bool is_highlighted_resource = highlighted_resource == ds_hash;
                                           if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))

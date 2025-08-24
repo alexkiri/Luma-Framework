@@ -13,6 +13,7 @@ namespace CB
 		float Sharpening;
     	// Camera jitters in NCD space (based on the rendering resolution, but relative to the output resolution full range UVs, so apply these before "CV_HPosScale.xy")
     	// (not in projection matrix space, so they don't need to be divided by the rendering resolution). You might need to multiply this by 0.5 and invert the vertical axis before using it, if it's targeting UV space.
+		// These are not strictly settings but... they are set once per frame so they are better here.
 		float2 CameraJitters;
 		//uint LumaSR; // TODO: add?
 	};

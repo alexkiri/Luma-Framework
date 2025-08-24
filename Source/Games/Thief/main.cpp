@@ -54,7 +54,6 @@ public:
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {
-      device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_main_post_processing = false;
    }
 

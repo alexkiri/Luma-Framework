@@ -1560,7 +1560,6 @@ public:
       game_device_data.has_drawn_motion_blur_previous = game_device_data.has_drawn_motion_blur;
       game_device_data.has_drawn_motion_blur = false;
       game_device_data.has_drawn_tonemapping = false;
-      device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_main_post_processing = false;
       game_device_data.has_drawn_upscaling = false;
       device_data.has_drawn_dlss_sr = false;
@@ -1612,7 +1611,7 @@ public:
       data.GameData.PreviousCameraJitters = previous_projection_jitters;
 #if 0
       data.GameData.ViewProjectionMatrix = cb_per_view_global.CV_ViewProjMatr; // Note that this is not 100% thread safe as "CV_ViewProjMatr" is written from another thread
-      data.GameData.PreviousViewProjectionMatrix = cb_per_view_global_previous.CV_ViewProjMatr;
+      data.GameData.PrevViewProjectionMatrix = cb_per_view_global_previous.CV_ViewProjMatr;
 #endif
       data.GameData.ReprojectionMatrix = reprojection_matrix;
    }
