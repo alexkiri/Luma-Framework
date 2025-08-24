@@ -3631,6 +3631,8 @@ namespace
       }
 #endif // ENABLE_NGX
 
+      device_data.has_drawn_dlss_sr_imgui = device_data.has_drawn_dlss_sr;
+
       game->OnPresent(native_device, device_data);
 
 #if DEVELOPMENT

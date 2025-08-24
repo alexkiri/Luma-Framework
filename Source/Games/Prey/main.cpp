@@ -1563,7 +1563,6 @@ public:
       device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_main_post_processing = false;
       game_device_data.has_drawn_upscaling = false;
-      device_data.has_drawn_dlss_sr_imgui = device_data.has_drawn_dlss_sr;
       device_data.has_drawn_dlss_sr = false;
 #if 1 // Not much need to reset this, but let's do it anyway (e.g. in case the game scene isn't currently rendering)
       game_device_data.prey_drs_active = false;

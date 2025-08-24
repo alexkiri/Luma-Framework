@@ -106,7 +106,6 @@ struct GameDeviceDataDishonored2 final : public GameDeviceData
    bool has_drawn_scene_previous = false;
 
    bool found_per_view_globals = false;
-   bool has_drawn_dlss_sr = false;
 
    std::atomic<bool> prey_drs_active = false;
    std::atomic<bool> prey_drs_detected = false;
@@ -391,8 +390,9 @@ public:
       device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
       device_data.has_drawn_main_post_processing = false;
 
+      device_data.taa_detected = true;
+      device_data.has_drawn_dlss_sr = false;
       game_device_data.found_per_view_globals = false;
-      game_device_data.has_drawn_dlss_sr = false;
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
@@ -466,6 +466,7 @@ public:
          // Not thread safe?
          device_data.cb_per_view_global_buffer = nullptr;
          native_device_context->CSGetConstantBuffers(1, 1, &device_data.cb_per_view_global_buffer);
+         device_data.taa_detected = true;
       }
 
    #if ENABLE_NGX

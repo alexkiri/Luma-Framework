@@ -449,6 +449,7 @@ public:
       {
          bool had_drawn_taa = game_device_data.has_drawn_taa;
          game_device_data.has_drawn_taa = true; // This happens 3 times, for different parts of the image
+         device_data.taa_detected = true;
 
 #if ENABLE_NGX
          if (device_data.dlss_sr && !device_data.dlss_sr_suppressed)
@@ -1056,6 +1057,7 @@ public:
       game_device_data.depth = nullptr;
 
       device_data.has_drawn_main_post_processing = false;
+      device_data.taa_detected = false;
       device_data.has_drawn_dlss_sr = false;
       //ASSERT_ONCE(game_device_data.found_per_view_globals);
       game_device_data.has_drawn_taa = false;

@@ -247,6 +247,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    std::atomic<bool> has_drawn_main_post_processing = false;
    // Useful to know if rendering was skipped in the previous frame (e.g. in case we were in a UI view)
    bool has_drawn_main_post_processing_previous = false;
+   // Might not be used by all games but it's a global feature
    std::atomic<bool> has_drawn_dlss_sr = false;
    // Set to true once we can tell with certainty that TAA was active in the game
    std::atomic<bool> taa_detected = false;
