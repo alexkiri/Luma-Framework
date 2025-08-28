@@ -287,11 +287,10 @@
       </LinkLibraryDependencies>
     </ProjectReference>
     <PostBuildEvent>
-      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_FFXV_BIN_PATH_PATH%" || exit /B 0</Command>
+      <Command>xcopy /Y "$(TargetDir)*$(SolutionName)-$(ProjectName).addon" "%LUMA_FFXV_BIN_PATH%" || exit /B 0</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="includes\cbuffers.h" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

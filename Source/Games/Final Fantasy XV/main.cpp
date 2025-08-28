@@ -1,7 +1,4 @@
-// ### Rename this ###
-#define GAME_TEMPLATE 1
 #define GAME_FINALFANTASYXV 1
-
 
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
@@ -12,6 +9,7 @@
 #include "..\..\Core\includes\math.h"
 #include "..\..\Core\includes\matrix.h"
 #include "..\..\Core\dlss\DLSS.cpp"
+
 namespace
 {
     float2 projection_jitters = { 0, 0 };
@@ -301,7 +299,6 @@ public:
        game_device_data.has_drawn_upscaling = false;
    }
 
-
    void PrintImGuiAbout() override
    {
       ImGui::Text("FFXV Luma mod - about and credits section", ""); // ### Rename this ###
@@ -312,7 +309,6 @@ public:
        auto& game_device_data = GetGameDeviceData(device_data);
        //CreateShaderObject(device_data.native_device, shader_hash_mvec_pixel, game_device_data.motion_vectors_ps, shader_hashes_filter);
    }
-   
 };
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
