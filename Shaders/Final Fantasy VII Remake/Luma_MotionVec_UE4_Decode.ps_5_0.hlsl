@@ -1,10 +1,9 @@
-// ---- Modified for DLSS Motion Vector Output
-// Based on PostProcessTemporalCommon_Decomp.hlsl
-Texture2D<float4> t4 : register(t4); // Velocity texture
+Texture2D<float4> VelocityTexture : register(t4); // Velocity texture
 Texture2D<float4> t3 : register(t3); // Previous frame color
 Texture2D<float4> t2 : register(t2); // Current frame color (jittered)
-Texture2D<float4> t1 : register(t1); // Depth buffer
+Texture2D<float4> DepthTexture : register(t1); // Depth buffer
 Texture3D<float4> t0 : register(t0); // LUT or other data
+
 
 SamplerState s0_s : register(s0);
 
@@ -17,6 +16,9 @@ cbuffer cb0 : register(b0)
 {
   float4 cb0[28];
 }
+
+#define AA_CROSS 1
+#define DILATE_MOTION_VECTORS 1
 
 // This is how MVs were encoded in UE/FF7
 float2 EncodeVelocityToTexture(float2 In)
@@ -36,136 +38,166 @@ float2 DecodeVelocityFromTexture(float2 In)
 #endif
 }
 
-// Output only motion vectors for DLSS
+float2 ViewportUVToScreenPos(float2 ViewportUV)
+{
+	return float2(2 * ViewportUV.x - 1, 1 - 2 * ViewportUV.y);
+}
+
+float4 SvPositionToScreenPosition(float4 SvPosition)
+{
+	// todo: is already in .w or needs to be reconstructed like this:
+//	SvPosition.w = ConvertFromDeviceZ(SvPosition.z);
+  float2 ViewRectMin = cb1[121].xy;
+  float4 ViewSizeAndInvSize = cb1[122];
+	float2 PixelPos = SvPosition.xy - ViewRectMin.xy;	
+
+	// NDC (NormalizedDeviceCoordinates, after the perspective divide)
+	float3 NDCPos = float3( (PixelPos * ViewSizeAndInvSize.zw - 0.5f) * float2(2, -2), SvPosition.z);
+
+	// SvPosition.w: so .w has the SceneDepth, some mobile code and the DepthFade material expression wants that
+	return float4(NDCPos.xyz, 1) * SvPosition.w;
+}
+
 float2 main(float4 pos : SV_Position0) : SV_Target0
 {
-  float4 r0,r1,r2,r3,r4,r5,r6,r7;
+    // Extract viewport parameters from constant buffer
+    float2 Velocity_ViewportMin = cb1[121].xy;
+    float2 Velocity_ViewportMax = cb1[121].xy + cb1[122].xy;
+    float2 Velocity_ViewportSize = cb1[122].xy;
+    float2 Velocity_ViewportSizeInverse = cb1[122].zw;
+    float2 Velocity_ExtentInverse = cb1[126].zw;
+    float2 CombinedVelocity_ViewportMin = cb1[121].xy;
+    float2 CombinedVelocity_ViewportSize = cb1[122].xy;
+    float2 CombinedVelocity_ViewportSizeInverse = cb1[122].zw;
+    float2 TemporalJitterPixels = cb1[118].xy * cb1[122].xy * float2(0.5, -0.5);
+    
+    // Get current pixel position
+    uint2 DispatchThreadId = (uint2)pos.xy;
+    uint2 PixelPos = min(DispatchThreadId + Velocity_ViewportMin, Velocity_ViewportMax - 1);
+    uint2 OutputPixelPos = CombinedVelocity_ViewportMin + DispatchThreadId;
+    
+    // Check viewport bounds
+    const bool bInsideViewport = all(PixelPos.xy < Velocity_ViewportMax);
+    if (!bInsideViewport)
+        return float2(0, 0);
 
-  // Get pixel coordinates
-  r0.xy = (int2)pos.xy;
-  r1.xy = trunc(pos.xy) + 0.5; // Note: this seems to make no sense unless for some reason the input and output resolutions were different and we wanted to snap to another center
-  
-  // Convert to screen space coordinates
-  r1.xy -= cb1[121].xy; // Subtract viewport min
-  r1.xy *= cb1[122].zw;  // Scale by render resolution inverse
-  r1.xy = r1.xy * 2.0 - 1.0; // Convert to [-1,1] range
-
-  // subtract jitter offset
-  float2 JitterNorm = cb1[118].xy;
-  // Convert to pixel space
-  float2 JitterPixels = JitterNorm.xy * cb1[122].xy * float2(0.5, -0.5);
-  r1.xy += cb1[118].xy; // Apply jitter offset
-  
-  // Setup viewport bounds for clamping
-  int4 r2i = (int4)cb1[121].xyxy; // viewport min (usually 0)
-  r3.xyzw = cb1[122].xyxy + cb1[121].xyxy; // viewport size + min
-  r3.xyzw -= 1.0; // viewport max - 1
-  r3.xyzw = (int4)r3.xyzw;
-  
-  // Clamp pixel coordinates to valid range
-  r4.xy = max((int2)r2i.zw, (int2)r0.xy);
-  r4.xy = min((int2)r4.xy, (int2)r3.xy);
-  r4.zw = float2(0,0);
-  
-  // Sample depth at current pixel
-  r5.x = t1.Load(r4.xyw).x;
-  
-  // MOTION VECTOR DILATION (similar to VelocityCombine.usf)
-  // Sample depth in cross pattern to find nearest (foreground) pixel
-  r6.xyzw = (int4)r0.xyxy + int4(-1,-1,1,-1); // Cross pattern offsets
-  r6.xyzw = max((int4)r6.xyzw, (int4)r2i.xyzw);
-  r6.xyzw = min((int4)r6.zwxy, (int4)r3.zwxy);
-  
-  r7.xy = r6.zw;
-  r7.zw = float2(0,0);
-  r7.x = t1.Load(r7.xyz).x; // Sample depth at (+1,-1)
-  
-  r6.zw = float2(0,0);
-  r7.y = t1.Load(r6.xyz).x; // Sample depth at (-1,-1)
-  
-  r6.xyzw = (int4)r0.xyxy + int4(-1,1,1,1);
-  r6.xyzw = max((int4)r6.xyzw, (int4)r2i.xyzw);
-  r6.xyzw = min((int4)r6.zwxy, (int4)r3.zwxy);
-  
-  r7.xy = r6.zw;
-  r7.zw = float2(0,0);
-  r7.z = t1.Load(r7.xyz).x; // Sample depth at (+1,+1)
-  
-  r6.zw = float2(0,0);
-  r7.w = t1.Load(r6.xyz).x; // Sample depth at (-1,+1)
-  
-  // Find nearest depth (largest value in inverted Z)
-  r0.w = max(r7.y, r7.z);
-  r0.w = max(r7.x, r0.w);
-  r6.x = max(r0.w, r7.w);
-  
-  // Check if we found a nearer pixel than center
-  r0.w = (r5.x < r6.x);
-  
-  // Determine offset for velocity sampling based on nearest depth
-  r5.yz = float2(0,0); // Default: no offset
-  
-  if (r0.w)
-  {
-    // Complex logic to determine which sample had the nearest depth
-    // (Simplified version - in practice you'd want the full logic from original)
-    r5.yz = float2(1,0); // Use some offset for nearest pixel
-  }
-  
-  // Calculate screen position for reprojection
-  float4 ClipPos;
-  ClipPos.xy = r1.xy; // Screen position [-1,1]
-  ClipPos.z = r5.x;   // Depth
-	ClipPos.w = 1;
-  
-  // Camera motion calculation
-  float4x4 ClipToPrevClip = float4x4(cb1[114], cb1[115], cb1[116], cb1[117]);
-#if 0 // New code (doesn't work)
-	r6 = mul(ClipPos, ClipToPrevClip);
-#else
-  r6.xyz = cb1[115].xyw * r1.yyy; // View matrix multiplication
-  r6.xyz = r1.xxx * cb1[114].xyw + r6.xyz;
-  r6.xyz = ClipPos.z * cb1[116].xyw + r6.xyz;
-  r6.xyz = cb1[117].xyw + r6.xyz;
-#endif
-  
-  r5.xw = r6.xy / r6.z; // Previous frame screen position
-  r5.xw = r1.xy - r5.xw; // Camera motion vector
-  
-  // Get render resolution for scaling
-  float2 RenderResolution = cb1[122].xy;
-
-  float2 velocity = r5.xw / 1;
-  
-  // Sample velocity texture (with potential offset for dilation)
-  r5.yz = (int2)r0.xy + (int2)r5.yz;
-  r5.yz = max((int2)r5.yz, (int2)r2i.xy);
-  r6.xy = min((int2)r5.yz, (int2)r3.xy);
-
-  // Sample encoded velocity. R16G16_UNORM
-  float2 decodedDynamicVelocity = t4.Load(float3(r6.xy, 0.0)).xy;
-  
-  // Check if we have dynamic motion (the "no dynamic motion vectors" reserved special value is 0, not ~0.5)
-  bool dynamicVelocity = (decodedDynamicVelocity.x + decodedDynamicVelocity.y) > 0.0;
-
-  // Use decoded dynamic motion if available, otherwise keep camera motion
-  if (dynamicVelocity)
-  {
-    velocity = DecodeVelocityFromTexture(decodedDynamicVelocity);
-  }
-  
-  // DLSS-SPECIFIC MOTION VECTOR PREPARATION
-  // Convert motion vectors to pixel space for DLSS
-  // VelocityCombine.usf uses: -BackTemp * float2(0.5, -0.5)
-  // where BackTemp = BackN * ViewportSize
-  
-  // Convert motion vector to pixel space
-  float2 MotionPixels = velocity * RenderResolution;
-  
-  // Apply DLSS-specific scaling and negation
-  // DLSS expects motion vectors in pixel units with specific sign convention
-  float2 DLSSMotionVector = MotionPixels * float2(-0.5, 0.5);
-  
-  // Output motion vector for DLSS
-  return DLSSMotionVector;
+#if DILATE_MOTION_VECTORS
+    // Screen position of minimum depth for motion vector dilation
+    float2 VelocityOffset = float2(0.0, 0.0);
+    
+    float2 NearestBufferUV = (PixelPos + 0.5f) * Velocity_ViewportSizeInverse;
+    float2 ViewportUV = (float2(DispatchThreadId) + 0.5f) * CombinedVelocity_ViewportSizeInverse;
+    
+    // Pixel coordinate of the center of output pixel O in the input viewport
+    float2 PPCo = ViewportUV * Velocity_ViewportSize + TemporalJitterPixels;
+    
+    // Pixel coordinate of the center of the nearest input pixel K
+    float2 PPCk = floor(PPCo) + 0.5;
+    
+    NearestBufferUV = Velocity_ExtentInverse * (Velocity_ViewportMin + PPCk);
+    
+    // FIND MOTION OF PIXEL AND NEAREST IN NEIGHBORHOOD
+    float3 PosN; // Position of this pixel, possibly later nearest pixel in neighborhood
+    PosN.xy = ViewportUVToScreenPos(ViewportUV);
+    PosN.z = DepthTexture.SampleLevel(s0_s, NearestBufferUV, 0).x;
+    
+    // Motion vector dilation based on depth
+    {
+        // Sample depth in cross pattern to find nearest (foreground) pixel
+        float4 Depths;
+        Depths.x = DepthTexture.SampleLevel(s0_s, NearestBufferUV, 0, int2(-AA_CROSS, -AA_CROSS)).x;
+        Depths.y = DepthTexture.SampleLevel(s0_s, NearestBufferUV, 0, int2(AA_CROSS, -AA_CROSS)).x;
+        Depths.z = DepthTexture.SampleLevel(s0_s, NearestBufferUV, 0, int2(-AA_CROSS, AA_CROSS)).x;
+        Depths.w = DepthTexture.SampleLevel(s0_s, NearestBufferUV, 0, int2(AA_CROSS, AA_CROSS)).x;
+        
+        float2 DepthOffset = float2(AA_CROSS, AA_CROSS);
+        float DepthOffsetXx = float(AA_CROSS);
+        
+        // Find nearest depth (largest value in inverted Z buffer)
+        if (Depths.x > Depths.y)
+        {
+            DepthOffsetXx = -AA_CROSS;
+        }
+        if (Depths.z > Depths.w)
+        {
+            DepthOffset.x = -AA_CROSS;
+        }
+        float DepthsXY = max(Depths.x, Depths.y);
+        float DepthsZW = max(Depths.z, Depths.w);
+        if (DepthsXY > DepthsZW)
+        {
+            DepthOffset.y = -AA_CROSS;
+            DepthOffset.x = DepthOffsetXx;
+        }
+        float DepthsXYZW = max(DepthsXY, DepthsZW);
+        if (DepthsXYZW > PosN.z)
+        {
+            // Offset for reading from velocity texture
+            VelocityOffset = DepthOffset * Velocity_ExtentInverse;
+            PosN.z = DepthsXYZW;
+        }
+    }
+    
+    // Calculate camera motion
+    float4 ThisClip = float4(PosN.xy, PosN.z, 1);
+    
+    // Transform using View.ClipToPrevClip matrix from cb1[114-117]
+    float4x4 ClipToPrevClip = float4x4(cb1[114], cb1[115], cb1[116], cb1[117]);
+    float4 PrevClip = mul(ThisClip, ClipToPrevClip);
+    float2 PrevScreen = PrevClip.xy / PrevClip.w;
+    float2 BackN = PosN.xy - PrevScreen;
+    
+    float2 BackTemp = BackN * Velocity_ViewportSize;
+    
+    // Sample velocity texture with dilation offset
+    float4 VelocityN = VelocityTexture.SampleLevel(s0_s, NearestBufferUV + VelocityOffset, 0);
+    bool DynamicN = VelocityN.x > 0.0;
+    if (DynamicN)
+    {
+        BackN = DecodeVelocityFromTexture(VelocityN.xy).xy;
+    }
+    BackTemp = BackN * CombinedVelocity_ViewportSize;
+    
+    // Output motion vector for DLSS
+    return -BackTemp * float2(0.5, -0.5);
+    
+#else // !DILATE_MOTION_VECTORS
+    
+    // Simple path without motion vector dilation
+    float4 EncodedVelocity = VelocityTexture.Load(int3(PixelPos, 0));
+    float Depth = DepthTexture.Load(int3(PixelPos, 0)).x;
+    
+    float2 Velocity;
+    if (all(EncodedVelocity.xy > 0))
+    {
+        Velocity = DecodeVelocityFromTexture(EncodedVelocity.xy).xy;
+    }
+    else
+    {
+        // Calculate camera motion
+        float4 ClipPos;
+        ClipPos.xy = SvPositionToScreenPosition(float4(PixelPos.xy, 0, 1)).xy;
+        ClipPos.z = Depth;
+        ClipPos.w = 1;
+        
+        float4x4 ClipToPrevClip = float4x4(cb1[114], cb1[115], cb1[116], cb1[117]);
+        float4 PrevClipPos = mul(ClipPos, ClipToPrevClip);
+        
+        if (PrevClipPos.w > 0)
+        {
+            float2 PrevScreen = PrevClipPos.xy / PrevClipPos.w;
+            Velocity = ClipPos.xy - PrevScreen.xy;
+        }
+        else
+        {
+            Velocity = EncodedVelocity.xy;
+        }
+    }
+    
+    float2 OutVelocity = Velocity * float2(0.5, -0.5) * cb1[122].xy; // View.ViewSizeAndInvSize.xy
+    
+    // Output motion vector for DLSS
+    return -OutVelocity;
+    
+#endif // DILATE_MOTION_VECTORS
 }

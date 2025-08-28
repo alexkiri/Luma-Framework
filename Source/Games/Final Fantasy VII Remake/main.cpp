@@ -14,9 +14,6 @@ namespace
 {
 	float2 projection_jitters = { 0, 0 };
 	const std::string shader_name_mvec_pixel = "Luma_MotionVec_UE4_Decode";
-	const std::string shader_name_bloom_pixel = "Luma_Bloom_NoUpscale_PS";
-	const std::string shader_name_bloom_vertex = "Luma_Bloom_NoUpscale_VS";
-	const std::string shader_name_menu_slowdown_vertex = "Luma_Menu_Slowdown_NoUpscale_VS";
 	std::unique_ptr<float4[]> downsample_buffer_data;
 	std::unique_ptr<float4[]> upsample_buffer_data;
 	ShaderHashesList shader_hashes_TAA;
@@ -28,6 +25,8 @@ namespace
 	ShaderHashesList shader_hashes_Bloom;
 	ShaderHashesList shader_hashes_MenuSlowdown;
 	ShaderHashesList shader_hashes_Tonemap;
+	ShaderHashesList shader_hashes_Velocity_Flatten;
+	ShaderHashesList shader_hashes_Velocity_Gather;
 	const uint32_t CBPerViewGlobal_buffer_size = 4096;
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
@@ -50,10 +49,9 @@ struct GameDeviceDataFF7Remake final : public GameDeviceData
 	com_ptr<ID3D11PixelShader> bloom_ps;
 	com_ptr<ID3D11VertexShader> bloom_vs;
 	com_ptr<ID3D11VertexShader> menu_slowdown_vs;
-	com_ptr<ID3D11Buffer> taa_original_global_buffer;
-	com_ptr<ID3D11Buffer> taa_custom_global_buffer;
-
 	float2 upscaled_render_resolution = { 1, 1 };
+	float resolution_scale = 1.0f;
+	uint4 viewport_rect = { 0, 0, 1, 1 };
 };
 
 class FF7Remake final : public Game
@@ -71,6 +69,7 @@ public:
 			reshade::register_event<reshade::addon_event::map_buffer_region>(FF7Remake::OnMapBufferRegion);
 			reshade::register_event<reshade::addon_event::unmap_buffer_region>(FF7Remake::OnUnmapBufferRegion);
 			reshade::register_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+			reshade::register_event<reshade::addon_event::create_device>(FF7Remake::OnCreateDevice);
 		}
 	}
 
@@ -93,6 +92,16 @@ public:
 
 		// Start from here, we then update it later in case the game rendered with black bars due to forcing a different aspect ratio from the swapchain buffer
 		game_device_data.upscaled_render_resolution = device_data.output_resolution;
+	}
+
+	static bool OnCreateDevice(reshade::api::device_api api, uint32_t& api_version)
+	{
+		if (api != reshade::api::device_api::d3d11)
+		{
+			MessageBoxA(game_window, "This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.", NAME, MB_SETFOREGROUND);
+			throw std::runtime_error("This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.");
+		}
+		return false;
 	}
 
 	void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
@@ -132,9 +141,6 @@ public:
 			}
 		}
 
-		ID3D11Buffer* source_cb = game_device_data.taa_original_global_buffer.get();
-		ID3D11Buffer* target_cb = game_device_data.taa_custom_global_buffer.get();
-
 		// set scissor and viewport to the output resolution (scissor are probably not necessary, but they might have been set already).
 		// For bloom/exposure mips passes, we don't need to change the viewport as their size is independent from the current res scale.
 		if (is_upscaled_render_resolution)
@@ -153,40 +159,6 @@ public:
 			scissor_rect.right = std::lrintf(game_device_data.upscaled_render_resolution.x);
 			scissor_rect.bottom = std::lrintf(game_device_data.upscaled_render_resolution.y);
 			native_device_context->RSSetScissorRects(1, &scissor_rect);
-		}
-		// For mip passes that changed the resolution, we don't want to change the 
-		else
-		{
-			std::swap(source_cb, target_cb);
-		}
-
-		// The Compute Shader passes immediately after TAA never access the CB1, at least not read resolution from it, hence we should instead prevent it from being changed, they should work anyway. 
-		if (source_cb && target_cb && test_index != 18)
-		{
-			com_ptr<ID3D11Buffer> constant_buffers_vs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
-			com_ptr<ID3D11Buffer> constant_buffers_ps[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
-			//com_ptr<ID3D11Buffer> constant_buffers_cs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
-			native_device_context->VSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers_vs[0]);
-			native_device_context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers_ps[0]);
-			//native_device_context->CSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers_cs[0]);
-
-			// There's not much need to optimize this, there's only a bunch of passes happening between TAA and the original upscaling pass
-			for (auto& constant_buffers : constant_buffers_vs)
-				if (constant_buffers.get() == source_cb)
-					constant_buffers = target_cb;
-			for (auto& constant_buffers : constant_buffers_ps)
-				if (constant_buffers.get() == source_cb)
-					constant_buffers = target_cb;
-			//for (auto& constant_buffers : constant_buffers_cs)
-			//	if (constant_buffers.get() == source_cb)
-			//		constant_buffers = target_cb;
-
-			ID3D11Buffer* const* constant_buffers_vs_const = (ID3D11Buffer**)std::addressof(constant_buffers_vs[0]);
-			ID3D11Buffer* const* constant_buffers_ps_const = (ID3D11Buffer**)std::addressof(constant_buffers_ps[0]);
-			//ID3D11Buffer* const* constant_buffers_cs_const = (ID3D11Buffer**)std::addressof(constant_buffers_cs[0]);
-			native_device_context->VSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_vs_const);
-			native_device_context->PSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_ps_const);
-			//native_device_context->CSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_cs_const);
 		}
 	}
 
@@ -231,6 +203,10 @@ public:
 #if ENABLE_NGX
 		if (is_taa && device_data.dlss_sr && !device_data.dlss_sr_suppressed)
 		{
+			if (game_device_data.motion_vectors_ps.get() == nullptr) {
+				device_data.force_reset_dlss_sr = true;
+				return false;
+			}
 			// 1 depth
 			// 2 current color source
 			// 3 previous color source (previous frame)
@@ -255,12 +231,40 @@ public:
 				D3D11_TEXTURE2D_DESC taa_output_texture_desc;
 				output_color->GetDesc(&taa_output_texture_desc);
 
-				bool output_textures_sizes_match = Math::AlmostEqual(game_device_data.upscaled_render_resolution.x, (float)taa_output_texture_desc.Width, 0.25f) && Math::AlmostEqual(game_device_data.upscaled_render_resolution.y, (float)taa_output_texture_desc.Height, 0.25f);
+				D3D11_VIEWPORT viewport;
+				uint32_t num_viewports = 1;
+				native_device_context->RSGetViewports(&num_viewports, &viewport);
+				device_data.render_resolution = { viewport.Width, viewport.Height };
+				game_device_data.upscaled_render_resolution = { (float)taa_output_texture_desc.Width, (float)taa_output_texture_desc.Height };
+				game_device_data.resolution_scale = (float)device_data.render_resolution.x / (float)game_device_data.upscaled_render_resolution.x;
+				game_device_data.viewport_rect = { static_cast<uint32_t>(viewport.TopLeftX), static_cast<uint32_t>(viewport.TopLeftY), static_cast<uint32_t>(game_device_data.upscaled_render_resolution.x), static_cast<uint32_t>(game_device_data.upscaled_render_resolution.y) };
+				// Once DRS has engaged once, we can't really detect if it's been turned off ever again, anyway it's always active by default in this game (unless one has mods to disable it, or fix a scaled render resolution)
+				if (!game_device_data.drs_active && game_device_data.resolution_scale == 1.0f)
+				{
+					device_data.dlss_render_resolution_scale = 1.0f;
+				}
+				else if (game_device_data.resolution_scale < 0.5f - FLT_EPSILON)
+				{
+					device_data.dlss_render_resolution_scale = game_device_data.resolution_scale;
+					game_device_data.drs_active = true;
+				}
+				else
+				{
+					// This should pick quality or balanced mode, with a range from 100% to 50% resolution scale
+					device_data.dlss_render_resolution_scale = 1.f / 1.5f;
+					game_device_data.drs_active = true;
+				}
 
 				// The TAA input and output textures were guaranteed to be of the same size, so we pass in the output one as render res,
 				// scaled by the DLSS render resolution scaling factor (which is a fixed multiplication to enabled dynamic res scaling in DLSS, it doesn't change every frame, as long as the res doesn't drop below 50%).
 				double target_aspect_ratio = (double)game_device_data.upscaled_render_resolution.x / (double)game_device_data.upscaled_render_resolution.y;
 				std::array<uint32_t, 2> dlss_input_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Height * device_data.dlss_render_resolution_scale, target_aspect_ratio);
+				
+				if (dlss_input_resolution[0] > game_device_data.upscaled_render_resolution.x || dlss_input_resolution[1] > game_device_data.upscaled_render_resolution.y)
+				{
+					device_data.force_reset_dlss_sr = true;
+					return false;
+				}
 
 				bool dlss_hdr = true; // Unreal Engine does DLSS before tonemapping, in HDR linear space
 				NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, game_device_data.upscaled_render_resolution.x, game_device_data.upscaled_render_resolution.y, dlss_input_resolution[0], dlss_input_resolution[1], dlss_hdr, game_device_data.drs_active);
@@ -286,9 +290,9 @@ public:
 					}
 					if (!device_data.dlss_output_color.get() || dlss_output_changed)
 					{
-						device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
-						hr = native_device->CreateTexture2D(&dlss_output_texture_desc, nullptr, &device_data.dlss_output_color);
-						ASSERT_ONCE(SUCCEEDED(hr));
+						 device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
+						 hr = native_device->CreateTexture2D(&dlss_output_texture_desc, nullptr, &device_data.dlss_output_color);
+						 ASSERT_ONCE(SUCCEEDED(hr));
 					}
 					// Texture creation failed, we can't proceed with DLSS
 					if (!device_data.dlss_output_color.get())
@@ -299,7 +303,6 @@ public:
 				else
 				{
 					ASSERT_ONCE(device_data.dlss_output_color == nullptr);
-					ASSERT_ONCE(output_textures_sizes_match || !game_device_data.drs_active); // This path wouldn't support anticipating upscaling, given that the texture isn't recreated with the target size (unless it already is?)
 					device_data.dlss_output_color = output_color;
 				}
 
@@ -440,30 +443,12 @@ public:
 
 						if (!dlss_output_supports_uav)
 						{
-							ASSERT_ONCE(output_textures_sizes_match); // This shouldn't happen, but if it ever did, we'd need to swap out all future references (SRVs/RTVs/UAVs) to "output_color" for "dlss_output_color"
-							if (output_textures_sizes_match)
-							{
-								native_device_context->CopyResource(output_color.get(), device_data.dlss_output_color.get()); // DX11 doesn't need barriers
-							}
+							native_device_context->CopyResource(output_color.get(), device_data.dlss_output_color.get()); // DX11 doesn't need barriers
 						}
 						else
 						{
 							device_data.dlss_output_color = nullptr;
 						}
-
-#if 0 // TODO: this should never happen, "cb_per_view_global_buffer_map_data" is only valid within the mapping and shouldn't be edited in other threads/functions, nor should be changed until the game finished writing on it (OnUnmapBufferRegion())
-						// update global buffer cb to have render resolution and texture resolution as the same size as output res
-						if (game_device_data.found_per_view_globals && device_data.cb_per_view_global_buffer.get() != nullptr && device_data.cb_per_view_global_buffer_map_data != nullptr)
-						{
-							float4* float_data = reinterpret_cast<float4*>(device_data.cb_per_view_global_buffer_map_data);
-							float_data[122] = { float_data[126].x, float_data[126].y, float_data[126].z, float_data[126].w }; // render target size
-							float_data[125] = { float_data[126].x, float_data[126].y, float_data[126].z, float_data[126].w };
-							native_device_context->UpdateSubresource(device_data.cb_per_view_global_buffer.get(), 0, nullptr, float_data, CBPerViewGlobal_buffer_size, 0);
-							// stop caching the per view global buffer
-							device_data.cb_per_view_global_buffer_map_data = nullptr;
-							device_data.cb_per_view_global_buffer = nullptr;
-						}
-#endif
 
 						return true;
 					}
@@ -483,30 +468,6 @@ public:
 			}
 		}
 
-		// TODO: Figure out DOF and Motion Blur affect DLSS early upscale
-		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_DOF))
-		{
-			//return true;
-		}
-
-		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Motion_Blur))
-		{
-			//get render target and copy dlss output to it and skip shader
-			com_ptr<ID3D11RenderTargetView> render_target_views[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
-			native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], nullptr);
-			com_ptr<ID3D11Resource> render_target_resource;
-			render_target_views[0]->GetResource(&render_target_resource);
-			if (render_target_resource.get() != nullptr && device_data.dlss_output_color.get() != nullptr)
-			{
-				//native_device_context->CopyResource(render_target_resource.get(), device_data.dlss_output_color.get());
-				//return true; // Skip the original shader
-			}
-			else
-			{
-				ASSERT_ONCE(false); // This should never happen, but if it does, we should investigate why.
-			}
-		}
-
 		// Always upgrade the viewport to the full upscaled resolution if we anticipated upscaling to happen before tonemapping
 		// Prevent this from happening on compute shaders as it's never needed (also they don't use viewport)
 		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && game_device_data.found_per_view_globals && (stages & reshade::api::shader_stage::all_compute) == 0)
@@ -514,65 +475,6 @@ public:
 			PrepareDrawForEarlyUpscaling(native_device, native_device_context, device_data);
 		}
 
-#if 0
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Downsample_Bloom)) {
-			//get vertex shader cb2 from resources map and cast to float4[4] array and update [2].x and [2].y to output res and save it back to the buffer
-			com_ptr<ID3D11Buffer> cb0_buffer;
-			native_device_context->PSGetConstantBuffers(0, 1, &cb0_buffer);
-			if (cb0_buffer.get() != nullptr)
-			{
-				D3D11_BUFFER_DESC cb0_buffer_desc;
-				cb0_buffer->GetDesc(&cb0_buffer_desc);
-				if (cb0_buffer_desc.ByteWidth == 512) 
-				{
-					if (downsample_buffer_data != nullptr)
-					{
-						//update the downsample buffer data with the output resolution in [20].z and [20].w and call update subresource
-						float4* data = reinterpret_cast<float4*>(downsample_buffer_data.get());
-						data[20].z = game_device_data.upscaled_render_resolution.x;
-						data[20].w = game_device_data.upscaled_render_resolution.y;
-						native_device_context->UpdateSubresource(cb0_buffer.get(), 0, nullptr, data, cb0_buffer_desc.ByteWidth, 0);
-					}
-				}
-			}
-		}
-#endif
-
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_Bloom))
-		{
-			native_device_context->VSSetShader(game_device_data.bloom_vs.get(), nullptr, 0);
-			native_device_context->PSSetShader(game_device_data.bloom_ps.get(), nullptr, 0);
-		}
-
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && original_shader_hashes.Contains(shader_hashes_MenuSlowdown))
-		{
-			native_device_context->VSSetShader(game_device_data.menu_slowdown_vs.get(), nullptr, 0);
-		}
-
-#if 0
-		if (device_data.has_drawn_dlss_sr && game_device_data.found_per_view_globals && game_device_data.drs_active && is_tonemapping)
-		{
-			com_ptr<ID3D11Buffer> cb0_buffer;
-			native_device_context->PSGetConstantBuffers(0, 1, &cb0_buffer);
-			if (device_data.has_drawn_dlss_sr && cb0_buffer.get() != nullptr)
-			{
-				D3D11_BUFFER_DESC cb0_buffer_desc;
-				cb0_buffer->GetDesc(&cb0_buffer_desc);
-				if (cb0_buffer_desc.ByteWidth == 1024)
-				{
-					if (upsample_buffer_data != nullptr)
-					{
-						float4* data = reinterpret_cast<float4*>(upsample_buffer_data.get());
-						data[30].z = game_device_data.upscaled_render_resolution.x;
-						data[30].w = game_device_data.upscaled_render_resolution.y;
-						data[31].x = game_device_data.upscaled_render_resolution.x;
-						data[31].y = game_device_data.upscaled_render_resolution.y;
-						native_device_context->UpdateSubresource(cb0_buffer.get(), 0, nullptr, data, cb0_buffer_desc.ByteWidth, 0);
-					}
-				}
-			}
-		}
-#endif
 #endif // ENABLE_NGX
 
 		return false; // Don't cancel the original draw call
@@ -603,9 +505,16 @@ public:
 	{
 		auto& game_device_data = GetGameDeviceData(device_data);
 		CreateShaderObject(device_data.native_device, shader_name_mvec_pixel, game_device_data.motion_vectors_ps, shader_names_filter);
-		CreateShaderObject(device_data.native_device, shader_name_bloom_pixel, game_device_data.bloom_ps, shader_names_filter);
-		CreateShaderObject(device_data.native_device, shader_name_bloom_vertex, game_device_data.bloom_vs, shader_names_filter);
-		CreateShaderObject(device_data.native_device, shader_name_menu_slowdown_vertex, game_device_data.menu_slowdown_vs, shader_names_filter);
+	}
+
+	void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override
+	{
+		auto& game_device_data = GetGameDeviceData(device_data);
+		data.GameData.RenderResolution = { device_data.render_resolution.x, device_data.render_resolution.y, 1.0f / device_data.render_resolution.x, 1.0f / device_data.render_resolution.y };
+		data.GameData.OutputResolution = { game_device_data.upscaled_render_resolution.x, game_device_data.upscaled_render_resolution.y, 1.0f / game_device_data.upscaled_render_resolution.x, 1.0f / game_device_data.upscaled_render_resolution.y };
+		data.GameData.ResolutionScale = { game_device_data.resolution_scale, 1.0f / game_device_data.resolution_scale};
+		data.GameData.DrewUpscaling = game_device_data.has_drawn_upscaling ? 1 : 0;
+		data.GameData.ViewportRect = game_device_data.viewport_rect;
 	}
 
 	static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
@@ -626,9 +535,6 @@ public:
 			D3D11_BUFFER_DESC buffer_desc;
 			buffer->GetDesc(&buffer_desc);
 
-			// There seems to only ever be one buffer type of this size, but it's not guaranteed (we might have found more, but it doesn't matter, they are discarded later)...
-			// They seemingly all happen on the same thread.
-			// Some how these are not marked as "D3D11_BIND_CONSTANT_BUFFER", probably because it copies them over to some other buffer later?
 			if (buffer_desc.ByteWidth == CBPerViewGlobal_buffer_size)
 			{
 				device_data.cb_per_view_global_buffer = buffer;
@@ -661,133 +567,45 @@ public:
 			//118 jitter
 			bool is_valid_cbuffer = true
 				&& float_data[126].z == 1.0f / float_data[126].x && float_data[126].w == 1.0f / float_data[126].y
-				&& float_data[125].z == 1.0f / float_data[125].x && float_data[125].w == 1.0f / float_data[125].y
-				&& float_data[122].x == float_data[125].x && float_data[122].y == float_data[125].y && float_data[122].z == float_data[125].z && float_data[122].w == float_data[125].w;
+				&& float_data[125].z == 1.0f / float_data[125].x && float_data[125].w == 1.0f / float_data[125].y;
+				//&& float_data[122].x == float_data[125].x && float_data[122].y == float_data[125].y && float_data[122].z == float_data[125].z && float_data[122].w == float_data[125].w;
 
 			// Make absolutely sure the jitters aren't both 0, which should never happen if they used proper jitter generation math, but we don't know,
 			// though this happens in menus or when TAA is disabed (through mods)
-			const bool jitters_valid = std::abs(float_data[118].x) <= 1.f && std::abs(float_data[118].y) <= 1.f; // TODO: the jitters range is probably 0.5/render_res or so, hence we could restrict the check to that range to make it safer?
+			bool jitters_valid = std::abs(float_data[118].x) <= 1.f && std::abs(float_data[118].y) <= 1.f; // TODO: the jitters range is probably 0.5/render_res or so, hence we could restrict the check to that range to make it safer?
+			jitters_valid &= (std::abs(float_data[118].x) > 0.f || std::abs(float_data[118].y) > 0.f);
 			is_valid_cbuffer &= jitters_valid;
 
 			if (is_valid_cbuffer)
 			{
-				// The game forces 16:9 resolutions from a pre-made (hardcoded) list, unless modded to support ultrawide.
-				// For this reason, why try to find the DLSS upscaled output resolution by combining the swapchain resolution with the rendering resolution (upscaling was originally after TAA, so whether we query the TAA input or output size, the res would be identical).
-				double dlss_output_target_aspect_ratio = (double)float_data[126].x / (double)float_data[126].y;
-
-				// First guess the resolution with an "approximate" aspect ratio (from the swapchain)
-				float2 approximate_dlss_output_resolution = device_data.output_resolution;
-				float swapchain_aspect_ratio = approximate_dlss_output_resolution.x / approximate_dlss_output_resolution.y;
-				if (dlss_output_target_aspect_ratio >= swapchain_aspect_ratio)
-					approximate_dlss_output_resolution.y = approximate_dlss_output_resolution.x / (float)dlss_output_target_aspect_ratio;
-				else
-					approximate_dlss_output_resolution.x = approximate_dlss_output_resolution.y * (float)dlss_output_target_aspect_ratio;
-
-				// Then find the exact integer resolution for it
-				const std::array<uint32_t, 2> dlss_output_resolution = FindClosestIntegerResolutionForAspectRatio((double)approximate_dlss_output_resolution.x, (double)approximate_dlss_output_resolution.y, dlss_output_target_aspect_ratio);
-
-				const float out_res_x = (float)dlss_output_resolution[0];
-				const float out_res_y = (float)dlss_output_resolution[1];
-				// validate that output res is device output res, validate render res is less than or equal to output res, validate target texture res is equal to render res
-				// jitter seems to only be available when the target texture res is equal to the render res so we can use that to validate the cbuffer
-				is_valid_cbuffer &= true
-					&& float_data[126].x == out_res_x && float_data[126].y == out_res_y
-					&& float_data[126].z == 1.0f / out_res_x && float_data[126].w == 1.0f / out_res_y
-					&& float_data[125].x <= out_res_x && float_data[125].y <= out_res_y;
-				
-				//ASSERT_ONCE(is_valid_cbuffer); // If we reached here and the test failed, we did something wrong with the resolution calculations (probably), though this will happen for one frame when we change resolution, as the game rendering lags behind the swapchain resize
-				if (is_valid_cbuffer)
+				size_t thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+				ASSERT_ONCE(!game_device_data.found_per_view_globals); // We found this twice? Shouldn't happen, we should probably reject one of the two
+				bool has_jitters = float_data[118].x != 0.f || float_data[118].y != 0.f;
+				if (has_jitters)
 				{
-					ASSERT_ONCE(!game_device_data.found_per_view_globals); // We found this twice? Shouldn't happen, we should probably reject one of the two
-
-					bool has_jitters = float_data[118].x != 0.f || float_data[118].y != 0.f;
-					if (has_jitters)
-					{
-						game_device_data.jitterless_frames_count = 0;
-						game_device_data.is_in_menu = false;
-					}
-					// Give it a two frames tolerance just to make 100% sure that the jitters random generation didn't actually pick 0 for both in one frame (it might be possible depending on the random pattern generation they used, but probably impossible for two frames, see "Halton")
-					else
-					{
-						// Note: for now we don't disable DLSS even if jitters are off
-						game_device_data.jitterless_frames_count++;
-						if (game_device_data.jitterless_frames_count >= 2)
-						{
-							if (!game_device_data.is_in_menu)
-							{
-								device_data.force_reset_dlss_sr = true; // TODO: make sure this doesn't happen when pausing the game and the scene in the background remains the same, it'd mean we get a couple blurry frames when we go back to the game
-
-								game_device_data.is_in_menu = true;
-							}
-						}
-					}
-
-					device_data.render_resolution.x = float_data[125].x;
-					device_data.render_resolution.y = float_data[125].y;
-					game_device_data.upscaled_render_resolution.x = out_res_x;
-					game_device_data.upscaled_render_resolution.y = out_res_y;
-
-					game_device_data.found_per_view_globals = true;
-					// Extract jitter from constant buffer 1
-					projection_jitters.x = float_data[118].x;
-					projection_jitters.y = float_data[118].y;
-					float resolution_scale = device_data.render_resolution.y / game_device_data.upscaled_render_resolution.y;
-					// Once DRS has engaged once, we can't really detect if it's been turned off ever again, anyway it's always active by default in this game (unless one has mods to disable it, or fix a scaled render resolution)
-					if (!game_device_data.drs_active && resolution_scale == 1.0f)
-					{
-						device_data.dlss_render_resolution_scale = 1.0f;
-					}
-					else if (resolution_scale < 0.5f - FLT_EPSILON)
-					{
-						device_data.dlss_render_resolution_scale = resolution_scale;
-						game_device_data.drs_active = true;
-					}
-					else
-					{
-						// This should pick quality or balanced mode, with a range from 100% to 50% resolution scale
-						device_data.dlss_render_resolution_scale = 1.f / 1.5f;
-						game_device_data.drs_active = true;
-					}
-
-					// Copy the data, so we can modify it and map it to our cloned TAA version of it
-					float4 float_data_copy[CBPerViewGlobal_buffer_size / sizeof(float4)];
-					std::memcpy(float_data_copy, device_data.cb_per_view_global_buffer_map_data, sizeof(float_data_copy));
-
-					//ASSERT_ONCE(device_data.has_drawn_dlss_sr); // This probably happens as this cbuffer is updated early in the frame, while DLSS happens at the end. So, instead, we'll just guess if DLSS is enabled, even if the guess is wrong by one frame when we toggle it.
-					if (device_data.dlss_sr && test_index != 17)
-					{
-						float_data_copy[122] = { float_data_copy[126].x, float_data_copy[126].y, float_data_copy[126].z, float_data_copy[126].w }; // render target size
-						float_data_copy[125] = { float_data_copy[126].x, float_data_copy[126].y, float_data_copy[126].z, float_data_copy[126].w };
-					}
-
-#if 1 // Create a clone of the buffer to be replaces for the early upscaled passes
-					game_device_data.taa_original_global_buffer = buffer;
-					if (!game_device_data.taa_custom_global_buffer)
-					{
-						D3D11_BUFFER_DESC buffer_desc;
-						buffer->GetDesc(&buffer_desc);
-
-						D3D11_SUBRESOURCE_DATA data = {};
-						data.pSysMem = float_data_copy;
-						game_device_data.taa_custom_global_buffer = nullptr;
-						HRESULT hr = native_device->CreateBuffer(&buffer_desc, &data, &game_device_data.taa_custom_global_buffer);
-						ASSERT_ONCE(SUCCEEDED(hr));
-					}
-					else
-					{
-						com_ptr<ID3D11DeviceContext> immediate_context;
-						native_device->GetImmediateContext(&immediate_context); // The game only uses the main context in one thread
-						D3D11_MAPPED_SUBRESOURCE map;
-						HRESULT hr = immediate_context->Map(game_device_data.taa_custom_global_buffer.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &map);
-						ASSERT_ONCE(SUCCEEDED(hr));
-						if (SUCCEEDED(hr))
-						{
-							map.pData = float_data_copy;
-							immediate_context->Unmap(game_device_data.taa_custom_global_buffer.get(), 0);
-						}
-					}
-#endif
+					game_device_data.jitterless_frames_count = 0;
+					game_device_data.is_in_menu = false;
 				}
+				// Give it a two frames tolerance just to make 100% sure that the jitters random generation didn't actually pick 0 for both in one frame (it might be possible depending on the random pattern generation they used, but probably impossible for two frames, see "Halton")
+				else
+				{
+					// Note: for now we don't disable DLSS even if jitters are off
+					game_device_data.jitterless_frames_count++;
+					if (game_device_data.jitterless_frames_count >= 2)
+					{
+						if (!game_device_data.is_in_menu)
+						{
+							device_data.force_reset_dlss_sr = true; // TODO: make sure this doesn't happen when pausing the game and the scene in the background remains the same, it'd mean we get a couple blurry frames when we go back to the game
+
+							game_device_data.is_in_menu = true;
+						}
+					}
+				}
+
+				game_device_data.found_per_view_globals = true;
+				// Extract jitter from constant buffer 1
+				projection_jitters.x = float_data[118].x;
+				projection_jitters.y = float_data[118].y;
 			}
 			device_data.cb_per_view_global_buffer_map_data = nullptr;
 			device_data.cb_per_view_global_buffer = nullptr;
@@ -806,31 +624,10 @@ public:
 			const float4* float_data = reinterpret_cast<const float4*>(data);
 			if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y)
 			{
-#if 0
-				if (!downsample_buffer_data)
-					downsample_buffer_data = std::make_unique<float4[]>(size / sizeof(float4));
-				std::memcpy(downsample_buffer_data.get(), data, size);
-
-				float4* new_float_data = reinterpret_cast<float4*>(downsample_buffer_data.get());
-				new_float_data[20].z = game_device_data.upscaled_render_resolution.x;
-				new_float_data[20].w = game_device_data.upscaled_render_resolution.y;
-
-				ID3D11Buffer* native_buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
-
-				D3D11_BUFFER_DESC cb0_buffer_desc;
-				native_buffer->GetDesc(&cb0_buffer_desc);
-				native_device_context->UpdateSubresource(native_buffer.get(), 0, nullptr, downsample_buffer_data.get(), cb0_buffer_desc.ByteWidth, 0);
-				return true; // Cancel the original UpdateSubresource()
-#else
-				if (test_index == 16) return false;
+				//if (stop_type == 16) return false;
 				mutable_float_data[20].z = game_device_data.upscaled_render_resolution.x;
 				mutable_float_data[20].w = game_device_data.upscaled_render_resolution.y;
-#endif
 			}
-			//else
-			//{
-			//	downsample_buffer_data = nullptr;
-			//}
 		}
 		else if (device_data.has_drawn_dlss_sr && size == 1024) {
 			float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
@@ -838,35 +635,12 @@ public:
 			//float_data[30].zw and [31].xy have render_res
 			if (float_data[30].z == device_data.render_resolution.x && float_data[30].w == device_data.render_resolution.y && float_data[31].x == device_data.render_resolution.x && float_data[31].y == device_data.render_resolution.y)
 			{
-#if 0
-				if (!upsample_buffer_data)
-					upsample_buffer_data = std::make_unique<float4[]>(size / sizeof(float4));
-				std::memcpy(upsample_buffer_data.get(), data, size);
-
-				float4* new_float_data = reinterpret_cast<float4*>(downsample_buffer_data.get());
-				new_float_data[30].z = game_device_data.upscaled_render_resolution.x;
-				new_float_data[30].w = game_device_data.upscaled_render_resolution.y;
-				new_float_data[31].x = game_device_data.upscaled_render_resolution.x;
-				new_float_data[31].y = game_device_data.upscaled_render_resolution.y;
-
-				ID3D11Buffer* native_buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
-
-				D3D11_BUFFER_DESC cb0_buffer_desc;
-				native_buffer->GetDesc(&cb0_buffer_desc);
-				native_device_context->UpdateSubresource(native_buffer.get(), 0, nullptr, upsample_buffer_data.get(), cb0_buffer_desc.ByteWidth, 0);
-				return true; // Cancel the original UpdateSubresource()
-#else
-				if (test_index == 15) return false;
+				//if (stop_type == 15) return false;
 				mutable_float_data[30].z = game_device_data.upscaled_render_resolution.x;
 				mutable_float_data[30].w = game_device_data.upscaled_render_resolution.y;
 				mutable_float_data[31].x = game_device_data.upscaled_render_resolution.x;
 				mutable_float_data[31].y = game_device_data.upscaled_render_resolution.y;
-#endif
 			}
-			//else
-			//{
-			//	upsample_buffer_data = nullptr;
-			//}
 		}
 		return false;
 	}
@@ -887,6 +661,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		shader_hashes_Bloom.pixel_shaders.emplace(std::stoul("4D6F937E", nullptr, 16));
 		shader_hashes_MenuSlowdown.pixel_shaders.emplace(std::stoul("968B821F", nullptr, 16));
 		shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("F68D39B5", nullptr, 16));
+		shader_hashes_Velocity_Flatten.compute_shaders.emplace(std::stoul("4EB2EA5B", nullptr, 16));
+		shader_hashes_Velocity_Gather.compute_shaders.emplace(std::stoul("FEE03685", nullptr, 16));
+
 
 #if DEVELOPMENT
 		// These make things messy in this game, given it renders at lower resolutions and then upscales and adds black bars beyond 16:9
@@ -904,6 +681,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		forced_shader_names.emplace(std::stoul("4D6F937E", nullptr, 16), "Apply Bloom");
 		forced_shader_names.emplace(std::stoul("968B821F", nullptr, 16), "Slowdown Menu");
 		forced_shader_names.emplace(std::stoul("F68D39B5", nullptr, 16), "Upscale and Tonemap");
+		forced_shader_names.emplace(std::stoul("4EB2EA5B", nullptr, 16), "Velocity Flatten");
+		forced_shader_names.emplace(std::stoul("FEE03685", nullptr, 16), "Velocity Gather");
 #endif
 
 		enable_swapchain_upgrade = true;
