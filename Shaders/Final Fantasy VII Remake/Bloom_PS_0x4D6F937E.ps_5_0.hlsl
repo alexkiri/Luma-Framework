@@ -1,4 +1,5 @@
-// ---- Created with 3Dmigoto v1.4.1 on Sat Apr 19 18:50:24 2025
+#include "includes/Common.hlsl"
+
 Texture2D<float4> t1 : register(t1);
 
 Texture2D<float4> t0 : register(t0);
@@ -17,12 +18,8 @@ cbuffer cb0 : register(b0)
   float4 cb0[21];
 }
 
-
-
-
 // 3Dmigoto declarations
 #define cmp -
-
 
 void main(
   linear noperspective float4 v0 : TEXCOORD0,
@@ -33,9 +30,16 @@ void main(
   float4 r0,r1,r2,r3;
   uint4 bitmask, uiDest;
   float4 fDest;
+  float4 resolution;
+
+  if (LumaData.GameData.DrewUpscaling){
+    resolution = LumaData.GameData.OutputResolution;
+  } else {
+    resolution = cb1[122];
+  }
 
   r0.xy = -cb1[121].xy + v2.xy;
-  r0.xy = cb1[126].zw * r0.xy;
+  r0.xy = resolution.zw * r0.xy;
   r0.xy = cb0[19].zw * r0.xy;
   r0.xy = max(float2(0.5,0.5), r0.xy);
   r0.zw = float2(-0.5,-0.5) + cb0[19].zw;
