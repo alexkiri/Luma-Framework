@@ -41,6 +41,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Thumper", "Source\Games\Thu
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Burnout Paradise", "Source\Games\Burnout Paradise\Burnout Paradise.vcxproj", "{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Final Fantasy XV", "Source\Games\Final Fantasy XV\FFXV.vcxproj", "{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Development-Debug|Win32 = Development-Debug|Win32
@@ -289,6 +291,22 @@ Global
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}.Test-Release|Win32.ActiveCfg = Test-Release|Win32
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}.Test-Release|Win32.Build.0 = Test-Release|Win32
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}.Test-Release|x64.ActiveCfg = Test-Release|Win32
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|Win32.ActiveCfg = Development-Debug|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|Win32.Build.0 = Development-Debug|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|x64.ActiveCfg = Development-Debug|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|x64.Build.0 = Development-Debug|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|Win32.ActiveCfg = Development-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|Win32.Build.0 = Development-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|x64.ActiveCfg = Development-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|x64.Build.0 = Development-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|Win32.ActiveCfg = Publishing-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|Win32.Build.0 = Publishing-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|x64.ActiveCfg = Publishing-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|x64.Build.0 = Publishing-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|Win32.ActiveCfg = Test-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|Win32.Build.0 = Test-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|x64.ActiveCfg = Test-Release|x64
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|x64.Build.0 = Test-Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -310,6 +328,7 @@ Global
 		{08143144-3ABB-D7B3-815C-7B798924E8E6} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{3C99EF50-7B5C-475C-9E13-F451F0D7A3A1} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {8B799422-BA66-3174-B21F-B9FA07C4B2E3}
