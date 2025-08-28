@@ -2526,8 +2526,8 @@ namespace
                         }
                      }
 #endif // DEVELOPMENT
-                  }
 #endif // ALLOW_SHADERS_DUMPING
+                  }
 
                   // Try with native DX11 reflections first, they are much faster than disassembly
                   if (!found_reflections)
