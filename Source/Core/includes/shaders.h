@@ -2,6 +2,8 @@
 
 namespace Shader
 {
+   constexpr uint8_t meta_version = 1;
+
    struct CachedPipeline
    {
       // Orignal pipeline (in DX9/10/11 it's just a ptr to a shader object, in DX12 to a PSO)
@@ -112,6 +114,7 @@ namespace Shader
 
 #if DEVELOPMENT
       // Reflections data:
+      bool found_reflections = false;
       // Constant Buffers
       bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
       // Render Target Views

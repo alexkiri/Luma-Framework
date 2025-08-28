@@ -44,33 +44,6 @@ cbuffer LumaData : register(LUMA_DATA_CB_INDEX)
   } LumaData : packoffset(c0);
 }
 
-float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false, uint colorSpace = CS_DEFAULT)
-{
-  float targetColorLuminance = GetLuminance(targetColor, colorSpace);
-  if (safe)
-  {
-#if 0 // Disabled as it doesn't seem to help (we'd need to set the threshold to "0.001" (which is too high) for this to pick up the cases where divisions end up denormalizing the number etc)
-    if (abs(targetColorLuminance - sourceColorLuminance) <= FLT_EPSILON)
-    {
-      return targetColor;
-    }
-#endif
-    targetColorLuminance = max(targetColorLuminance, 0.0);
-    sourceColorLuminance = max(sourceColorLuminance, 0.0);
-#if 1
-    return targetColor * (targetColorLuminance <= (FLT_EPSILON * 10.0) ? 0.0 : (sourceColorLuminance / targetColorLuminance)); // Empyrically found threshold
-#else
-    return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 0);
-#endif
-    
-  }
-  return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 1);
-}
-float3 RestoreLuminance(float3 targetColor, float3 sourceColor, bool safe = false, uint colorSpace = CS_DEFAULT)
-{
-  return RestoreLuminance(targetColor, GetLuminance(sourceColor, colorSpace), safe, colorSpace);
-}
-
 // Formulas that either use 2.2 or sRGB gamma depending on a global definition.
 // Note that converting between linear and gamma space back and forth results in quality loss, especially over very high and very low values.
 // 
@@ -221,6 +194,80 @@ float3 DecodeBackBufferToLinearSDRRange(float3 color, bool UI = false)
   }
 }
 
+// Returns what UVs should tonemap (or clip to) SDR (or anyway Vanilla) instead of HDR. Allows drawing black bars.
+// This will pre-compile out all the branches if "TEST_SDR_HDR_SPLIT_VIEW_MODE" isn't active.
+bool ShouldForceSDR(float2 UV, out bool blackBar, float aspectRatio = 1.0, float barLength = 0.00125)
+{
+  blackBar = false;
+#if defined(TEST_SDR_HDR_SPLIT_VIEW_MODE) && TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE == 1 || TEST_SDR_HDR_SPLIT_VIEW_MODE == 3 // 2 bars (1 split)
+	static const uint numberOfBars = 2;
+#else // 3 bars (2 splits, 2 SDR and 1 HDR)
+	static const uint numberOfBars = 3;
+#endif
+
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE <= 2 // Horizontal
+	float targetUV = UV.x;
+	barLength /= aspectRatio; // Scale by the usually wider side to match the thickness on both axes
+#else // Vertical
+	float targetUV = UV.y;
+#endif
+
+#if 1 // Draw black bars
+	if (numberOfBars != 3)
+	{
+		for (uint i = 1; i < numberOfBars; i++)
+		{
+			float barUV = (float)i / numberOfBars;
+			if (targetUV > barUV - barLength && targetUV < barUV + barLength)
+      {
+				blackBar = true;
+        break;
+      }
+		}
+	}
+  // Custom separators at 0.25 and 0.75
+	else
+	{
+   	float2 splits = float2(0.25, 0.75);
+		for (uint i = 0; i < 2; i++)
+		{
+			float barUV = splits[i];
+			if (targetUV > barUV - barLength && targetUV < barUV + barLength)
+      {
+	  		blackBar = true;
+        break;
+      }
+		}
+	}
+#endif
+
+	float barIndex = floor(targetUV * (float)numberOfBars);
+	// Custom split: make central bar as wide as the sum of the other two
+	if (numberOfBars == 3)
+	{
+		if (targetUV <= 0.25)
+			barIndex = 0.0;       // left
+		else if (targetUV >= 0.75)
+			barIndex = 2.0;       // middle (double width)
+		else
+			barIndex = 1.0;       // right
+	}
+
+	// Force SDR only on even bars
+	if (fmod(barIndex, 2.0) == 0.0)
+    return true;
+#endif // SDR_HDR_SPLIT_VIEW_TEST_MODE
+  return false;
+}
+
+bool ShouldForceSDR(float2 UV)
+{
+  bool unused;
+  return ShouldForceSDR(UV, unused, 1.0, 0.0);
+}
+
+// TODO: delete... this is mostly specific to Prey, and anyway now we have the texture debug draw, so it's near useless
 // Partially mirrors "DrawLUTTexture()".
 // PassType:
 //  0 Generic

@@ -50,6 +50,33 @@ float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 	return dot( color, Rec709_Luminance );
 }
 
+float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false, uint colorSpace = CS_DEFAULT)
+{
+  float targetColorLuminance = GetLuminance(targetColor, colorSpace);
+  if (safe)
+  {
+#if 0 // Disabled as it doesn't seem to help (we'd need to set the threshold to "0.001" (which is too high) for this to pick up the cases where divisions end up denormalizing the number etc)
+    if (abs(targetColorLuminance - sourceColorLuminance) <= FLT_EPSILON)
+    {
+      return targetColor;
+    }
+#endif
+    targetColorLuminance = max(targetColorLuminance, 0.0);
+    sourceColorLuminance = max(sourceColorLuminance, 0.0);
+#if 1
+    return targetColor * (targetColorLuminance <= (FLT_EPSILON * 10.0) ? 0.0 : (sourceColorLuminance / targetColorLuminance)); // Empyrically found threshold
+#else
+    return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 0);
+#endif
+    
+  }
+  return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 1);
+}
+float3 RestoreLuminance(float3 targetColor, float3 sourceColor, bool safe = false, uint colorSpace = CS_DEFAULT)
+{
+  return RestoreLuminance(targetColor, GetLuminance(sourceColor, colorSpace), safe, colorSpace);
+}
+
  // Note: the result might depend on the color space
 float GetChrominance(float3 color)
 {

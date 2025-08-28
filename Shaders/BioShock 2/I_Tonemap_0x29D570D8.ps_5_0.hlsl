@@ -193,7 +193,7 @@ void main(
   tonemappedVanillaSDRColor = linear_to_gamma(tonemappedVanillaSDRColor);
   tonemappedVanillaSDRColor *= lerp(1.035, 1.0, saturate(tonemappedVanillaSDRColor));
   tonemappedVanillaSDRColor = gamma_to_linear(SampleLUT(ColorGradingLUT, ColorGradingLUT_s, tonemappedVanillaSDRColor, LUT_SIZE));
-  outColor.rgb = RestoreHue(outColor.rgb, tonemappedVanillaSDRColor, 0.75); // Values between 0.5 and 0.8 are good for restoration
+  outColor.rgb = RestoreHueAndChrominance(outColor.rgb, tonemappedVanillaSDRColor, 0.75, 0.0); // Hue values between 0.5 and 0.8 are good for restoration
 #endif // ENABLE_HUE_RESTORATION
 #if ENABLE_LUT_NORMALIZATION_TYPE >= 1
 #if 1 // This generates a huge amount of colors outside of the CIE graph, but preserves shadow saturation

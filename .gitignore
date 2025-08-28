@@ -41,9 +41,10 @@
 
 # Compiled, Disassembled and Dumped Shaders
 *.cso
-**/Dump/**.asm
-**/Dump/**.cso
-**/Dump/**/*.hlsl
+**/Dump*/**.asm
+**/Dump*/**.cso
+**/Dump*/**.meta
+**/Dump*/**/*.hlsl
 
 # Misc
 [Bb]uild/

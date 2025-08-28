@@ -18,7 +18,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[147];
 }
 
-#define cmp -
+#define cmp
 
 // Post processing (film grain, screen distortion)
 // Input was float and output was unorm sRGB (SDR), so no direct gamma, but implicitly sRGB
@@ -37,13 +37,22 @@ void main(
   r0.zw = r0.zw / cb0[15].y;
   r0.x = t1.Sample(s0_s, r0.xy).x; // Screen distortion?
   r0.x = -0.5 + r0.x;
-  r0.y = cmp(0 < r0.x);
-  r1.x = cmp(r0.x < 0);
   r0.x = -abs(r0.x) * 2 + 1;
   r0.x = sqrt(r0.x);
   r0.x = -r0.x * 0.5 + 0.5;
-  r0.y = (int)-r0.y + (int)r1.x;
-  r0.y = (int)r0.y;
+#if 1
+  r0.y = float(int(((r0.x < 0.0) ? 4294967295u : 0u) + uint(r0.x > 0.0)));
+#elif 1
+  r0.y = cmp(0 < r0.x);
+  r1.x = cmp(r0.x < 0);
+  int r0yi = asint(r1.x) - asint(r0.y);
+  r0.y = r0yi;
+#else
+  r0.y = cmp(0 < r0.x);
+  r1.x = cmp(r0.x < 0);
+  int r0yi = (int)-r0.y + (int)r1.x;
+  r0.y = r0yi;
+#endif
   r0.x = r0.y * r0.x;
   r0.x = cb0[136].y * r0.x;
   r0.x = exp2(r0.x);
@@ -135,7 +144,13 @@ void main(
   settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
 #endif
   settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
-  outColor.rgb = DICETonemap(outColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
+
+  float sourceWidth, sourceHeight;
+  sceneTexture.GetDimensions(sourceWidth, sourceHeight);
+  float2 uv = v0.xy / float2(sourceWidth, sourceHeight);
+  bool forceSDR = ShouldForceSDR(uv) || LumaSettings.DisplayMode != 1;
+  if (!forceSDR)
+    outColor.rgb = DICETonemap(outColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
 #endif
 
 #if UI_DRAW_TYPE == 2 // Scale by the inverse of the relative UI brightness so we can draw the UI at brightness 1x and then multiply it back to its intended range

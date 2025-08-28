@@ -4,8 +4,8 @@
 #define ENABLE_NGX 1
 // Hangs on boot
 #define DISABLE_AUTO_DEBUGGER
-// Disabled as it makes boot extremely slow
-#define ALLOW_SHADERS_DUMPING 0
+// Previously disabled as it made boot extremely slow, it should now be fine as we optimized the code
+#define ALLOW_SHADERS_DUMPING 1
 
 // Not used by Dishonored 2?
 #define ENABLE_SHADER_CLASS_INSTANCES 1

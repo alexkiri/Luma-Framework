@@ -302,7 +302,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #elif GAMMA_CORRECTION_TYPE == 3 //TODOFT: probably doesn't look good? It'd treat green and blue massively different
   				color.rgb = colorGammaCorrectedByLuminance;
 #elif GAMMA_CORRECTION_TYPE >= 4
-  				color.rgb = RestoreChrominanceAdvanced(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
+  				color.rgb = RestoreHueAndChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel, 0.0, 1.0);
 #endif // GAMMA_CORRECTION_TYPE == 1
 			}
 		}
@@ -492,7 +492,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #elif GAMMA_CORRECTION_TYPE == 3
   		color.rgb = colorGammaCorrectedByLuminance;
 #elif GAMMA_CORRECTION_TYPE >= 4
-  		color.rgb = RestoreChrominanceAdvanced(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel);
+  		color.rgb = RestoreHueAndChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel, 0.0, 1.0);
 #endif // GAMMA_CORRECTION_TYPE == 2
 
 		color.rgb += colorInExcess;
@@ -510,66 +510,23 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		}
 #endif
 
-#if TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1 // TODO: move to function!
-#if TEST_SDR_HDR_SPLIT_VIEW_MODE == 1 || TEST_SDR_HDR_SPLIT_VIEW_MODE == 3 // 2 bars (1 split)
-		static const uint numberOfBars = 2;
-#else // 3 bars (2 splits, 2 SDR and 1 HDR)
-		static const uint numberOfBars = 3;
-#endif
-		float barLength = 0.00125;
-#if TEST_SDR_HDR_SPLIT_VIEW_MODE <= 2 // Horizontal
-		float targetUV = uv.x;
 		float aspectRatio = sourceWidth / (float)sourceHeight;
-		barLength /= aspectRatio; // Scale by the usually wider side to match the thickness on both axes
-#else // Vertical
-		float targetUV = uv.y;
-#endif
-
-		float barIndex = floor(targetUV * (float)numberOfBars);
-		// Custom split: make central bar as wide as the sum of the other two
-		if (numberOfBars == 3)
+		bool blackBar = false;
+		if (LumaSettings.DisplayMode == 1 && ShouldForceSDR(uv, blackBar, aspectRatio))
 		{
-			if (targetUV <= 0.25)
-				barIndex = 0.0;       // left
-			else if (targetUV >= 0.75)
-				barIndex = 0.0;       // middle (double width)
+			if (blackBar)
+			{
+				color.rgb = 0.0;
+			}
 			else
-				barIndex = 1.0;       // right
-		}
-
-		// Apply effect only to even bars
-		if (fmod(barIndex, 2.0) == 0.0)
-		{
-#if 1 // Tonemap instead of raw clipping
-  			color.rgb = Reinhard::ReinhardRange(color.rgb); // TODO: acknowledge the previous peak tonemapping to better compress from the HDR display to the SDR range
-#else
-			color.rgb = saturate(color.rgb);
-#endif
-		}
-
-#if 1 // Draw black bars
-		if (numberOfBars != 3)
-		{
-			for (uint i = 1; i < numberOfBars; i++)
 			{
-				float barUV = (float)i / numberOfBars;
-				if (targetUV > barUV - barLength && targetUV < barUV + barLength)
-					color.rgb = 0.0;
+#if defined(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL) && TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL
+				color.rgb = saturate(color.rgb);
+#else // Tonemap instead of raw clipping if the game didn't natively implement our split view mode in the tonemapper
+  				color.rgb = Reinhard::ReinhardRange(color.rgb); // TODO: acknowledge the previous peak tonemapping to better compress from the HDR display to the SDR range
+#endif
 			}
 		}
-    	// Custom separators at 0.25 and 0.75
-		else
-		{
-    		float2 splits = float2(0.25, 0.75);
-			for (uint i = 0; i < 2; i++)
-			{
-				float barUV = splits[i];
-				if (targetUV > barUV - barLength && targetUV < barUV + barLength)
-					color.rgb = 0.0;
-			}
-		}
-#endif
-#endif // SDR_HDR_SPLIT_VIEW_TEST_MODE
 
 		if (gamutMap)
 		{

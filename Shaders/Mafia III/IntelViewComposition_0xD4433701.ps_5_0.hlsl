@@ -66,7 +66,7 @@ void main(
   r1.xyz = cb1[4].x * r2.xyz - r1.xyz;
   r2.xyz = cb1[1].xyz * r1.y;
   r1.xyw = r1.x * cb1[0].xyz + r2.xyz;
-  r1.xyz = saturate(r1.z * cb1[2].xyz + r1.xyw); // Generate edges by subtracting blurred from full res mask
+  r1.xyz = saturate(r1.z * cb1[2].xyz + r1.xyw); // Generate edges by subtracting blurred from full res mask. If necessary we could ever boost the intensity in HDR, but the background image is already toned down to keep visibility.
   r0.w = max(r0.y, r0.z);
   r0.w = max(r0.x, r0.w);
   r1.w = min(r0.y, r0.z);

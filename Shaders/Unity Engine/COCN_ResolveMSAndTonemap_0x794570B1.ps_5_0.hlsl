@@ -71,6 +71,11 @@ void main(
   const uint MSCount = asuint(cb0[134].x);
   const float exposure = cb0[137].x;
 
+  float sourceWidth, sourceHeight;
+  t0.GetDimensions(0, sourceWidth, sourceHeight);
+  float2 uv = v0.xy / float2(sourceWidth, sourceHeight);
+  bool forceSDR = ShouldForceSDR(uv) || LumaSettings.DisplayMode != 1;
+
   for (uint i = 0; i < MSCount; i++)
   {
     float3 sceneColor = t0.Load((int2)v0.xy, i).xyz;
@@ -97,7 +102,7 @@ void main(
     tonemappedHDRColor = (tonemappedHDRColor > startingPoint) ? (pow(tonemappedHDRColor - startingPoint + 1.0, 1.0 / powCoeff) + startingPoint - 1.0) : tonemappedHDRColor;
     tonemappedColor = tonemappedHDRColor;
 #endif
-    outColor += tonemappedColor;
+    outColor += forceSDR ? tonemappedSDRColor : tonemappedColor;
     SDRColor += tonemappedSDRColor;
   }
   // Normalize
@@ -105,8 +110,7 @@ void main(
   SDRColor /= int(MSCount);
 
 #if !STRETCH_ORIGINAL_TONEMAPPER // Luma: restore SDR colors
-  outColor = RestoreHue(outColor, SDRColor, 0.8);
-  outColor = RestoreChrominanceAdvanced(outColor, SDRColor, 0.4);
+  outColor = RestoreHueAndChrominance(outColor, SDRColor, 0.8, 0.4);
 #endif
   o0.xyz = outColor;
 }

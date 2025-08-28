@@ -768,4 +768,10 @@ namespace
       }
       return nullptr;
    }
+
+   const char* GetFormatNameSafe(DXGI_FORMAT format)
+   {
+      const char* name = GetFormatName(format);
+      return name ? name : "Unknown";
+   }
 }

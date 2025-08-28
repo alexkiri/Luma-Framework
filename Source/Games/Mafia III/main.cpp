@@ -326,7 +326,7 @@ public:
          {"ENABLE_FILM_GRAIN", '1', false, false, "Allow disabling the game's film grain effect (it's not always present)"},
          {"ENABLE_DITHERING", '1', false, false, "Allow disabling the game's dithering (it isn't particularly useful in HDR, but it can help with banding in the sky)"},
          {"ALLOW_AA", '1', false, false, "The game uses FXAA at the end, which wasn't really a good combination with TAA\nIf Luma's Super Resolution is used, this is already skipped\nThis is better off if sharpening is used"},
-#if DEVELOPMENT
+#if DEVELOPMENT || TEST
          {"STRETCH_ORIGINAL_TONEMAPPER", '0', false, false, "An alternative HDR implementation that doesn't look good"},
 #endif
          {"ENABLE_SHARPENING", '1', false, false, "Native sharpening to combat the game's blurriness"},
@@ -337,6 +337,8 @@ public:
          {"EXPAND_COLOR_GAMUT", '1', false, false, "Do tonemapping in a wider color gamut, to minimize hue shifts and get more saturated shadow, though this can change the look of the game a bit"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
+
+      GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
 
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
@@ -1809,6 +1811,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       forced_shader_names.emplace(std::stoul("7A296760", nullptr, 16), "Depth Test");
       forced_shader_names.emplace(std::stoul("6FD15674", nullptr, 16), "Some Noise Map ?");
       forced_shader_names.emplace(std::stoul("B876B4FF", nullptr, 16), "Some Noise Map ?");
+      forced_shader_names.emplace(std::stoul("2C64BF05", nullptr, 16), "City Light");
       forced_shader_names.emplace(std::stoul("6B4B9B6D", nullptr, 16), "UI Video with Film Grain");
       forced_shader_names.emplace(std::stoul("2C052C85", nullptr, 16), "UI Sprite with Color Filter");
       forced_shader_names.emplace(std::stoul("CDB35CB7", nullptr, 16), "UI Sprite"); // This is used as the brightness calibration text
@@ -1817,6 +1820,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // TODO: distribute DLSS with the build! Also test for crashes when going back to the menu! Also remove the memory patching library if not used. Also add compat with the NO TAA mod? Reduce fog?
       // Also fix when pressing square in the car, screen became darker!? Add photo mode and hide UI buttons.
       // Also.. test mirrors! Also check FOG... sometimes it's too much?
+      // Sun and City Lights scale when zooming in!
+      // Videos are broken?
 
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;

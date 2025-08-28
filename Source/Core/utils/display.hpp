@@ -187,7 +187,7 @@ namespace Display
 		std::string str_name;
 	};
 
-	NvAPI_Status checkIfNvidiaGpu()
+	NvAPI_Status CheckIfNvidiaGpu()
 	{
 		NvAPI_Status result = NVAPI_OK;
 		// Get connected NVidia GPUs to Computer
@@ -202,7 +202,7 @@ namespace Display
 		return NVAPI_OK;
 	}
 
-	NvAPI_Status getGpuName(std::string& gpu_name)
+	NvAPI_Status GetGpuName(std::string& gpu_name)
 	{
 		// Get connected NVidia GPUs to Computer
 		NvU32 gpuCount = 0;
@@ -230,7 +230,7 @@ namespace Display
 		return NVAPI_OK;
 	}
 
-	NvAPI_Status getMonitorIdAndName(OUT std::vector<DisplayID>& displayInfo)
+	NvAPI_Status GetMonitorIdAndName(OUT std::vector<DisplayID>& displayInfo)
 	{
 		displayInfo.clear();
 		NvAPI_Status result = NVAPI_OK;
@@ -285,7 +285,7 @@ namespace Display
 		return NVAPI_OK;
 	}
 
-	NvAPI_Status getMonitorId(NvU32& displayId, const std::string& name)
+	NvAPI_Status GetMonitorId(NvU32& displayId, const std::string& name)
 	{
 		displayId = 0;
 		NvAPI_Status result = NvAPI_DISP_GetDisplayIdByDisplayName(name.c_str(), &displayId);
@@ -293,7 +293,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status getMonitorCapabilities( NvU32 displayId, NV_HDR_CAPABILITIES& hdrCapabilities)
+	NvAPI_Status GetMonitorCapabilities( NvU32 displayId, NV_HDR_CAPABILITIES& hdrCapabilities)
 	{
 		memset(&hdrCapabilities, 0, sizeof(hdrCapabilities));
 
@@ -320,7 +320,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status setHdr10Metadata(NvU32 displayId, NV_HDR_METADATA& hdr10Metadata)
+	NvAPI_Status SetHdr10Metadata(NvU32 displayId, NV_HDR_METADATA& hdr10Metadata)
 	{
 		hdr10Metadata.version = NV_HDR_METADATA_VER;
 		NvAPI_Status result = NvAPI_Disp_SetSourceHdrMetadata(displayId, &hdr10Metadata);
@@ -328,7 +328,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status turnOffHdr(NvU32 displayId)
+	NvAPI_Status TurnOffHdr(NvU32 displayId)
 	{
 		NV_HDR_COLOR_DATA hdrColorData = {};
 		memset(&hdrColorData, 0, sizeof(hdrColorData));
@@ -351,7 +351,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status turnOnHdr(NvU32 displayId)
+	NvAPI_Status TurnOnHdr(NvU32 displayId)
 	{
 		NV_HDR_COLOR_DATA hdrColorData = {};
 		memset(&hdrColorData, 0, sizeof(hdrColorData));
@@ -374,7 +374,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status setOutputMode(NvU32 displayId, NV_DISPLAY_OUTPUT_MODE mode)
+	NvAPI_Status SetOutputMode(NvU32 displayId, NV_DISPLAY_OUTPUT_MODE mode)
 	{
 		NvAPI_Status result = NVAPI_OK;
 		result = NvAPI_Disp_SetOutputMode(displayId, &mode);
@@ -382,7 +382,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status getOutputMode(NvU32 displayId, NV_DISPLAY_OUTPUT_MODE& mode)
+	NvAPI_Status GetOutputMode(NvU32 displayId, NV_DISPLAY_OUTPUT_MODE& mode)
 	{
 		NvAPI_Status result = NVAPI_OK;
 		result = NvAPI_Disp_GetOutputMode(displayId, &mode);
@@ -390,7 +390,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status setToneMappingMode(NvU32 displayId, NV_HDR_TONEMAPPING_METHOD mode)
+	NvAPI_Status SetToneMappingMode(NvU32 displayId, NV_HDR_TONEMAPPING_METHOD mode)
 	{
 		NvAPI_Status result = NVAPI_OK;
 		result = NvAPI_Disp_SetHdrToneMapping(displayId, mode);
@@ -398,7 +398,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status getToneMappingMode(NvU32 displayId, NV_HDR_TONEMAPPING_METHOD& mode)
+	NvAPI_Status GetToneMappingMode(NvU32 displayId, NV_HDR_TONEMAPPING_METHOD& mode)
 	{
 		NvAPI_Status result = NVAPI_OK;
 		result = NvAPI_Disp_GetHdrToneMapping(displayId, &mode);
@@ -406,7 +406,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status setColorSpace(NvU32 displayId, NV_COLORSPACE_TYPE color_space)
+	NvAPI_Status SetColorSpace(NvU32 displayId, NV_COLORSPACE_TYPE color_space)
 	{
 		NvAPI_Status result = NVAPI_OK;
 		result = NvAPI_Disp_SetSourceColorSpace(displayId, color_space);
@@ -414,7 +414,7 @@ namespace Display
 		return result;
 	}
 
-	NvAPI_Status getColorSpace(NvU32 displayId, NV_COLORSPACE_TYPE& color_space)
+	NvAPI_Status GetColorSpace(NvU32 displayId, NV_COLORSPACE_TYPE& color_space)
 	{
 		NvAPI_Status result = NVAPI_OK;
 		result = NvAPI_Disp_GetSourceColorSpace(displayId, &color_space, NvU64(GetCurrentProcessId()));
@@ -457,7 +457,7 @@ namespace Display
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
 		NV_HDR_CAPABILITIES HdrCapabilities = {};
-		NvAPI_Status result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NvAPI_Status result = GetMonitorCapabilities(DisplayId, HdrCapabilities);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return HdrCapabilities.isHdr10PlusGamingSupported;
 	}
@@ -466,7 +466,7 @@ namespace Display
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
 		NV_HDR_CAPABILITIES HdrCapabilities = {};
-		NvAPI_Status result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NvAPI_Status result = GetMonitorCapabilities(DisplayId, HdrCapabilities);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return HdrCapabilities.isST2084EotfSupported;
 	}
@@ -476,22 +476,22 @@ namespace Display
 		//TODO: branch out in case of failures
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
 
-		NvAPI_Status result = turnOnHdr(DisplayId);
+		NvAPI_Status result = TurnOnHdr(DisplayId);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 
-		result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
+		result = SetOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 
-		result = setToneMappingMode(DisplayId, NV_HDR_TONEMAPPING_GPU);
-		//result = setToneMappingMode(DisplayId, NV_HDR_TONEMAPPING_APP); // Need for GPU?
+		result = SetToneMappingMode(DisplayId, NV_HDR_TONEMAPPING_GPU);
+		//result = SetToneMappingMode(DisplayId, NV_HDR_TONEMAPPING_APP); // Need for GPU?
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 
-		setColorSpace(DisplayId, NV_COLORSPACE_REC2100);
-		//result = setColorSpace(DisplayId, NV_COLORSPACE_xRGB); // Try linear scRGB HDR. Seemengly doesn't work
+		result = SetColorSpace(DisplayId, NV_COLORSPACE_REC2100);
+		//result = SetColorSpace(DisplayId, NV_COLORSPACE_xRGB); // Try linear scRGB HDR. Seemengly doesn't work
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 
 		NV_HDR_CAPABILITIES HdrCapabilities = {};
-		result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		result = GetMonitorCapabilities(DisplayId, HdrCapabilities);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 
 		NV_HDR_METADATA Hdr10MetadataNv = {};
@@ -511,11 +511,11 @@ namespace Display
 		Hdr10MetadataNv.max_frame_average_light_level = 10000;
 		Hdr10MetadataNv.min_display_mastering_luminance = 0;
 		Hdr10MetadataNv.max_content_light_level = static_cast<NvU16>(10000);
-		result = setHdr10Metadata(DisplayId, Hdr10MetadataNv);
+		result = SetHdr10Metadata(DisplayId, Hdr10MetadataNv);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 
 		NV_DISPLAY_OUTPUT_MODE outputMode = NV_DISPLAY_OUTPUT_MODE_SDR;
-		result = getOutputMode(DisplayId, outputMode);
+		result = GetOutputMode(DisplayId, outputMode);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		assert(outputMode == NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
 
@@ -525,17 +525,17 @@ namespace Display
 	bool EnableHdr10DisplayOutput(HWND hWnd)
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
-		NvAPI_Status result = turnOnHdr(DisplayId);
-		result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10);
+		NvAPI_Status result = TurnOnHdr(DisplayId);
+		result = SetOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
-		setColorSpace(DisplayId, NV_COLORSPACE_REC2100);
+		SetColorSpace(DisplayId, NV_COLORSPACE_REC2100);
 		return (result == NVAPI_OK);
 	}
 
 	bool DisableHdr10PlusDisplayOutput(HWND hWnd)
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
-		NvAPI_Status result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10);
+		NvAPI_Status result = SetOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_HDR10);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return (result == NVAPI_OK);
 	}
@@ -543,8 +543,8 @@ namespace Display
 	bool DisableHdr10DisplayOutput(HWND hWnd)
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
-		NvAPI_Status result = setOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_SDR);
-		result = turnOffHdr(DisplayId);
+		NvAPI_Status result = SetOutputMode(DisplayId, NV_DISPLAY_OUTPUT_MODE_SDR);
+		result = TurnOffHdr(DisplayId);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return (result == NVAPI_OK);
 	}
@@ -553,7 +553,7 @@ namespace Display
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
 		NV_DISPLAY_OUTPUT_MODE outputMode = NV_DISPLAY_OUTPUT_MODE_SDR;
-		NvAPI_Status result = getOutputMode(DisplayId, outputMode);
+		NvAPI_Status result = GetOutputMode(DisplayId, outputMode);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return (outputMode == NV_DISPLAY_OUTPUT_MODE_HDR10PLUS_GAMING);
 	}
@@ -562,29 +562,29 @@ namespace Display
 	{
 		NvU32 DisplayId = GetNvapiDisplayIdFromHwnd(hWnd);
 		NV_DISPLAY_OUTPUT_MODE outputMode = NV_DISPLAY_OUTPUT_MODE_SDR;
-		NvAPI_Status result = getOutputMode(DisplayId, outputMode);
+		NvAPI_Status result = GetOutputMode(DisplayId, outputMode);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return (outputMode == NV_DISPLAY_OUTPUT_MODE_HDR10);
 	}
 
 	bool SetMetadataHdr(NvU32 DisplayId, NV_HDR_METADATA& HdrMetadata)
 	{
-		NvAPI_Status result = setHdr10Metadata(DisplayId, HdrMetadata);
+		NvAPI_Status result = SetHdr10Metadata(DisplayId, HdrMetadata);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return (result == NVAPI_OK);
 	}
 
 	bool GetHdrCapabilities(NvU32 DisplayId, NV_HDR_CAPABILITIES& HdrCapabilities)
 	{
-		NvAPI_Status result = getMonitorCapabilities(DisplayId, HdrCapabilities);
+		NvAPI_Status result = GetMonitorCapabilities(DisplayId, HdrCapabilities);
 		NVIDIA_API_ERROR_MSG(result != NVAPI_OK, result);
 		return (result == NVAPI_OK);
 	}
 
 	void SetSDR(NvU32 DisplayId)
 	{
-		turnOffHdr(DisplayId);
-		setColorSpace(DisplayId, NV_COLORSPACE_sRGB);
+		TurnOffHdr(DisplayId);
+		SetColorSpace(DisplayId, NV_COLORSPACE_sRGB);
 	}
 #endif
 

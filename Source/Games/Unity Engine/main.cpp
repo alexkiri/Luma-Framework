@@ -150,7 +150,10 @@ public:
          std::vector<ShaderDefineData> game_shader_defines_data = {
             {"ENABLE_FILM_GRAIN", '1', false, false, "Allow disabling the game's faint film grain effect"},
          };
+
          shader_defines_data.append_range(game_shader_defines_data);
+
+         GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
       }
       if (game_id == GAME_INSIDE)
       {

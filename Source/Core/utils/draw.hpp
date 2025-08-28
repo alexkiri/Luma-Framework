@@ -233,7 +233,8 @@ struct DrawStateStack
 
 #if DEVELOPMENT
 // Expects mutexes to already be locked
-void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data, const DeviceData& device_data, ID3D11DeviceContext* native_device_context, uint64_t pipeline_handle, std::unordered_map<uint32_t, CachedShader*>& shader_cache)
+void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data, const DeviceData& device_data, ID3D11DeviceContext* native_device_context, uint64_t pipeline_handle,
+   std::unordered_map<uint32_t, CachedShader*>& shader_cache, const std::unordered_map<const ID3D11InputLayout*, std::vector<D3D11_INPUT_ELEMENT_DESC>>& input_layouts_descs, const DrawDispatchData& draw_dispatch_data)
 {
    TraceDrawCallData trace_draw_call_data;
 
@@ -438,6 +439,31 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
             }
          }
+
+         trace_draw_call_data.draw_dispatch_data = draw_dispatch_data;
+
+         com_ptr<ID3D11Buffer> index_buffer;
+         native_device_context->IAGetIndexBuffer(&index_buffer, &trace_draw_call_data.index_buffer_format, &trace_draw_call_data.index_buffer_offset);
+         com_ptr<ID3D11InputLayout> input_layout;
+         native_device_context->IAGetInputLayout(&input_layout);
+
+         trace_draw_call_data.index_buffer_hash = std::to_string(std::hash<void*>{}(index_buffer.get()));
+         trace_draw_call_data.input_layout_hash = std::to_string(std::hash<void*>{}(input_layout.get()));
+
+         //TODOFT5: do multiple of these! And print more data, and find the right vertex buffer
+         if (input_layouts_descs.contains(input_layout.get()))
+         {
+            const auto& input_elements_descs = input_layouts_descs.find(input_layout.get());
+            for (size_t i = 0; i < input_elements_descs->second.size(); i++)
+            {
+               com_ptr<ID3D11Buffer> vertex_buffer;
+               trace_draw_call_data.input_layouts_formats.push_back(input_elements_descs->second.at(i).Format);
+               native_device_context->IAGetVertexBuffers(input_elements_descs->second.at(i).InputSlot, 1, &vertex_buffer, nullptr, nullptr);
+               trace_draw_call_data.vertex_buffer_hashes.push_back(std::to_string(std::hash<void*>{}(vertex_buffer.get())));
+            }
+         }
+
+         native_device_context->IAGetPrimitiveTopology(&trace_draw_call_data.primitive_topology);
       }
       else if (pipeline->HasComputeShader())
       {
@@ -474,6 +500,8 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
             }
          }
+
+         trace_draw_call_data.draw_dispatch_data = draw_dispatch_data;
       }
    }
 

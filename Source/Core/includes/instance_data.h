@@ -3,6 +3,27 @@
 // Forward declarations
 struct GameDeviceData;
 
+struct DrawDispatchData
+{
+   // Vertex Shader
+   uint32_t vertex_count = 0;
+   uint32_t instance_count = 0;
+   uint32_t first_vertex = 0;
+   uint32_t first_instance = 0;
+
+   uint32_t index_count = 0;
+   uint32_t first_index = 0;
+   int32_t vertex_offset = 0;
+
+   bool indexed = false;
+
+   // Compute Shader
+   uint3 dispatch_count = {};
+
+   // Shared
+   bool indirect = false;
+};
+
 struct TraceDrawCallData
 {
    TraceDrawCallData()
@@ -52,6 +73,17 @@ struct TraceDrawCallData
       Invalid,
    };
    static constexpr const char* depth_state_names[] = { "Disabled", "Test and Write", "Test Only", "Write Only", "Custom" };
+
+   DrawDispatchData draw_dispatch_data = {};
+
+   // Vertex shader
+   D3D11_PRIMITIVE_TOPOLOGY primitive_topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+   std::vector<std::string> vertex_buffer_hashes;
+   std::string input_layout_hash;
+   std::string index_buffer_hash;
+   DXGI_FORMAT index_buffer_format = DXGI_FORMAT_UNKNOWN;
+   std::vector<DXGI_FORMAT> input_layouts_formats;
+   UINT index_buffer_offset = 0;
 
    DepthStateType depth_state = DepthStateType::Disabled;
    bool stencil_enabled = false;

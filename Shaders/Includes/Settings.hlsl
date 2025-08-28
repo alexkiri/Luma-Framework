@@ -112,6 +112,9 @@
 #ifndef DEVELOPMENT
 #define DEVELOPMENT 0
 #endif
+#ifndef TEST
+#define TEST 0
+#endif
 #ifndef LUMA_SETTINGS_CB_INDEX
 #define LUMA_SETTINGS_CB_INDEX b13
 #endif

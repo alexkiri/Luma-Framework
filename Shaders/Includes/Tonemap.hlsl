@@ -150,7 +150,7 @@ float3 UpgradeToneMap(
 
   float3 color_scaled = color_tonemapped_graded * ratio;
   // Match hue
-  color_scaled = RestoreHue(color_scaled, color_tonemapped_graded, 1.f, false, CS_BT709);
+  color_scaled = RestoreHueAndChrominance(color_scaled, color_tonemapped_graded, 1.0, 0.0, 0.0, CS_BT709);
   return lerp(color_untonemapped, color_scaled, post_process_strength);
 }
 

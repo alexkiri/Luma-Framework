@@ -301,6 +301,9 @@ namespace
       DXGI_FORMAT ui_separation_format = DXGI_FORMAT_UNKNOWN;
    }
 
+   // The root path of all the shaders we load and dump
+   std::filesystem::path shaders_path;
+
    // In case this is a generic mod for multiple games, set this to the actual game name (e.g. "GAME_ROCKET_LEAGUE")
    const char* sub_game_shader_define = nullptr;
    // Optionally define an appended name for our current game, it might apply to shader names and dump folders etc
@@ -340,10 +343,20 @@ namespace
    // The hash here is 64 bit instead of 32 to leave extra room for Luma native shaders, that have customly generated hashes (to not mix with the game ones).
    std::unordered_map<uint64_t, CachedCustomShader*> custom_shaders_cache;
 
+   // Shader dumping
+   namespace
+   {
    // Newly loaded shaders that still need to be (auto) dumped, by shader hash
    std::unordered_set<uint32_t> shaders_to_dump;
    // All the shaders we have already dumped, by shader hash
    std::unordered_set<uint32_t> dumped_shaders;
+      std::unordered_set<uint32_t> meta_stored_shaders;
+      std::filesystem::path shaders_dump_path;
+#if DEVELOPMENT
+      std::unordered_map<uint32_t, std::filesystem::path> dumped_shaders_meta_paths;
+      uint32_t shader_cache_count = 0;
+#endif
+   }
 
    std::string shaders_compilation_errors; // errors and warning log
 
@@ -355,7 +368,8 @@ namespace
    // TODO: add grey out conditions (another define, by name, whether its value is > 0), and also add min/max values range (to limit the user insertable values), and "category"
    // TODO: add a user facing name (not just the tooltip)?
    std::vector<ShaderDefineData> shader_defines_data = {
-       {"DEVELOPMENT", DEVELOPMENT ? '1' : '0', true, DEVELOPMENT ? false : true, "Enables some development/debug features that are otherwise not allowed (get a TEST or DEVELOPMENT build if you want to use this)"},
+       {"DEVELOPMENT", DEVELOPMENT ? '1' : '0', true, DEVELOPMENT ? false : true, "Enables some development/debug features that are otherwise not allowed (get a DEVELOPMENT build if you want to use this)"},
+       {"TEST", (TEST || DEVELOPMENT) ? '1' : '0', true, (TEST || DEVELOPMENT) ? false : true, "Enables some test features to aid with development (get a DEVELOPMENT or TEST build if you want to use this)"},
        // Usually if we store in gamma space, we also keep the paper white not multiplied in until we apply it on the final output, while if we store in linear space, we pre-multiply it in (and we might also pre-correct gamma before the final output).
        // NOTE: "POST_PROCESS_SPACE_TYPE" 2 is actually implemented as well but only used by Prey.
        {"POST_PROCESS_SPACE_TYPE", '0', true, DEVELOPMENT ? false : true, "Describes in what \"space\" (encoding) the game post processing color buffers are stored\n0 - SDR Gamma space\n1 - Linear space"},
@@ -369,6 +383,7 @@ namespace
        {"TEST_2X_ZOOM", '0', true, false, "Allows you to zoom in into the film image center to better analyze it"},
 #endif
        {"TEST_SDR_HDR_SPLIT_VIEW_MODE", '0', true, false, "Allows you to clamp to SDR on a portion of the screen, to run quick comparisons between SDR and HDR\n(note that the tonemapper might still run in HDR mode and thus clip further than it would have had in SDR)"},
+       {"TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL", '0', true, DEVELOPMENT ? false : true, "Tells whether \"TEST_SDR_HDR_SPLIT_VIEW_MODE\" is natively implemented in the game's tonemapper, outputting some SDR and some HDR, or if it's not and we are simply clipping to SDR at the very end"},
    };
 
    // TODO: if at runtime we can't edit "shader_defines_data" (e.g. in non dev modes), then we could directly set these to the index value of their respective "shader_defines_data" and skip the map?
@@ -379,6 +394,7 @@ namespace
    constexpr uint32_t GAMMA_CORRECTION_TYPE_HASH = char_ptr_crc32("GAMMA_CORRECTION_TYPE");
    constexpr uint32_t GAMUT_MAPPING_TYPE_HASH = char_ptr_crc32("GAMUT_MAPPING_TYPE");
    constexpr uint32_t UI_DRAW_TYPE_HASH = char_ptr_crc32("UI_DRAW_TYPE");
+   constexpr uint32_t TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH = char_ptr_crc32("TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL");
 
    // uint8_t is enough for MAX_SHADER_DEFINES
    std::unordered_map<uint32_t, uint8_t> shader_defines_data_index;
@@ -413,20 +429,21 @@ namespace
    thread_local bool waiting_on_upgraded_resource_init = false;
    thread_local reshade::api::resource_desc upgraded_resource_init_desc = {};
    thread_local void* upgraded_resource_init_data = {};
+#if DEVELOPMENT
    // ReShade specific design as we don't get a rejection between the create and init events if creation failed
    thread_local reshade::api::format last_attempted_upgraded_resource_creation_format = reshade::api::format::unknown;
    thread_local reshade::api::format last_attempted_upgraded_resource_view_creation_view_format = reshade::api::format::unknown;
 
-#if DEVELOPMENT
    bool trace_scheduled = false; // For next frame
    bool trace_running = false; // For this frame
    uint32_t trace_count = 0; // Not exactly necessary but... it might help
 
-   uint32_t shader_cache_count = 0; // For dumping
-
    std::string last_drawn_shader = ""; // Not exactly thread safe but it's fine...
 
    thread_local reshade::api::command_list* thread_local_cmd_list = nullptr; // Hacky global variable (possibly not cleared, stale), only use to quickly tell the command list of the thread
+   thread_local DrawDispatchData last_draw_dispatch_data = {};
+
+   std::unordered_map<const ID3D11InputLayout*, std::vector<D3D11_INPUT_ELEMENT_DESC>> input_layouts_descs;
 
    // Textures debug drawing
    namespace
@@ -488,6 +505,7 @@ namespace
       return GetShaderDefineData(hash).GetCompiledNumericalValue();
    }
 
+   // Ideally only to be called once on boot and cached
    std::filesystem::path GetShadersRootPath()
    {
       wchar_t file_path[MAX_PATH] = L"";
@@ -627,17 +645,16 @@ namespace
    // Expects "s_mutex_loading" to make sure we don't try to compile/load any other files we are currently deleting
    void CleanShadersCache()
    {
-      const auto directory = GetShadersRootPath();
-      if (!std::filesystem::exists(directory))
+      if (!std::filesystem::exists(shaders_path))
       {
          return;
       }
       
-      for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
+      for (const auto& entry : std::filesystem::recursive_directory_iterator(shaders_path))
       {
          bool is_global = false;
          const auto& entry_path = entry.path();
-         if (!IsValidShadersSubPath(directory, entry_path, is_global))
+         if (!IsValidShadersSubPath(shaders_path, entry_path, is_global))
          {
             continue;
          }
@@ -645,8 +662,8 @@ namespace
          {
             continue;
          }
-         const bool is_cso = entry_path.extension().compare(".cso") == 0;
-         if (!entry_path.has_extension() || !entry_path.has_stem() || !is_cso)
+         const bool is_cso_or_meta = entry_path.extension().compare(".cso") == 0 || entry_path.extension().compare(".meta") == 0;
+         if (!entry_path.has_extension() || !entry_path.has_stem() || !is_cso_or_meta)
          {
             continue;
          }
@@ -821,8 +838,9 @@ namespace
          shaders_compilation_errors.clear();
       }
 
-      const auto directory = GetShadersRootPath();
+      auto directory = shaders_path;
       bool shaders_directory_created_or_empty = false;
+      // Create it if it doesn't exist
       if (!std::filesystem::exists(directory))
       {
          if (!std::filesystem::create_directories(directory))
@@ -831,15 +849,9 @@ namespace
             shaders_compilation_errors = "Cannot find nor create shaders directory";
             return;
          }
-         shaders_directory_created_or_empty = true;
+         shaders_directory_created_or_empty = true; // Largely redundant
       }
-      else if (!std::filesystem::is_directory(directory))
-      {
-         const std::unique_lock lock(s_mutex_loading);
-         shaders_compilation_errors = "The shaders path is already taken by a file";
-         return;
-      }
-      else if (std::filesystem::is_empty(directory))
+      if (std::filesystem::is_empty(directory))
       {
          shaders_directory_created_or_empty = true;
       }
@@ -1005,11 +1017,13 @@ namespace
          const bool is_cso = entry_path.extension().compare(".cso") == 0;
          if (!entry_path.has_extension() || !entry_path.has_stem() || (!is_hlsl && !is_cso))
          {
+#if _DEBUG && LOG_VERBOSE
             std::stringstream s;
             s << "LoadCustomShaders(Missing extension or stem or unknown extension: ";
             s << entry_path.string();
             s << ")";
             reshade::log::message(reshade::log::level::warning, s.str().c_str());
+#endif
             continue;
          }
 
@@ -1933,7 +1947,7 @@ namespace
 #if DEVELOPMENT && !GRAPHICS_ANALYZER // TODO: investigate "DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT" (add this to other mirrored code if you finalize it), and anyway make it optional as it lowers lag at the cost of not quequing up frames
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 #endif
-         desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Games will still need to call "Present()" with the tearing flag enabled for this to do anything
+         desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Games will still need to call "Present()" with "DXGI_PRESENT_ALLOW_TEARING" for this to do anything (ReShade will automatically do it if this flag is set)
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
          desc.fullscreen_refresh_rate = 0.f; // This fixes games forcing a specific refresh rate (e.g. Mafia III forces 60Hz for no reason)
          desc.fullscreen_state = false; // Force disable FSE (see "OnSetFullscreenState()")
@@ -2307,10 +2321,32 @@ namespace
       for (uint32_t i = 0; i < subobject_count; ++i)
       {
          const auto& subobject = subobjects[i];
+         switch (subobject.type)
+         {
+#if DEVELOPMENT
+         case reshade::api::pipeline_subobject_type::input_layout:
+         {
          for (uint32_t j = 0; j < subobject.count; ++j)
          {
-            switch (subobject.type)
+               reshade::api::input_element* desc = reinterpret_cast<reshade::api::input_element*>(subobject.data) + j;
+               D3D11_INPUT_ELEMENT_DESC internal_desc;
+               internal_desc.SemanticName = desc->semantic;
+               internal_desc.SemanticIndex = desc->semantic_index;
+               internal_desc.Format = DXGI_FORMAT(desc->format);
+               internal_desc.InputSlot = desc->buffer_binding;
+               internal_desc.AlignedByteOffset = desc->offset;
+               internal_desc.InputSlotClass = desc->instance_step_rate > 0 ? D3D11_INPUT_PER_INSTANCE_DATA : D3D11_INPUT_PER_VERTEX_DATA;
+               internal_desc.InstanceDataStepRate = desc->instance_step_rate;
+               if (desc->semantic == nullptr)
             {
+                  internal_desc.SemanticName = "TEXCOORD";
+                  internal_desc.SemanticIndex = desc->location;
+               }
+               input_layouts_descs[reinterpret_cast<ID3D11InputLayout*>(pipeline.handle)].push_back(internal_desc);
+            }
+            return;
+         }
+#endif
 #if GEOMETRY_SHADER_SUPPORT // Simply skipping cloning geom shaders pipelines is enough to stop the whole functionality (and the only place that is performance relevant)
             case reshade::api::pipeline_subobject_type::geometry_shader:
 #endif // GEOMETRY_SHADER_SUPPORT
@@ -2318,7 +2354,7 @@ namespace
             case reshade::api::pipeline_subobject_type::compute_shader:
             case reshade::api::pipeline_subobject_type::pixel_shader:
             {
-#if DX12
+#if DX12 // ?
                ASSERT_ONCE(subobject_count == 1);
 #endif
                ASSERT_ONCE(subobject.count == 1);
@@ -2330,7 +2366,6 @@ namespace
             }
             }
          }
-      }
 
       reshade::api::pipeline_subobject* subobjects_cache = Shader::ClonePipelineSubobjects(subobject_count, subobjects);
 
@@ -2398,7 +2433,7 @@ namespace
                      else
                      {
                         cached_shader = previous_shader;
-                        found_reflections = true; // We already did the reflections procedure (whether it failed or not)
+                        found_reflections = true; // We already did the reflections procedure (whether it previously failed or not ("cached_shader->found_reflections"), given the result wouldn't change now)
                      }
                   }
 
@@ -2413,13 +2448,91 @@ namespace
                      shader_cache[shader_hash] = cached_shader;
 #if ALLOW_SHADERS_DUMPING
                      shaders_to_dump.emplace(shader_hash);
-#endif // ALLOW_SHADERS_DUMPING
+
+#if DEVELOPMENT // Try to load reflections on disk if we previously stored them in the meta file
+                     const std::string hash_str = Shader::Hash_NumToStr(shader_hash, true);
+
+#if 0 // Not needed anymore
+                     // We still don't know the shader model here, so search by hash and *
+                     auto FindMetaFile = [&hash_str]() -> std::optional<std::filesystem::path>
+                        {
+                           if (!std::filesystem::exists(shaders_dump_path) || !std::filesystem::is_directory(shaders_dump_path))
+                              return std::nullopt;
+                           for (auto& entry : std::filesystem::directory_iterator(shaders_dump_path))
+                           {
+                              if (!entry.is_regular_file())
+                                 continue;
+                              std::filesystem::path file = entry.path();
+                              if (file.extension() != ".meta")
+                                 continue;
+                              std::string stem = file.stem().string(); // Everything before the extension
+                              if (stem.rfind(hash_str, 0) == 0) // Starts with hash
+                                 return file; // First match
+                           }
+                           return std::nullopt;
+                        };
+
+                     const auto meta_file_path_opt = FindMetaFile();
+                     if (meta_file_path_opt.has_value())
+                     {
+                        const auto& meta_file_path = meta_file_path_opt.value();
+#else
+                     const auto meta_file_path_it = dumped_shaders_meta_paths.find(shader_hash);
+                     if (meta_file_path_it != dumped_shaders_meta_paths.end())
+                     {
+                        const auto& meta_file_path = meta_file_path_it->second;
+#endif
+                        try
+                        {
+                           std::ifstream ifs(meta_file_path, std::ios::binary);
+                           if (!ifs) throw std::runtime_error("");
+
+                           uint8_t found_version = 1;
+                           ifs.read(reinterpret_cast<char*>(&found_version), sizeof(found_version));
+
+                           if (found_version != Shader::meta_version)
+                           {
+                              // Add version handling here (or below)
+                              throw std::runtime_error("");
                   }
+
+                           uint32_t type_and_version_size = 0;
+                           ifs.read(reinterpret_cast<char*>(&type_and_version_size), sizeof(type_and_version_size));
+                           if (type_and_version_size > 0)
+                           {
+                              cached_shader->type_and_version.resize(type_and_version_size);
+                              ifs.read(cached_shader->type_and_version.data(), type_and_version_size);
+                           }
+
+                           auto ReadBoolArray = [&](bool* arr, size_t count)
+                              {
+                                 for (size_t i = 0; i < count; ++i)
+                                 {
+                                    uint8_t val = 0;
+                                    ifs.read(reinterpret_cast<char*>(&val), sizeof(val));
+                                    arr[i] = (val != 0);
+                                 }
+                              };
+                           ReadBoolArray(cached_shader->cbs, std::size(cached_shader->cbs));
+                           ReadBoolArray(cached_shader->srvs, std::size(cached_shader->srvs));
+                           ReadBoolArray(cached_shader->rtvs, std::size(cached_shader->rtvs));
+                           ReadBoolArray(cached_shader->uavs, std::size(cached_shader->uavs));
+
+                           cached_shader->found_reflections = true;
+                           found_reflections = cached_shader->found_reflections;
+                        }
+                        catch (const std::exception& e)
+                        {
+                        }
+#endif // DEVELOPMENT
+                     }
+                  }
+#endif // ALLOW_SHADERS_DUMPING
 
                   // Try with native DX11 reflections first, they are much faster than disassembly
                   if (!found_reflections)
                   {
-                     // TODO: move declarations to shader compiler filer
+                     // TODO: move declarations to shader compiler filer, or actually, just use "D3DReflect"?
                      typedef HRESULT(WINAPI* pD3DReflect)(LPCVOID, SIZE_T, REFIID, void**);
                      typedef HRESULT(WINAPI* pD3DGetBlobPart)(LPCVOID, SIZE_T, D3D_BLOB_PART, UINT, ID3DBlob**);
                      static HMODULE d3d_compiler;
@@ -2478,9 +2591,22 @@ namespace
                         cached_shader->type_and_version = type_prefix + "_" + std::to_string(major_version) + "_" + std::to_string(minor_version);
 
 #if DEVELOPMENT
-                        // TODO: add CBs here
                         bool found_any_rtvs = false;
                         bool found_any_other_bindings = false;
+
+                        // CBs
+                        for (UINT i = 0; i < shader_desc.ConstantBuffers; ++i)
+                        {
+                           ID3D11ShaderReflectionConstantBuffer* cbuffer = shader_reflector->GetConstantBufferByIndex(i);
+                           if (!cbuffer)
+                              continue;
+
+                           // Doesn't mean much
+                           D3D11_SHADER_BUFFER_DESC cb_desc;
+                           ASSERT_ONCE(SUCCEEDED(cbuffer->GetDesc(&cb_desc)));
+
+                           cached_shader->cbs[i] = true;
+                        }
 
                         // RTVs
                         for (UINT i = 0; i < shader_desc.OutputParameters; ++i)
@@ -2513,6 +2639,11 @@ namespace
                                  {
                                     cached_shader->uavs[bind_desc.BindPoint + j] = true;
                                     found_any_other_bindings = true;
+                                 }
+                                 // Verify that the cbuffer index and bind points match (they should always do)
+                                 else if (bind_desc.Type == D3D_SIT_CBUFFER)
+                                 {
+                                    ASSERT_ONCE(cached_shader->cbs[bind_desc.BindPoint + j]);
                                  }
                               }
                            }
@@ -2610,7 +2741,7 @@ namespace
                         }
                      }
 
-#if DEVELOPMENT
+#if DEVELOPMENT // TODO: move this into a function that is re-usable later, and allow delaying this until we actually need it in the visualizer
                      if (valid_disasm && !found_reflections)
                      {
                         std::istringstream iss(cached_shader->disasm);
@@ -2679,14 +2810,16 @@ namespace
 #endif // DEVELOPMENT
                   }
 #if DEVELOPMENT
+                  cached_shader->found_reflections = found_reflections;
                   // Default all of them to true if we can't tell which ones are used
                   if (!found_reflections)
                   {
+                     for (bool& b : cached_shader->cbs) b = true;
                      for (bool&  b : cached_shader->srvs) b = true;
                      for (bool& b : cached_shader->rtvs) b = true;
                      for (bool& b : cached_shader->uavs) b = true;
                   }
-#endif
+#endif // DEVELOPMENT
                }
 #endif // ALLOW_SHADERS_DUMPING || DEVELOPMENT
 
@@ -2809,6 +2942,10 @@ namespace
 
          device_data.pipeline_cache_by_pipeline_handle.erase(pipeline.handle);
       }
+
+#if DEVELOPMENT
+      input_layouts_descs.erase(reinterpret_cast<ID3D11InputLayout*>(pipeline.handle));
+#endif
    }
 
    void OnBindPipeline(
@@ -3117,22 +3254,13 @@ namespace
    }
 #endif
 
-#if RESHADE_API_VERSION >= 18
-   bool
-#else
-   void
-#endif
-      OnPresent(
+   void OnPresent(
       reshade::api::command_queue* queue,
       reshade::api::swapchain* swapchain,
       const reshade::api::rect* source_rect,
       const reshade::api::rect* dest_rect,
       uint32_t dirty_rect_count,
       const reshade::api::rect* dirty_rects
-#if RESHADE_API_VERSION >= 18
-      , uint32_t* sync_interval
-      , uint32_t* flags
-#endif
       )
    {
       ID3D11Device* native_device = (ID3D11Device*)(queue->get_device()->get_native());
@@ -3140,14 +3268,6 @@ namespace
       DeviceData& device_data = *queue->get_device()->get_private_data<DeviceData>();
       SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
       CommandListData& cmd_list_data = *queue->get_immediate_command_list()->get_private_data<CommandListData>();
-
-#if RESHADE_API_VERSION >= 18
-      // We previously added "DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING" to the swapchain, so we need to add this too
-      if (sync_interval && *sync_interval == 0 && flags)
-      {
-         *flags |= DXGI_PRESENT_ALLOW_TEARING;
-      }
-#endif
 
 #if DEVELOPMENT
 #if GAME_BIOSHOCK_2 && 0 //TODOFT6: probably not necessary
@@ -3546,6 +3666,7 @@ namespace
             DrawCustomPixelShader(native_device_context, device_data.default_depth_stencil_state.get(), device_data.default_blend_state.get(), device_data.copy_vertex_shader.get(), device_data.display_composition_pixel_shader.get(), device_data.display_composition_srv.get(), target_resource_texture_view.get(), target_desc.Width, target_desc.Height, false);
 
 #if DEVELOPMENT
+            {
             const std::shared_lock lock_trace(s_mutex_trace);
             if (trace_running)
             {
@@ -3555,6 +3676,7 @@ namespace
                trace_draw_call_data.command_list = native_device_context;
                trace_draw_call_data.custom_name = "Luma Display Composition";
                cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+            }
             }
 #endif // DEVELOPMENT
 
@@ -3672,10 +3794,6 @@ namespace
 
       cb_luma_global_settings.FrameIndex++;
       device_data.cb_luma_global_settings_dirty = true;
-
-#if RESHADE_API_VERSION >= 18
-      return false;
-#endif
    }
 
    //TODOFT3: merge all the shader permutations that use the same code in Prey (and then move shader binaries to bin folder? Add shader files to VS project?)
@@ -3809,14 +3927,14 @@ namespace
             ASSERT_ONCE(native_device_context);
             if (is_dispatch)
             {
-               AddTraceDrawCallData(cmd_list_data.trace_draw_calls_data, device_data, native_device_context, cmd_list_data.pipeline_state_original_compute_shader.handle, shader_cache);
+               AddTraceDrawCallData(cmd_list_data.trace_draw_calls_data, device_data, native_device_context, cmd_list_data.pipeline_state_original_compute_shader.handle, shader_cache, input_layouts_descs, last_draw_dispatch_data);
             }
             else
             {
-               AddTraceDrawCallData(cmd_list_data.trace_draw_calls_data, device_data, native_device_context, cmd_list_data.pipeline_state_original_vertex_shader.handle, shader_cache);
+               AddTraceDrawCallData(cmd_list_data.trace_draw_calls_data, device_data, native_device_context, cmd_list_data.pipeline_state_original_vertex_shader.handle, shader_cache, input_layouts_descs, last_draw_dispatch_data);
                if (cmd_list_data.pipeline_state_original_pixel_shader.handle != 0) // Somehow this can happen (e.g. query tests don't require pixel shaders)
                {
-                  AddTraceDrawCallData(cmd_list_data.trace_draw_calls_data, device_data, native_device_context, cmd_list_data.pipeline_state_original_pixel_shader.handle, shader_cache);
+                  AddTraceDrawCallData(cmd_list_data.trace_draw_calls_data, device_data, native_device_context, cmd_list_data.pipeline_state_original_pixel_shader.handle, shader_cache, input_layouts_descs, last_draw_dispatch_data);
                }
             }
          }
@@ -4123,6 +4241,13 @@ namespace
          pre_draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
       }
 
+      // TODO: it'd be nicer to do this better.
+      last_draw_dispatch_data = {};
+      last_draw_dispatch_data.vertex_count = vertex_count;
+      last_draw_dispatch_data.instance_count = instance_count;
+      last_draw_dispatch_data.first_vertex = first_vertex;
+      last_draw_dispatch_data.first_instance = first_instance;
+
       std::function<void()> draw_lambda = [&]()
          {
             if (instance_count > 1)
@@ -4236,6 +4361,16 @@ namespace
          pre_draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
       }
 
+      last_draw_dispatch_data = {};
+      last_draw_dispatch_data.instance_count = instance_count;
+      last_draw_dispatch_data.first_instance = first_instance;
+
+      last_draw_dispatch_data.vertex_offset = vertex_offset;
+      last_draw_dispatch_data.first_index = first_index;
+      last_draw_dispatch_data.index_count = index_count;
+
+      last_draw_dispatch_data.indexed = true;
+
       std::function<void()> draw_lambda = [&]()
          {
             if (instance_count > 1)
@@ -4325,6 +4460,9 @@ namespace
       {
          pre_draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
       }
+
+      last_draw_dispatch_data = {};
+      last_draw_dispatch_data.dispatch_count = uint3( group_count_x, group_count_y, group_count_z );
 
       std::function<void()> draw_lambda = [&]()
          {
@@ -4416,6 +4554,11 @@ namespace
          else
             pre_draw_state_stack_graphics.Cache(native_device_context, device_data.uav_max_count);
       }
+
+      last_draw_dispatch_data = {};
+      // All the data is unknown as it's delegated to the GPU
+      last_draw_dispatch_data.indirect = true;
+      last_draw_dispatch_data.indexed = type == reshade::api::indirect_command::draw_indexed;
 
       std::function<void()> draw_lambda = [&]()
          {
@@ -5447,31 +5590,45 @@ namespace
 #endif
    }
 
-   bool OnUpdateBufferRegion(reshade::api::device* device, const void* data, reshade::api::resource resource, uint64_t offset, uint64_t size)
+   bool OnUpdateBufferRegionCommand_Common(reshade::api::device* device, reshade::api::command_list* cmd_list, const void* data, reshade::api::resource dest, uint64_t dest_offset, uint64_t size)
    {
+      if (!device)
+      {
+         device = cmd_list->get_device();
+      }
       DeviceData& device_data = *device->get_private_data<DeviceData>();
 
       {
          const std::shared_lock lock_trace(s_mutex_trace);
          if (trace_running)
          {
-            auto& cmd_list_data = *device_data.primary_command_list_data;
+            auto& cmd_list_data = cmd_list ? *cmd_list->get_private_data<CommandListData>() : *device_data.primary_command_list_data;
             const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
             TraceDrawCallData trace_draw_call_data;
             trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::CPUWrite;
-            trace_draw_call_data.command_list = device_data.primary_command_list;
-            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(resource.handle);
+            trace_draw_call_data.command_list = cmd_list ? (ID3D11DeviceContext*)(cmd_list->get_native()) : device_data.primary_command_list;
+            ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
             // Re-use the RTV data for simplicity
             GetResourceInfo(target_resource, trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
             cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
          }
       }
 
-      ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
+      ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(dest.handle);
       // Verify that we didn't miss any changes to the global g-buffer
       ASSERT_ONCE(!device_data.has_drawn_main_post_processing_previous || !device_data.cb_per_view_global_buffers.contains(buffer));
 
       return false;
+   }
+
+   bool OnUpdateBufferRegionCommand(reshade::api::command_list* cmd_list, const void* data, reshade::api::resource dest, uint64_t dest_offset, uint64_t size)
+   {
+      return OnUpdateBufferRegionCommand_Common(nullptr, cmd_list, data, dest, dest_offset, size);
+   }
+
+   bool OnUpdateBufferRegion(reshade::api::device* device, const void* data, reshade::api::resource resource, uint64_t offset, uint64_t size)
+   {
+      return OnUpdateBufferRegionCommand_Common(device, nullptr, data, resource, offset, size);
    }
 
    bool OnUpdateTextureRegion(reshade::api::device* device, const reshade::api::subresource_data& data, reshade::api::resource resource, uint32_t subresource, const reshade::api::subresource_box* box)
@@ -6089,21 +6246,16 @@ namespace
 #if !ALLOW_SHADERS_DUMPING
       ASSERT_ONCE(false); // Shouldn't call this function if the feature is disabled
 #else // Note: this might work with "DEVELOPMENT" too, but possibly not entirely
-      auto dump_path = GetShadersRootPath();
+
+      auto dump_path = shaders_dump_path;
+      // Create it if it doesn't exist
       if (!std::filesystem::exists(dump_path))
       {
-         std::filesystem::create_directories(dump_path);
-      }
-      // TODO: cache this once on boot?
-      dump_path = dump_path / Globals::GAME_NAME / (std::string("Dump") + (sub_game_shaders_appendix.empty() ? "" : " ") + sub_game_shaders_appendix); // We dump in the game specific folder
-      if (!std::filesystem::exists(dump_path))
+         if (!std::filesystem::create_directories(dump_path))
       {
-         std::filesystem::create_directories(dump_path);
-      }
-      else if (!std::filesystem::is_directory(dump_path))
-      {
-         ASSERT_ONCE_MSG(false, "The target path is already taken by a file");
+            ASSERT_ONCE_MSG(false, "The target shader dump path failed to be created (lack of write access, the path is already taken by files by the same name etc)");
          return;
+      }
       }
 
       dump_path /= Shader::Hash_NumToStr(shader_hash, true);
@@ -6117,18 +6269,54 @@ namespace
          dump_path += cached_shader->type_and_version;
       }
 
-      dump_path += L".cso";
+      auto dump_path_cso = dump_path;
+      dump_path_cso += ".cso";
+      auto dump_path_meta = dump_path;
+      dump_path_meta += ".meta";
 
       // If the shader was already serialized, make sure the new one is of the same size, to catch the near impossible case
       // of two different shaders having the same hash
-      if (std::filesystem::is_regular_file(dump_path))
+      if (std::filesystem::is_regular_file(dump_path_cso))
       {
-         ASSERT_ONCE(std::filesystem::file_size(dump_path) == cached_shader->size);
+         ASSERT_ONCE(std::filesystem::file_size(dump_path_cso) == cached_shader->size);
       }
 
       try
       {
-         std::ofstream file(dump_path, std::ios::binary);
+         if (cached_shader->found_reflections) // We could save it nonetheless, as likely reflections would fail to be found again the next time, but who knows
+         {
+            std::ofstream ofs(dump_path_meta, std::ios::binary | std::ios::trunc);
+            if (!ofs) throw std::runtime_error("");
+
+            ofs.write(reinterpret_cast<const char*>(&Shader::meta_version), sizeof(Shader::meta_version));
+
+            auto WriteBoolArray = [&](const bool* arr, size_t count)
+               {
+                  for (size_t i = 0; i < count; ++i)
+                  {
+                     uint8_t val = arr[i] ? 1 : 0;
+                     ofs.write(reinterpret_cast<const char*>(&val), sizeof(val));
+                  }
+               };
+
+            uint32_t type_and_version_size = static_cast<uint32_t>(cached_shader->type_and_version.size());
+            ofs.write(reinterpret_cast<const char*>(&type_and_version_size), sizeof(type_and_version_size));
+            if (type_and_version_size > 0)
+               ofs.write(cached_shader->type_and_version.data(), type_and_version_size);
+
+            WriteBoolArray(cached_shader->cbs, std::size(cached_shader->cbs));
+            WriteBoolArray(cached_shader->srvs, std::size(cached_shader->srvs));
+            WriteBoolArray(cached_shader->rtvs, std::size(cached_shader->rtvs));
+            WriteBoolArray(cached_shader->uavs, std::size(cached_shader->uavs));
+         }
+      }
+      catch (const std::exception& e)
+      {
+      }
+
+      try
+      {
+         std::ofstream file(dump_path_cso, std::ios::binary);
 
          file.write(static_cast<const char*>(cached_shader->data), cached_shader->size);
 
@@ -6160,8 +6348,7 @@ namespace
 
 #if DEVELOPMENT && TEST_DUPLICATE_SHADER_HASH
       std::unordered_set<std::filesystem::path> dumped_shaders_paths;
-      auto dump_path = GetShadersRootPath() / Globals::GAME_NAME / (std::string("Dump") + (sub_game_shaders_appendix.empty() ? "" : " ") + sub_game_shaders_appendix);
-      for (const auto& entry : std::filesystem::directory_iterator(dump_path))
+      for (const auto& entry : std::filesystem::directory_iterator(shaders_dump_path))
       {
          if (entry.is_regular_file())
          {
@@ -7255,6 +7442,60 @@ namespace
                                  if (ImGui::BeginChild("StateAnalysisScroll", ImVec2(0, -FLT_MIN), ImGuiChildFlags_Border)) // I prefer it without a separate scrolling box for now
                                  {
                                     bool is_first_view = true;
+
+                                    if (pipeline_pair->second->HasComputeShader())
+                                    {
+                                       ImGui::Text("Indirect: %s", draw_call_data.draw_dispatch_data.indirect ? "True" : "False");
+                                       ImGui::Text("Dispatch Count: %ux%ux%u", draw_call_data.draw_dispatch_data.dispatch_count.x, draw_call_data.draw_dispatch_data.dispatch_count.y, draw_call_data.draw_dispatch_data.dispatch_count.z);
+                                    }
+                                    else if (pipeline_pair->second->HasVertexShader())
+                                    {
+                                       ImGui::Text("Indirect: %s", draw_call_data.draw_dispatch_data.indirect ? "True" : "False");
+                                       ImGui::NewLine();
+                                       ImGui::Text("Vertex Count: %u", draw_call_data.draw_dispatch_data.vertex_count);
+                                       ImGui::Text("Instance Count: %u", draw_call_data.draw_dispatch_data.instance_count);
+                                       ImGui::Text("First Vertex: %u", draw_call_data.draw_dispatch_data.first_vertex);
+                                       ImGui::Text("First Instance: %u", draw_call_data.draw_dispatch_data.first_instance);
+                                       ImGui::Text("Index Count: %u", draw_call_data.draw_dispatch_data.index_count);
+                                       ImGui::Text("First Index: %u", draw_call_data.draw_dispatch_data.first_index);
+                                       ImGui::Text("Vertex Offset: %i", draw_call_data.draw_dispatch_data.vertex_offset);
+                                       ImGui::Text("Indexed: %s", draw_call_data.draw_dispatch_data.indexed ? "True" : "False"); // TODO: do we need this? Is "index_count" enough? The functions would be different.
+
+                                       auto GetPrimitiveTopologyName = [](D3D_PRIMITIVE_TOPOLOGY topology) -> const char*
+                                          {
+                                             switch (topology)
+                                             {
+                                             case D3D_PRIMITIVE_TOPOLOGY_UNDEFINED:         return "UNDEFINED";
+                                             case D3D_PRIMITIVE_TOPOLOGY_POINTLIST:         return "POINTLIST";
+                                             case D3D_PRIMITIVE_TOPOLOGY_LINELIST:          return "LINELIST";
+                                             case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP:         return "LINESTRIP";
+                                             case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:      return "TRIANGLELIST";
+                                             case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:     return "TRIANGLESTRIP";
+                                             case D3D_PRIMITIVE_TOPOLOGY_TRIANGLEFAN:       return "TRIANGLEFAN";
+                                             case D3D_PRIMITIVE_TOPOLOGY_LINELIST_ADJ:      return "LINELIST ADJ";
+                                             case D3D_PRIMITIVE_TOPOLOGY_LINESTRIP_ADJ:     return "LINESTRIP ADJ";
+                                             case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST_ADJ:  return "TRIANGLELIST ADJ";
+                                             case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ: return "TRIANGLESTRIP ADJ";
+                                             default:                                       return "UNKNOWN";
+                                             }
+                                          };
+                                       ImGui::NewLine();
+                                       ImGui::Text("Primitive Topology: %s", GetPrimitiveTopologyName(draw_call_data.primitive_topology));
+
+                                       for (size_t i = 0; i < draw_call_data.vertex_buffer_hashes.size(); i++)
+                                       {
+                                          ImGui::NewLine();
+                                          ImGui::Text("Vertex Buffer %u: %s", i, draw_call_data.vertex_buffer_hashes[i].c_str());
+                                          ImGui::Text("Input Layout %u Format: %s", i, GetFormatNameSafe(draw_call_data.input_layouts_formats[i]));
+                                       }
+
+                                       ImGui::NewLine();
+                                       ImGui::Text("Input Buffer: %s", draw_call_data.input_layout_hash.c_str());
+                                       ImGui::Text("Input Buffer Format: %s", GetFormatNameSafe(draw_call_data.index_buffer_format));
+                                       ImGui::Text("Input Buffer Offset: %u", draw_call_data.index_buffer_offset);
+
+                                       ImGui::Text("Input Layout: %s", draw_call_data.index_buffer_hash.c_str());
+                                    }
 
                                     if (pipeline_pair->second->HasVertexShader() || pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasComputeShader())
                                     {
@@ -9694,72 +9935,6 @@ void Init(bool async)
 {
    has_init = true;
 
-#if ALLOW_SHADERS_DUMPING
-   // Add all the shaders we have already dumped to the dumped list to avoid live re-dumping them
-   dumped_shaders.clear();
-   std::set<std::filesystem::path> dumped_shaders_paths;
-   auto dump_path = GetShadersRootPath() / Globals::GAME_NAME / (std::string("Dump") + (sub_game_shaders_appendix.empty() ? "" : " ") + sub_game_shaders_appendix);
-   // No need to create the directory here if it didn't already exist
-   if (std::filesystem::is_directory(dump_path))
-   {
-      const std::lock_guard<std::recursive_mutex> lock_dumping(s_mutex_dumping);
-      for (const auto& entry : std::filesystem::directory_iterator(dump_path))
-      {
-         if (!entry.is_regular_file()) continue;
-         const auto& entry_path = entry.path();
-         if (entry_path.extension() != ".cso") continue;
-         const auto& entry_strem_string = entry_path.stem().string();
-         if (entry_strem_string.starts_with("0x") && entry_strem_string.length() >= 2 + HASH_CHARACTERS_LENGTH)
-         {
-            const std::string shader_hash_string = entry_strem_string.substr(2, HASH_CHARACTERS_LENGTH);
-            try
-            {
-               uint32_t shader_hash = Shader::Hash_StrToNum(shader_hash_string);
-               bool duplicate = dumped_shaders.contains(shader_hash);
-#if DEVELOPMENT
-               ASSERT_ONCE(!duplicate); // We have a duplicate shader dumped, cancel here to avoid deleting it
-#endif
-               if (duplicate)
-               {
-                  for (const auto& prev_entry_path : dumped_shaders_paths)
-                  {
-                     if (prev_entry_path.string().contains(shader_hash_string))
-                     {
-                        // Delete the old version if it's shorter in name (e.g. it might have missed the "ps_5_0" appendix, or simply missing a name we manually appended to it)
-                        if (prev_entry_path.string().length() < entry_path.string().length())
-                        {
-                           if (std::filesystem::remove(prev_entry_path))
-                           {
-                              duplicate = false;
-                              break;
-                           }
-                        }
-                        // Delete the new version
-                        else
-                        {
-                           if (std::filesystem::remove(entry_path))
-                           {
-                              break;
-                           }
-                        }
-                     }
-                  }
-               }
-               if (!duplicate)
-               {
-                  dumped_shaders.emplace(shader_hash);
-                  dumped_shaders_paths.emplace(entry_path);
-               }
-            }
-            catch (const std::exception& e)
-            {
-               continue;
-            }
-         }
-      }
-   }
-#endif // ALLOW_SHADERS_DUMPING
-
    for (int i = 0; i < shader_defines_data.size(); i++)
    {
       shader_defines_data_index[string_view_crc32(std::string_view(shader_defines_data[i].default_data.GetName()))] = i;
@@ -9849,6 +10024,87 @@ void Init(bool async)
 
       game->OnShaderDefinesChanged();
    }
+
+   shaders_path = GetShadersRootPath(); // Needs to be done after "custom_shaders_path" was set
+
+#if ALLOW_SHADERS_DUMPING // Needs to be done after "custom_shaders_path" was set
+   // Add all the shaders we have already dumped to the dumped list to avoid live re-dumping them
+   dumped_shaders.clear();
+   std::set<std::filesystem::path> dumped_shaders_paths;
+   shaders_dump_path = shaders_path / Globals::GAME_NAME / (std::string("Dump") + (sub_game_shaders_appendix.empty() ? "" : " ") + sub_game_shaders_appendix); // We dump in the game specific folder
+   // No need to create the directory here if it didn't already exist
+   if (std::filesystem::is_directory(shaders_dump_path))
+   {
+      const std::lock_guard<std::recursive_mutex> lock_dumping(s_mutex_dumping);
+      for (const auto& entry : std::filesystem::directory_iterator(shaders_dump_path))
+      {
+         if (!entry.is_regular_file()) continue;
+         const auto& entry_path = entry.path();
+         bool is_cso = entry_path.extension() == ".cso";
+         bool is_meta = entry_path.extension() == ".meta";
+         if (!is_cso && !is_meta) continue;
+         const auto& entry_strem_string = entry_path.stem().string();
+         if (entry_strem_string.starts_with("0x") && entry_strem_string.length() >= 2 + HASH_CHARACTERS_LENGTH)
+         {
+            const std::string shader_hash_string = entry_strem_string.substr(2, HASH_CHARACTERS_LENGTH);
+            uint32_t shader_hash;
+            try
+            {
+               shader_hash = Shader::Hash_StrToNum(shader_hash_string);
+            }
+            catch (const std::exception& e)
+            {
+               continue;
+            }
+
+            if (is_meta)
+            {
+#if DEVELOPMENT
+               dumped_shaders_meta_paths[shader_hash] = entry_path;
+#endif
+               continue;
+            }
+            // "is_cso"
+
+            bool duplicate = dumped_shaders.contains(shader_hash);
+#if DEVELOPMENT
+            ASSERT_ONCE(!duplicate); // We have a duplicate shader dumped, cancel here to avoid deleting it
+#endif
+            if (duplicate) // Not really needed anymore, as this fixes a legacy behaviour
+            {
+               for (const auto& prev_entry_path : dumped_shaders_paths)
+               {
+                  if (prev_entry_path.string().contains(shader_hash_string))
+                  {
+                     // Delete the old version if it's shorter in name (e.g. it might have missed the "ps_5_0" appendix, or simply missing a name we manually appended to it)
+                     if (prev_entry_path.string().length() < entry_path.string().length())
+                     {
+                        if (std::filesystem::remove(prev_entry_path))
+                        {
+                           duplicate = false;
+                           break;
+                        }
+                     }
+                     // Delete the new version
+                     else
+                     {
+                        if (std::filesystem::remove(entry_path))
+                        {
+                           break;
+                        }
+                     }
+                  }
+               }
+            }
+            if (!duplicate)
+            {
+               dumped_shaders.emplace(shader_hash);
+               dumped_shaders_paths.emplace(entry_path);
+            }
+         }
+      }
+   }
+#endif // ALLOW_SHADERS_DUMPING
 
    {
       // Assume that the shader defines loaded from config match the ones the current pre-compiled shaders have (or, simply use the defaults otherwise)
@@ -10024,6 +10280,9 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::map_buffer_region>(OnMapBufferRegion);
       reshade::register_event<reshade::addon_event::map_texture_region>(OnMapTextureRegion);
       reshade::register_event<reshade::addon_event::update_buffer_region>(OnUpdateBufferRegion);
+#if RESHADE_API_VERSION >= 18
+      reshade::register_event<reshade::addon_event::update_buffer_region_command>(OnUpdateBufferRegionCommand);
+#endif
       reshade::register_event<reshade::addon_event::update_texture_region>(OnUpdateTextureRegion);
       reshade::register_event<reshade::addon_event::clear_render_target_view>(OnClearRenderTargetView);
       reshade::register_event<reshade::addon_event::clear_unordered_access_view_uint>(OnClearUnorderedAccessViewUInt);
@@ -10125,6 +10384,9 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::map_buffer_region>(OnMapBufferRegion);
       reshade::unregister_event<reshade::addon_event::map_texture_region>(OnMapTextureRegion);
       reshade::unregister_event<reshade::addon_event::update_buffer_region>(OnUpdateBufferRegion);
+#if RESHADE_API_VERSION >= 18
+      reshade::unregister_event<reshade::addon_event::update_buffer_region_command>(OnUpdateBufferRegionCommand);
+#endif
       reshade::unregister_event<reshade::addon_event::update_texture_region>(OnUpdateTextureRegion);
       reshade::unregister_event<reshade::addon_event::clear_render_target_view>(OnClearRenderTargetView);
       reshade::unregister_event<reshade::addon_event::clear_unordered_access_view_uint>(OnClearUnorderedAccessViewUInt);

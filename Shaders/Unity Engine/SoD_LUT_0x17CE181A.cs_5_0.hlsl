@@ -465,10 +465,9 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
 	oklch[1] = lerp(oklch[1], max(oklch[1], 1.0), saturate((vanillaTMOklab[0] * 2.0) - 1.0) * 0.0275);
 	untonemapped = oklch_to_linear_srgb(oklch);
 #else
-  bool restoreBrightness = true; // We get raised blacks without this
-	untonemapped = RestoreHue(untonemapped, saturate(vanillaTM), 0.75, restoreBrightness);
+  float restoreBrightness = 1.0; // We get raised blacks without this
+	untonemapped = RestoreHueAndChrominance(untonemapped, saturate(vanillaTM), 0.75, 0.0, restoreBrightness);
 #endif
-//TODOFT: do it with new oklab method and test skies being blue... then fix invalid colors
   
 #elif TONEMAP_TYPE == 3 || TONEMAP_TYPE == 4
 
@@ -500,7 +499,7 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
   // Do a second DICE pass by PQ channel and then restore that chrominance, to smoothly desaturate highlights
   diceSettings.Type = DICE_TYPE_BY_CHANNEL_PQ;
 	float3 tonemappedAlt = DICETonemap(untonemapped * paperWhite, peakWhite, diceSettings) / paperWhite;
-	tonemapped = RestoreChrominanceAdvanced(tonemapped, tonemappedAlt);
+	tonemapped = RestoreHueAndChrominance(tonemapped, tonemappedAlt, 0.0, 1.0);
 #endif // TONEMAP_TYPE == 4
 
 #else // TONEMAP_TYPE > 4

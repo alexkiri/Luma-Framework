@@ -20,7 +20,7 @@
 Texture3D<float4> t9 : register(t9); // 3D LUT 16x
 Texture2D<float4> t8 : register(t8); // Film grain/dither map
 Texture2D<float4> t7 : register(t7); // Lens flare
-Texture2D<float4> t6 : register(t6); // Iris/vignette fullscreen effect?
+Texture2D<float4> t6 : register(t6); // Lens dirt
 Texture2D<float4> t5 : register(t5); // Some noise map?
 Texture2D<float4> t4 : register(t4); // (Auto) Exposure and tonemapper white level
 Texture2D<float4> t3 : register(t3); // Blood overlay
@@ -92,7 +92,7 @@ float ApplyTonemap_Inverse(float x, float whiteLevel)
   return xSign * Tonemap_Uncharted2_Inverse_Eval(x, a, b, c, d, e, f) * tonemappedWhiteLevel;
 }
 
-float3 ApplyTonemap(float3 color, float whiteLevel)
+float3 ApplyTonemap(float3 color, float whiteLevel, bool forceVanilla = false)
 {
   float a = cb1[4].x;
   float b = cb1[4].y;
@@ -111,11 +111,14 @@ float3 ApplyTonemap(float3 color, float whiteLevel)
 
   tonemappedColor = OptionalSaturate(tonemappedColor / tonemappedWhiteLevel);
 
-#if ENABLE_LUMA && 1 // Change gamma correction to be by luminance to avoid further shifting colors // TODO: try this
-  tonemappedColor = RestoreLuminance(tonemappedColor, pow(max(GetLuminance(tonemappedColor), 0.0), cb0[2].x), true);
-#else
-  tonemappedColor = pow(tonemappedColor, cb0[2].x); // Gamma modulation (seemengly swings between 1 and 1.1 or so, depending on the lighting conditions)
+#if !ENABLE_LUMA
+  forceVanilla = true;
 #endif
+
+  if (forceVanilla)
+    tonemappedColor = pow(tonemappedColor, cb0[2].x); // Gamma modulation (seemengly swings between 1 and 1.1 or so, depending on the lighting conditions)
+  else // Change gamma correction to be by luminance to avoid further shifting colors // TODO: try this
+    tonemappedColor = RestoreLuminance(tonemappedColor, pow(max(GetLuminance(tonemappedColor), 0.0), cb0[2].x), true);
 
   tonemappedColor = OptionalMin1(tonemappedColor);
 
@@ -127,12 +130,12 @@ float3 ApplyTonemap(float3 color, float whiteLevel)
 }
 
 // Wrapper function to do the SDR tonemapper while also keeping HDR highlights
-float3 ApplyTonemap_HDR_Proxy(float3 color, float whiteLevel, out float3 tonemappedSDRColor)
+float3 ApplyTonemap_HDR_Proxy(float3 color, float whiteLevel, out float3 tonemappedSDRColor, bool forceSDR = false)
 {
-// TODO: test again!!!
 #if ENABLE_LUMA && EXPAND_COLOR_GAMUT // Run this in a wider color space, so shadow saturates more nicely, this massively changes red highlights, but they look more accurate, and nicer!
   float3 originalColor = color;
-  color = BT709_To_BT2020(color);
+  if (!forceSDR)
+    color = BT709_To_BT2020(color);
 #endif
 
   // Match mid gray with the original TM output
@@ -141,7 +144,7 @@ float3 ApplyTonemap_HDR_Proxy(float3 color, float whiteLevel, out float3 tonemap
   float SDRTMMidGrayRatio = SDRTMMidGrayOut / SDRTMMidGrayIn;
   float3 tonemappedHDRColor = color * SDRTMMidGrayRatio;
 
-#if ENABLE_LUMA && STRETCH_ORIGINAL_TONEMAPPER // Attept at stretching the SDR tonemapper // TODO: delete? Looks like crap
+#if ENABLE_LUMA && STRETCH_ORIGINAL_TONEMAPPER // Attept at stretching the SDR tonemapper // TODO: delete? Looks like crap (and no support for "forceSDR" currently)
   // Attept at stretching the SDR tonemapper
   float powCoeff = DVS9; // <=0.5
   float startingPoint = DVS10; // MidGray
@@ -151,7 +154,7 @@ float3 ApplyTonemap_HDR_Proxy(float3 color, float whiteLevel, out float3 tonemap
   color /= SDRTMMidGrayRatio; // Restore back to the original/full range, to pass it to the game's SDR tonemapper again
 #endif
 
-  float3 tonemappedColor = ApplyTonemap(color, whiteLevel);
+  float3 tonemappedColor = ApplyTonemap(color, whiteLevel, forceSDR);
   tonemappedSDRColor = tonemappedColor;
 
 #if ENABLE_LUMA && STRETCH_ORIGINAL_TONEMAPPER
@@ -166,23 +169,26 @@ float3 ApplyTonemap_HDR_Proxy(float3 color, float whiteLevel, out float3 tonemap
 #endif
 
 #if ENABLE_LUMA && EXPAND_COLOR_GAMUT
-  tonemappedHDRColor = BT2020_To_BT709(tonemappedHDRColor);
+  if (!forceSDR)
+  {
+    tonemappedHDRColor = BT2020_To_BT709(tonemappedHDRColor);
 #if 0 // Optionally run the raw SDR tonemapper output in the original color space, this kinda defeats the purpose of running in BT.2020 as we have hue restoration later, but... without this fires hue shifts too much
-  tonemappedSDRColor = ApplyTonemap(originalColor, whiteLevel);
+    tonemappedSDRColor = ApplyTonemap(originalColor, whiteLevel);
 #else
-  tonemappedSDRColor = BT2020_To_BT709(tonemappedSDRColor);
+    tonemappedSDRColor = BT2020_To_BT709(tonemappedSDRColor);
 #endif
+  }
 #endif
 
-  return tonemappedHDRColor;
+  return forceSDR ? tonemappedSDRColor : tonemappedHDRColor;
 }
 
-float3 ApplyLUT(float3 HDRColor, float3 SDRColor, Texture3D<float4> _texture, SamplerState _sampler)
+float3 ApplyLUT(float3 HDRColor, float3 SDRColor, Texture3D<float4> _texture, SamplerState _sampler, bool forceSDR = false)
 {
   float3 postLutColor;
 
 #if ENABLE_LUT_EXTRAPOLATION
-  bool lutExtrapolation = true;
+  bool lutExtrapolation = !forceSDR;
   if (lutExtrapolation)
   {
     LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
@@ -196,7 +202,7 @@ float3 ApplyLUT(float3 HDRColor, float3 SDRColor, Texture3D<float4> _texture, Sa
     extrapolationSettings.outputLinear = true;
     //extrapolationSettings.enableExtrapolation = DVS1 <= 0.5; // Test: Show clipping instead
     extrapolationSettings.extrapolationQuality = 2;
-    // TODO: if we improved the desaturation of whites with extrapolation, we might be able to running the tonemapped by channel when "ENABLE_LUT_EXTRAPOLATION" is true (be careful to fires through!)
+    // TODO: if we improved the desaturation of whites with extrapolation, we might be able to running the tonemapped by channel when "ENABLE_LUT_EXTRAPOLATION" is true (be careful to fires through!). We should also try this again given that we fix broken BT.2020 conversions, and see if we could go for "DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE".
     extrapolationSettings.clampedLUTRestorationAmount = 0.333; // This heavily desaturates highlights in HDR, due to the intense clipping. This goes up very fast so 0.1 is already a lot
     postLutColor = SampleLUTWithExtrapolation(_texture, _sampler, extrapolationData, extrapolationSettings);
   }
@@ -207,6 +213,9 @@ float3 ApplyLUT(float3 HDRColor, float3 SDRColor, Texture3D<float4> _texture, Sa
     lutInColor = lutInColor * 0.9375 + 0.03125; // LUT_SIZE
     float3 lutOutColor = t9.Sample(s2_s, lutInColor).rgb;
     lutOutColor = gamma_to_linear(lutOutColor, GCT_MIRROR);
+
+    // If "forceSDR" is true, the code below wouldn't do anything anyway as the sdr and hdr colors will match, but let's do an early return for safety.
+    if (forceSDR) return lutOutColor;
 
     float hueRestoration = 0.333; // It doesn't really seem to be needed in this game, we could even set it to 0
     bool BT2020 = false;
@@ -240,16 +249,19 @@ void main(
   return;
 #endif
 
+  float sourceWidth, sourceHeight;
+  t1.GetDimensions(sourceWidth, sourceHeight);
+  float2 uv = v0.xy / float2(sourceWidth, sourceHeight); // v1 has lens distortion
+
   // In these cases, AA run before TAA (e.g. game cutscenes), so we do some more stuff here
   bool forceFinalPostProcess = (LumaData.CustomData1 & 0x1) != 0; // First bit (bit 0)
   bool forceEncode = (LumaData.CustomData1 & 0x2) != 0; // Second bit (bit 1)
+  bool forceSDR = ShouldForceSDR(uv) || LumaSettings.DisplayMode != 1;
 
   // We couldn't apply sharpening any later in this edge case, as it needs to sample it from a texture (unless we wanted to compute tonemapping 4-5 times per pixel...), this should be fine,
   // except for where there is lens distortion applied in the vertex shader (somehow?), either way it won't look terrible.
   if (forceFinalPostProcess) {
 #if ENABLE_SHARPENING
-    float sourceWidth, sourceHeight;
-    t1.GetDimensions(sourceWidth, sourceHeight);
     float2 distortedPos = v1.yz * float2(sourceWidth, sourceHeight);
 
     float sharpenAmount = LumaSettings.GameSettings.Sharpening;
@@ -291,7 +303,8 @@ void main(
   }
 #endif
   
-  // Overlays additive draw
+  // Lens flare+dirt, and blood overlay
+  // TODO: allow disabling these, and also make sure they don't stretch in UW
   if (applyOverlay) {
     r2.xyz = t7.Sample(s2_s, v1.yz).xyz;
     r1.x = t3.Sample(s2_s, v1.yz).x;
@@ -307,7 +320,7 @@ void main(
   // Bloom and something else
   if (applyBloom) {
     float3 bloomColor = t2.Sample(s2_s, v1.yz).xyz;
-    float3 someOverlay = t0.Sample(s2_s, v1.yz).xyz; // TODO: is this sun shafts? (No, sun is bloom) Either way it should be HDR
+    float3 someOverlay = t0.Sample(s2_s, v1.yz).xyz;
     bloomColor += someOverlay * cb0[2].y;
 #if ENABLE_LUMA && 1 // Luma: fix bloom raising blacks too much (at the cost of having worse bloom gradients) // TODO: fix. Maybe try to spread bloom less in its bloom gen
     float bloomShadowPoint = 0.2;
@@ -329,8 +342,8 @@ void main(
     sceneColor.xyz *= cb1[2].xyz;
     float3 preAdditiveColor = sceneColor.xyz;
     sceneColor.xyz += cb1[1].xyz;
-#if ENABLE_LUMA // Restore the distorted hue, without affecting chrominance or luminance
-    sceneColor.xyz = RestoreHue(preAdditiveColor, sceneColor.xyz, 1.0); // TODO: restore chrominance too once the functions are together, also make sure that doing it at 100% works
+#if ENABLE_LUMA // Restore the distorted hue, without affecting chrominance (it'd desaturate) or luminance
+    sceneColor.xyz = RestoreHueAndChrominance(preAdditiveColor, sceneColor.xyz, forceSDR ? 0.0 : 0.75, 0.0, 0.0); // TODO: also make sure that doing it at 100% works
 
     float lutIntensity = LumaData.CustomData3;
     sceneColor.rgb = lerp(preLevelsColor, sceneColor.rgb, lutIntensity);
@@ -339,8 +352,8 @@ void main(
   }
   
   // Tonemapper (and exposure)
-   float3 SDRColor = sceneColor.xyz;
-   float3 tonemappedColor;
+  float3 SDRColor = sceneColor.xyz;
+  float3 tonemappedColor;
   if (applyTonemap) {
 #if !ENABLE_LUMA
     sceneColor.xyz = min(FLT16_MAX, sceneColor.xyz);
@@ -348,7 +361,7 @@ void main(
     float2 exposureAndWhiteLevel = t4.Sample(s1_s, 0.5).yw; // Red channel seemengly unused
     float whiteLevel = exposureAndWhiteLevel.y * exposureAndWhiteLevel.x;
     sceneColor.xyz *= exposureAndWhiteLevel.x;
-    tonemappedColor = ApplyTonemap_HDR_Proxy(sceneColor.xyz, whiteLevel, SDRColor);
+    tonemappedColor = ApplyTonemap_HDR_Proxy(sceneColor.xyz, whiteLevel, SDRColor, forceSDR);
 
 #if 0 // Test: visualize tonemapper // TODO: move to a global function(s)
     float2 UV = float2(v1.y, 1.0 - v1.z);
@@ -400,13 +413,8 @@ void main(
     }
 #endif
 
-#if ENABLE_LUMA && !STRETCH_ORIGINAL_TONEMAPPER // Luma: restore SDR colors
-    tonemappedColor = RestoreHue(tonemappedColor, SDRColor, 0.8); // TODO: do this later in LUT extrapolation? It's currently not the same thing
-    tonemappedColor = RestoreChrominanceAdvanced(tonemappedColor, SDRColor, 0.4);
-#endif
-#if ENABLE_LUMA
-    if (LumaSettings.DisplayMode != 1)
-      tonemappedColor = SDRColor; // TODO: this isn't the actual SDR color if we had features like the expanded gamut enabled etc
+#if ENABLE_LUMA && !STRETCH_ORIGINAL_TONEMAPPER // Luma: restore SDR colors (these are not gonna do anything if "forceSDR" is on)
+    tonemappedColor = RestoreHueAndChrominance(tonemappedColor, SDRColor, 0.8, 0.4); // TODO: do this later in LUT extrapolation? It's currently not the same thing
 #endif
   } else {
     tonemappedColor = sceneColor.xyz;
@@ -437,7 +445,7 @@ void main(
       r4.xyz -= tonemappedColor * r0.w;
       r3.xyz += r2.x * r4.xyz;
       tonemappedColor = r3.xyz / r0.w;
-#if ENABLE_LUMA && DEVELOPMENT // Turn purple to see it
+#if ENABLE_LUMA && (DEVELOPMENT || TEST) // Turn purple to see it
       tonemappedColor = float3(1, 0, 1);
 #endif
     } else {
@@ -448,7 +456,7 @@ void main(
       lutIntensity *= saturate(cb1[6].y);
 
 #if ENABLE_LUMA
-      r3.rgb = lutIntensity > 0.f ? ApplyLUT(tonemappedColor, SDRColor, t9, s2_s) : tonemappedColor;
+      r3.rgb = lutIntensity > 0.f ? ApplyLUT(tonemappedColor, SDRColor, t9, s2_s, forceSDR) : tonemappedColor;
 #else
       r3.xyz = max(SAFE_FLT_MIN, tonemappedColor);
       r3.xyz = pow(r3.xyz, 1.0 / 2.2);
@@ -458,7 +466,7 @@ void main(
       r3.xyz = pow(r3.xyz, 2.2);
 #endif
 
-#if ENABLE_LUMA // Attempt to undo the yellow filter the game applied
+#if ENABLE_LUMA // Attempt to undo the yellow filter the game LUT applied
       float3 lutMidGreyGamma = t9.Sample(s2_s, 0.5).rgb;
       float3 lutMidGreyLinear = pow(abs(lutMidGreyGamma), 2.2) * sign(lutMidGreyGamma); // Turn linear
       float lutMidGreyBrightnessLinear = max(GetLuminance(lutMidGreyLinear), 0.0); // Normalize it by luminance
@@ -502,14 +510,14 @@ void main(
     filmGrain = filmGrain * 2.0 - 1.0; // From 0|1 to -1|1
 #endif
     tonemappedColor += filmGrain * cb0[0].y;
-#if ENABLE_LUMA && DEVELOPMENT // Turn purple to see it
+#if ENABLE_LUMA && (DEVELOPMENT || TEST) // Turn purple to see it
     tonemappedColor = float3(1, 0, 1);
 #endif
   }
 #endif
 
 #if ENABLE_LUMA
-  if (forceFinalPostProcess && LumaSettings.DisplayMode == 1) {
+  if (forceFinalPostProcess && !forceSDR) {
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
 
