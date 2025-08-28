@@ -2524,8 +2524,8 @@ namespace
                         catch (const std::exception& e)
                         {
                         }
-#endif // DEVELOPMENT
                      }
+#endif // DEVELOPMENT
                   }
 #endif // ALLOW_SHADERS_DUMPING
 
@@ -6271,8 +6271,6 @@ namespace
 
       auto dump_path_cso = dump_path;
       dump_path_cso += ".cso";
-      auto dump_path_meta = dump_path;
-      dump_path_meta += ".meta";
 
       // If the shader was already serialized, make sure the new one is of the same size, to catch the near impossible case
       // of two different shaders having the same hash
@@ -6280,6 +6278,10 @@ namespace
       {
          ASSERT_ONCE(std::filesystem::file_size(dump_path_cso) == cached_shader->size);
       }
+
+#if DEVELOPMENT
+      auto dump_path_meta = dump_path;
+      dump_path_meta += ".meta";
 
       try
       {
@@ -6308,11 +6310,14 @@ namespace
             WriteBoolArray(cached_shader->srvs, std::size(cached_shader->srvs));
             WriteBoolArray(cached_shader->rtvs, std::size(cached_shader->rtvs));
             WriteBoolArray(cached_shader->uavs, std::size(cached_shader->uavs));
+
+            dumped_shaders_meta_paths[shader_hash] = dump_path_meta;
          }
       }
       catch (const std::exception& e)
       {
       }
+#endif
 
       try
       {
@@ -6362,7 +6367,11 @@ namespace
          const std::lock_guard<std::recursive_mutex> lock_dumping(s_mutex_dumping);
          // Set this to true in case your old dumped shaders have bad naming (e.g. missing the "ps_5_0" appendix) and you want to replace them (on the next boot, the duplicate shaders with the shorter name will be deleted)
          constexpr bool force_redump_shaders = false;
-         if (force_redump_shaders || !dumped_shaders.contains(shader_to_dump))
+         if (force_redump_shaders || !dumped_shaders.contains(shader_to_dump)
+#if DEVELOPMENT
+            || !dumped_shaders_meta_paths.contains(shader_to_dump)
+#endif
+            )
          {
             DumpShader(shader_to_dump);
          }
