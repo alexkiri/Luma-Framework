@@ -30,6 +30,8 @@ public:
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
 
+      GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
+
       luma_settings_cbuffer_index = 10;
    }
 

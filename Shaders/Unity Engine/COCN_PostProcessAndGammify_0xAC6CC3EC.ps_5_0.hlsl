@@ -148,7 +148,7 @@ void main(
   float sourceWidth, sourceHeight;
   sceneTexture.GetDimensions(sourceWidth, sourceHeight);
   float2 uv = v0.xy / float2(sourceWidth, sourceHeight);
-  bool forceSDR = ShouldForceSDR(uv) || LumaSettings.DisplayMode != 1;
+  bool forceSDR = ShouldForceSDR(uv, true) || LumaSettings.DisplayMode != 1;
   if (!forceSDR)
     outColor.rgb = DICETonemap(outColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
 #endif

@@ -512,7 +512,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 
 		float aspectRatio = sourceWidth / (float)sourceHeight;
 		bool blackBar = false;
-		if (LumaSettings.DisplayMode == 1 && ShouldForceSDR(uv, blackBar, aspectRatio))
+		if (LumaSettings.DisplayMode == 1 && ShouldForceSDR(uv, false, blackBar, aspectRatio))
 		{
 			if (blackBar)
 			{

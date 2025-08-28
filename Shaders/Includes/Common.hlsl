@@ -196,7 +196,7 @@ float3 DecodeBackBufferToLinearSDRRange(float3 color, bool UI = false)
 
 // Returns what UVs should tonemap (or clip to) SDR (or anyway Vanilla) instead of HDR. Allows drawing black bars.
 // This will pre-compile out all the branches if "TEST_SDR_HDR_SPLIT_VIEW_MODE" isn't active.
-bool ShouldForceSDR(float2 UV, out bool blackBar, float aspectRatio = 1.0, float barLength = 0.00125)
+bool ShouldForceSDR(float2 UV, bool FlipY /*= false*/, out bool blackBar, float aspectRatio = 1.0, float barLength = 0.00125)
 {
   blackBar = false;
 #if defined(TEST_SDR_HDR_SPLIT_VIEW_MODE) && TEST_SDR_HDR_SPLIT_VIEW_MODE >= 1
@@ -211,6 +211,11 @@ bool ShouldForceSDR(float2 UV, out bool blackBar, float aspectRatio = 1.0, float
 	barLength /= aspectRatio; // Scale by the usually wider side to match the thickness on both axes
 #else // Vertical
 	float targetUV = UV.y;
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE == 3
+  // Flip Y bars to have HDR on top, unless the game engine already flipped them (e.g. Unity)
+  targetUV = 1.0 - targetUV;
+#endif
+  if (FlipY) targetUV = 1.0 - targetUV;
 #endif
 
 #if 1 // Draw black bars
@@ -257,14 +262,14 @@ bool ShouldForceSDR(float2 UV, out bool blackBar, float aspectRatio = 1.0, float
 	// Force SDR only on even bars
 	if (fmod(barIndex, 2.0) == 0.0)
     return true;
-#endif // SDR_HDR_SPLIT_VIEW_TEST_MODE
+#endif // TEST_SDR_HDR_SPLIT_VIEW_MODE
   return false;
 }
 
-bool ShouldForceSDR(float2 UV)
+bool ShouldForceSDR(float2 UV, bool FlipY = false)
 {
   bool unused;
-  return ShouldForceSDR(UV, unused, 1.0, 0.0);
+  return ShouldForceSDR(UV, FlipY, unused, 1.0, 0.0);
 }
 
 // TODO: delete... this is mostly specific to Prey, and anyway now we have the texture debug draw, so it's near useless

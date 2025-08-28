@@ -44,6 +44,8 @@ public:
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
+
+		GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1'); // The game just clipped, so HDR is an extension of SDR
    }
 
    void PrintImGuiAbout() override

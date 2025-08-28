@@ -8624,7 +8624,7 @@ namespace
                      ImGui::Text("Debug Name: %s", debug_name.value().c_str());
                   }
 
-                  ImGui::Text("Upgraded: %s", "True");
+                  ImGui::Text("Upgraded: %s", "True"); // If it's here, it's upgraded for now
 
                   bool debug_draw_resource_enabled = device_data.debug_draw_texture == selected_resource;
                   UINT extra_refs = 1; // Our current local ref.

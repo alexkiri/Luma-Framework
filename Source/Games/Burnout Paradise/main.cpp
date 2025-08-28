@@ -12,6 +12,8 @@ public:
       // ### See the "GameCBuffers.hlsl" in the shader directory to expand settings ###
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
+
+      GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
    }
 
    void PrintImGuiAbout() override

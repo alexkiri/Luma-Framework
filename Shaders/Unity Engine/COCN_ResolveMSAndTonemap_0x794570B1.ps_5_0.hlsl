@@ -71,10 +71,10 @@ void main(
   const uint MSCount = asuint(cb0[134].x);
   const float exposure = cb0[137].x;
 
-  float sourceWidth, sourceHeight;
-  t0.GetDimensions(0, sourceWidth, sourceHeight);
+  float sourceWidth, sourceHeight, sampleCount;
+  t0.GetDimensions(sourceWidth, sourceHeight, sampleCount);
   float2 uv = v0.xy / float2(sourceWidth, sourceHeight);
-  bool forceSDR = ShouldForceSDR(uv) || LumaSettings.DisplayMode != 1;
+  bool forceSDR = ShouldForceSDR(uv, true) || LumaSettings.DisplayMode != 1;
 
   for (uint i = 0; i < MSCount; i++)
   {

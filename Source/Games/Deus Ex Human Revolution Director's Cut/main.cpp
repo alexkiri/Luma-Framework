@@ -11,6 +11,8 @@ public:
    {
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12; // ### Update this (find the right value) ###
+
+      GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1'); // The game was just clipping, so HDR is an unclipped extension of SDR
    }
 
    // The order of drawing is:
