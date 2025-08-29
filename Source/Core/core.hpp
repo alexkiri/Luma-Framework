@@ -315,6 +315,10 @@ namespace
 
    // Replace the shaders load and dump directory
    std::filesystem::path custom_shaders_path;
+#else
+   // Shader files (e.g. hlsl) that we have removed from the mode since the original version, so we can force delete them from the user shaders folder on boot,
+   // to avoid the mod loading conflicting with new shaders with the same hash (e.g. renamed file), or simply replacing passes that don't need replacement anymore.
+   std::unordered_set<std::string> old_shader_file_names;
 #endif
 
    // Game specific constants (these are not expected to be changed at runtime)
@@ -9961,6 +9965,7 @@ void Init(bool async)
    cb_luma_global_settings.DLSS = 0; // We can't set this to 1 until we verified DLSS engaged correctly and is running
 
    // Load settings
+   bool delete_old_shaders = false;
    {
       const std::unique_lock lock_reshade(s_mutex_reshade);
 
@@ -9974,6 +9979,7 @@ void Init(bool async)
             const std::unique_lock lock_loading(s_mutex_loading);
             // NOTE: put behaviour to load previous versions into new ones here
             CleanShadersCache(); // Force recompile shaders, just for extra safety (theoretically changes are auto detected through the preprocessor, but we can't be certain). We don't need to change the last config serialized shader defines.
+            delete_old_shaders = true;
          }
          else if (config_version > Globals::VERSION)
          {
@@ -10035,6 +10041,27 @@ void Init(bool async)
    }
 
    shaders_path = GetShadersRootPath(); // Needs to be done after "custom_shaders_path" was set
+
+   // Delete old shaders from previous version
+#if DEVELOPMENT && defined(SOLUTION_DIR) && (!defined(REMOTE_BUILD) || !REMOTE_BUILD)
+   // Development shader folder would always be up to date
+#else
+   if (delete_old_shaders && !old_shader_file_names.empty())
+   {
+      std::filesystem::path game_shaders_path = shaders_path / Globals::GAME_NAME;
+      // No need to create the directory here if it didn't already exist
+      if (std::filesystem::is_directory(game_shaders_path))
+      {
+         for (const auto& entry : std::filesystem::directory_iterator(game_shaders_path))
+         {
+            if (entry.is_regular_file() && old_shader_file_names.contains(entry.path().filename().string()))
+            {
+               std::filesystem::remove(entry);
+            }
+         }
+      }
+   }
+#endif
 
 #if ALLOW_SHADERS_DUMPING // Needs to be done after "custom_shaders_path" was set
    // Add all the shaders we have already dumped to the dumped list to avoid live re-dumping them
