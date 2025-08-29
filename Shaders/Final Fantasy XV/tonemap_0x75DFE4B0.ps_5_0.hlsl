@@ -353,7 +353,7 @@ void main(
   float3 graded_sdr = colorGrade(ungraded_sdr);
   graded_sdr = max(graded_sdr, 0.f);
 
-  graded_hdr = RestoreHue(graded_hdr, graded_sdr, 1.0f, false, CS_BT709);
+  graded_hdr = RestoreHueAndChrominance(graded_hdr, graded_sdr, 1.0f, 0.0f, 0.0f, CS_BT709);
 
   r0.rgb = graded_hdr * LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
 

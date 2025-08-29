@@ -72,7 +72,7 @@ float3 UpgradeToneMapPerChannel(float3 color_hdr, float3 color_sdr, float3 post_
   float3 color_scaled = max(0, bt2020_post_process * ratio);
   color_scaled = BT2020_To_BT709(color_scaled);
   float peak_correction = saturate(1.f - GetLuminance(bt2020_post_process, CS_BT2020));
-  color_scaled = RestoreHue(color_scaled, post_process_color, peak_correction);
+  color_scaled = RestoreHueAndChrominance(color_scaled, post_process_color, peak_correction, 0.0, 0.0, CS_BT2020);
   return lerp(color_hdr, color_scaled, post_process_strength);
 }
 
