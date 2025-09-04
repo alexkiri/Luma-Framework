@@ -373,7 +373,9 @@ void main(
 #if 0 // Since we boosted the SDR tonemapper to produce an HDR image, we can benefit from extra desaturation as it increases it a bit too much for the mood of the game
   settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // There's not much HDR range in this game so don't add extra hue shifts with tonemapping by channel
 #endif
+#if 0 // Disabled as it makes highlights weaker
   settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
+#endif
   outColor.rgb = DICETonemap(outColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
 
 #if UI_DRAW_TYPE == 2 // Scale by the inverse of the relative UI brightness so we can draw the UI at brightness 1x and then multiply it back to its intended range

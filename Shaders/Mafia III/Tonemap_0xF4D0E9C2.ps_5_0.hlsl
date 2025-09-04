@@ -192,7 +192,8 @@ float3 ApplyLUT(float3 HDRColor, float3 SDRColor, Texture3D<float4> _texture, Sa
   if (lutExtrapolation)
   {
     LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
-    extrapolationData.inputColor = HDRColor.rgb;
+    extrapolationData.inputColor = HDRColor;
+    extrapolationData.vanillaInputColor = SDRColor;
   
     LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
     extrapolationSettings.lutSize = LUT_SIZE;
@@ -203,7 +204,11 @@ float3 ApplyLUT(float3 HDRColor, float3 SDRColor, Texture3D<float4> _texture, Sa
     //extrapolationSettings.enableExtrapolation = DVS1 <= 0.5; // Test: Show clipping instead
     extrapolationSettings.extrapolationQuality = 2;
     // TODO: if we improved the desaturation of whites with extrapolation, we might be able to running the tonemapped by channel when "ENABLE_LUT_EXTRAPOLATION" is true (be careful to fires through!). We should also try this again given that we fix broken BT.2020 conversions, and see if we could go for "DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE".
-    extrapolationSettings.clampedLUTRestorationAmount = 0.333; // This heavily desaturates highlights in HDR, due to the intense clipping. This goes up very fast so 0.1 is already a lot
+#if 1 // This one looks a lot better, it avoids highlights hue shifting and having a step
+    extrapolationSettings.vanillaLUTRestorationAmount = 0.333; // This heavily desaturates highlights in HDR, due to the intense clipping. This goes up very fast so 0.1 is already a lot
+#else
+    extrapolationSettings.clampedLUTRestorationAmount = 0.333;
+#endif
     postLutColor = SampleLUTWithExtrapolation(_texture, _sampler, extrapolationData, extrapolationSettings);
   }
   else
@@ -343,7 +348,7 @@ void main(
     float3 preAdditiveColor = sceneColor.xyz;
     sceneColor.xyz += cb1[1].xyz;
 #if ENABLE_LUMA // Restore the distorted hue, without affecting chrominance (it'd desaturate) or luminance
-    sceneColor.xyz = RestoreHueAndChrominance(preAdditiveColor, sceneColor.xyz, forceSDR ? 0.0 : 0.75, 0.0, 0.0); // TODO: also make sure that doing it at 100% works
+    sceneColor.xyz = RestoreHueAndChrominance(preAdditiveColor, sceneColor.xyz, forceSDR ? 0.0 : 0.75, 0.0); // TODO: also make sure that doing it at 100% works
 
     float lutIntensity = LumaData.CustomData3;
     sceneColor.rgb = lerp(preLevelsColor, sceneColor.rgb, lutIntensity);
@@ -521,11 +526,14 @@ void main(
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
 
-    DICESettings settings = DefaultDICESettings();
 #if !STRETCH_ORIGINAL_TONEMAPPER && !ENABLE_LUT_EXTRAPOLATION
-    settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
-#endif // !STRETCH_ORIGINAL_TONEMAPPER
+    DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
+#else
+    DICESettings settings = DefaultDICESettings();
+#endif // !STRETCH_ORIGINAL_TONEMAPPER && !ENABLE_LUT_EXTRAPOLATION
+#if 0
     settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly), so we leave the SDR range untouched (roughly), even if we only blend in the SDR tonemapper up to mid grey, if we start earlier HDR would lose range
+#endif
     tonemappedColor.rgb = DICETonemap(tonemappedColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
   }
 #endif // ENABLE_LUMA
@@ -558,10 +566,13 @@ void main(
   o0.xyz = tonemappedColor;
 
   if (forceEncode) {
-    o0.rgb = linear_to_sRGB_gamma(o0.rgb, GCT_MIRROR);
-#if UI_DRAW_TYPE == 2
-  	o0.rgb *= pow(LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits, 1.0 / DefaultGamma);
+#if UI_DRAW_TYPE == 2 
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
+    o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif
+
+    o0.rgb = linear_to_sRGB_gamma(o0.rgb, GCT_MIRROR);
   }
 
 #if !SKIP_SECOND_TONEMAP_OUTPUT

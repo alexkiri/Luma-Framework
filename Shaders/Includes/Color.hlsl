@@ -45,14 +45,15 @@ float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 {
 	if (colorSpace == CS_BT2020)
 	{
-		return dot( color, Rec2020_Luminance );
+		return dot(color, Rec2020_Luminance);
 	}
-	return dot( color, Rec709_Luminance );
+	return dot(color, Rec709_Luminance);
 }
 
 float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false, uint colorSpace = CS_DEFAULT)
 {
   float targetColorLuminance = GetLuminance(targetColor, colorSpace);
+  // Handles negative values and gives more tolerance for divisions by small numbers
   if (safe)
   {
 #if 0 // Disabled as it doesn't seem to help (we'd need to set the threshold to "0.001" (which is too high) for this to pick up the cases where divisions end up denormalizing the number etc)
@@ -68,7 +69,6 @@ float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool saf
 #else
     return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 0);
 #endif
-    
   }
   return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 1);
 }
@@ -320,6 +320,11 @@ static const float3x3 BT2020_2_BT709 = {
 	-0.12455047667026519775390625f,     1.13289988040924072265625f,     -0.0083494223654270172119140625f,
 	-0.01815076358616352081298828125f, -0.100578896701335906982421875f,  1.11872971057891845703125f };
 
+static const float3x3 BT601_2_BT709 = {
+    0.939497225737661f,					0.0502268452914346f,			0.0102759289709032f,
+    0.0177558637510127f,				0.965824605885027f,				0.0164195303639603f,
+   -0.0016216320996701f,				-0.00437400622653655f,			1.00599563832621f };
+
 float3 BT709_To_BT2020(float3 color)
 {
 	return mul(BT709_2_BT2020, color);
@@ -328,6 +333,12 @@ float3 BT709_To_BT2020(float3 color)
 float3 BT2020_To_BT709(float3 color)
 {
 	return mul(BT2020_2_BT709, color);
+}
+
+// TODO: this doesn't seem to be right... Tested with Mafia III videos.
+float3 BT601_To_BT709(float3 color)
+{
+	return mul(BT601_2_BT709, color);
 }
 
 static const float2 D65xy = float2(0.3127f, 0.3290f);

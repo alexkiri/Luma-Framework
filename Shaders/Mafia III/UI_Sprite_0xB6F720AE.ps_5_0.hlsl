@@ -52,22 +52,28 @@ void main(
   r1.z = dot(r0.xyzw, icb[r2.z+0].xyzw);
   o0.xyzw = v1.xyzw * r1.xyzw;
 
-#if 0 // If the videos film grain shader (0x6B4B9B6D) turned out to not be enough, we could fall back onto this, but don't really know when this is playing a movie or any other UI sprite (maybe movies are sRGB views? They are all 1920x1080!)
+#if 1 // The film grain shader (0x6B4B9B6D) is only run sometimes, but sometimes videos directly write on the swapchain or the color backbuffer, so we try and detect that here
   bool isWritingOnSwapchain = LumaData.CustomData1 != 0;
   bool isSourceScene = LumaData.CustomData2 != 0;
-  if (isWritingOnSwapchain) // Note: this isn't always the case
-  {
+  bool isSourceLinear = LumaData.CustomData3 != 0.0; // This means the source was a movie texture, as they are seemengly the only ones in linear space (sRGB views)
+  bool isTargetLinear = LumaData.CustomData4 != 0.0;
 #if ENABLE_AUTO_HDR // This was already linear->linear
-    if (!isSourceScene)
-    {
-      o0.rgb = PumboAutoHDR(o0.rgb, 600.0, LumaSettings.GamePaperWhiteNits);
-    }
+  if (!isSourceScene && isSourceLinear && isTargetLinear)
+  {
+    o0.rgb = PumboAutoHDR(o0.rgb, 600.0, LumaSettings.GamePaperWhiteNits);
+  }
+#endif
+#if 0 // TODO: delete? Doesn't seem to be needed as this either draws UI (which targets gamma space even with swapchain upgrades), or videos, and in that case the input and outputs are linear even in the vanilla game
+  if (isWritingOnSwapchain && isSourceLinear && isTargetLinear) // Note: this isn't always the case
+  {
+#if UI_DRAW_TYPE == 2 // This is drawn in the UI phase but it's not really UI, so make sure it scales with the game brightness instead
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
+    o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif
 
-    o0.xyz = linear_to_sRGB_gamma(o0.xyz, GCT_MIRROR); // Needed because the original view was a R8G8B8A8_UNORM_SRGB, with the input being float/linear, so there was an implicity sRGB encoding.
-#if UI_DRAW_TYPE == 2 // This is drawn in the UI phase but it's not really UI, so make sure it scales with the game brightness instead
-  	o0.rgb *= pow(LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits, 1.0 / DefaultGamma);
-#endif
+    o0.xyz = linear_to_sRGB_gamma(o0.xyz, GCT_MIRROR); // Needed because the original view was a R8G8B8A8_UNORM_SRGB, with the input being float/linear, so there was an implicit sRGB encoding.
   }
+#endif
 #endif
 }

@@ -143,7 +143,9 @@ void main(
 #if !STRETCH_ORIGINAL_TONEMAPPER
   settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
 #endif
+#if 0 // Disabled as it makes highlights weaker
   settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
+#endif
 
   float sourceWidth, sourceHeight;
   sceneTexture.GetDimensions(sourceWidth, sourceHeight);
@@ -154,6 +156,8 @@ void main(
 #endif
 
 #if UI_DRAW_TYPE == 2 // Scale by the inverse of the relative UI brightness so we can draw the UI at brightness 1x and then multiply it back to its intended range
+	ColorGradingLUTTransferFunctionInOutCorrected(outColor.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
   outColor.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+	ColorGradingLUTTransferFunctionInOutCorrected(outColor.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif
 }

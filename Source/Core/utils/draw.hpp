@@ -11,6 +11,7 @@ enum class DrawStateStackType
 };
 // Caches all the states we might need to modify to draw a simple pixel shader.
 // First call "Cache()" (once) and then call "Restore()" (once).
+// TODO: check "ID3D11Device1::CreateDeviceContextState" for DX11
 template<DrawStateStackType Mode = DrawStateStackType::FullGraphics>
 struct DrawStateStack
 {
@@ -30,12 +31,23 @@ struct DrawStateStack
          std::memset(&cs_instances, 0, sizeof(void*) * max_shader_class_instances);
       }
 #endif
-
+#if 0 // Not needed
+      std::fill(std::begin(constant_buffers_num_constant), std::end(constant_buffers_num_constant), 4096); // Default from docs
+#endif
    }
 
    // Cache aside the previous resources/states:
    void Cache(ID3D11DeviceContext* device_context, UINT device_max_uav_num)
    {
+      com_ptr<ID3D11DeviceContext1> device_context_1;
+      HRESULT hr = device_context->QueryInterface(&device_context_1);
+#if 0 // This happens in some games
+      if (SUCCEEDED(hr) && device_context_1)
+      {
+         ASSERT_ONCE(false); // If this was the case, we'd need to handle the extra parameters of functions like "PSGetConstantBuffers1"
+      }
+#endif
+
       uav_num = device_max_uav_num;
       if constexpr (Mode == DrawStateStackType::SimpleGraphics || Mode == DrawStateStackType::FullGraphics)
       {
@@ -46,7 +58,14 @@ struct DrawStateStack
          device_context->RSGetViewports(&viewports_num, nullptr); // This will get the number of viewports used
          device_context->RSGetViewports(&viewports_num, &viewports[0]);
          device_context->PSGetShaderResources(0, srv_num, &shader_resource_views[0]);
-         device_context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
+         if (device_context_1)
+         {
+            device_context_1->PSGetConstantBuffers1(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0], constant_buffers_first_constant, constant_buffers_num_constant);
+         }
+         else
+         {
+            device_context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
+         }
          device_context->OMGetDepthStencilState(&depth_stencil_state, &stencil_ref);
          device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
          if constexpr (Mode == DrawStateStackType::FullGraphics)
@@ -91,7 +110,14 @@ struct DrawStateStack
       else if constexpr (Mode == DrawStateStackType::Compute)
       {
          device_context->CSGetShaderResources(0, srv_num, &shader_resource_views[0]);
-         device_context->CSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
+         if (device_context_1)
+         {
+            device_context_1->CSGetConstantBuffers1(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0], constant_buffers_first_constant, constant_buffers_num_constant);
+         }
+         else
+         {
+            device_context->CSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
+         }
          device_context->CSGetUnorderedAccessViews(0, uav_num, &unordered_access_views[0]);
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->CSGetShader(&cs, cs_instances, &cs_instances_count);
@@ -106,6 +132,9 @@ struct DrawStateStack
    // Restore the previous resources/states:
    void Restore(ID3D11DeviceContext* device_context)
    {
+      com_ptr<ID3D11DeviceContext1> device_context_1;
+      HRESULT hr = device_context->QueryInterface(&device_context_1);
+
       if constexpr (Mode == DrawStateStackType::SimpleGraphics || Mode == DrawStateStackType::FullGraphics)
       {
          device_context->OMSetBlendState(blend_state.get(), blend_factor, blend_sample_mask);
@@ -115,7 +144,14 @@ struct DrawStateStack
          ID3D11ShaderResourceView* const* srvs_const = (ID3D11ShaderResourceView**)std::addressof(shader_resource_views[0]); // We can't use "com_ptr"'s "T **operator&()" as it asserts if the object isn't null, even if the reference would be const
          device_context->PSSetShaderResources(0, srv_num, srvs_const);
          ID3D11Buffer* const* constant_buffers_const = (ID3D11Buffer**)std::addressof(constant_buffers[0]);
-         device_context->PSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const);
+         if (device_context_1)
+         {
+            device_context_1->PSSetConstantBuffers1(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const, constant_buffers_first_constant, constant_buffers_num_constant);
+         }
+         else
+         {
+            device_context->PSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const);
+         }
          device_context->OMSetDepthStencilState(depth_stencil_state.get(), stencil_ref);
          ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(render_target_views[0]);
          if constexpr (Mode == DrawStateStackType::FullGraphics)
@@ -159,7 +195,14 @@ struct DrawStateStack
          ID3D11ShaderResourceView* const* srvs_const = (ID3D11ShaderResourceView**)std::addressof(shader_resource_views[0]);
          device_context->CSSetShaderResources(0, srv_num, srvs_const);
          ID3D11Buffer* const* constant_buffers_const = (ID3D11Buffer**)std::addressof(constant_buffers[0]);
-         device_context->CSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const);
+         if (device_context_1)
+         {
+            device_context_1->CSSetConstantBuffers1(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const, constant_buffers_first_constant, constant_buffers_num_constant);
+         }
+         else
+         {
+            device_context->CSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const);
+         }
          ID3D11UnorderedAccessView* const* uavs_const = (ID3D11UnorderedAccessView**)std::addressof(unordered_access_views[0]);
          UINT uav_initial_counts[D3D11_1_UAV_SLOT_COUNT]; // Likely not necessary, we could pass in nullptr
          std::ranges::fill(uav_initial_counts, -1u);
@@ -221,6 +264,8 @@ struct DrawStateStack
    com_ptr<ID3D11RenderTargetView> render_target_views[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
    com_ptr<ID3D11UnorderedAccessView> unordered_access_views[D3D11_1_UAV_SLOT_COUNT];
    com_ptr<ID3D11Buffer> constant_buffers[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
+   UINT constant_buffers_first_constant[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
+   UINT constant_buffers_num_constant[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
    D3D11_RECT scissor_rects[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
    UINT scissor_rects_num = 0;
    D3D11_VIEWPORT viewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
@@ -338,7 +383,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                com_ptr<ID3D11Resource> ds_resource;
                dsv->GetResource(&ds_resource);
                uint4 ds_size = {};
-               GetResourceInfo(ds_resource.get(), ds_size, trace_draw_call_data.ds_format, nullptr, &trace_draw_call_data.ds_hash);
+               GetResourceInfo(ds_resource.get(), ds_size, trace_draw_call_data.ds_format, nullptr, &trace_draw_call_data.ds_hash, &trace_draw_call_data.ds_debug_name);
                trace_draw_call_data.ds_size.x = ds_size.x;
                trace_draw_call_data.ds_size.y = ds_size.y;
             }
@@ -379,7 +424,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                {
                   // If any of the set RTs are the swapchain, set it to true
                   trace_draw_call_data.rt_is_swapchain[i] |= device_data.back_buffers.contains((uint64_t)rt_resource.get());
-                  GetResourceInfo(rt_resource.get(), trace_draw_call_data.rt_size[i], trace_draw_call_data.rt_format[i], &trace_draw_call_data.rt_type_name[i], &trace_draw_call_data.rt_hash[i]);
+                  GetResourceInfo(rt_resource.get(), trace_draw_call_data.rt_size[i], trace_draw_call_data.rt_format[i], &trace_draw_call_data.rt_type_name[i], &trace_draw_call_data.rt_hash[i], &trace_draw_call_data.rt_debug_name[i]);
+                  
+                  trace_draw_call_data.rtv_mip[i] = GetRTVMipLevel(rtv_desc);
+                  uint3 base_size = uint3{ trace_draw_call_data.rt_size[i].x, trace_draw_call_data.rt_size[i].y, trace_draw_call_data.rt_size[i].z };
+                  trace_draw_call_data.rtv_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.rtv_mip[i]);
                }
             }
          }
@@ -400,7 +449,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                if (uavs[i]) uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
-               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_debug_name[i], &trace_draw_call_data.ua_is_rt[i]);
+               
+               trace_draw_call_data.uav_mip[i] = GetUAVMipLevel(uav_desc);
+               uint3 base_size = uint3{ trace_draw_call_data.ua_size[i].x, trace_draw_call_data.ua_size[i].y, trace_draw_call_data.ua_size[i].z };
+               trace_draw_call_data.uav_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.uav_mip[i]);
             }
          }
 
@@ -417,7 +470,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                if (srvs[i]) srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_debug_name[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
+
+               trace_draw_call_data.srv_mip[i] = GetSRVMipLevel(srv_desc);
+               uint3 base_size = uint3{ trace_draw_call_data.sr_size[i].x, trace_draw_call_data.sr_size[i].y, trace_draw_call_data.sr_size[i].z };
+               trace_draw_call_data.srv_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.srv_mip[i]);
             }
          }
       }
@@ -436,7 +493,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                if (srvs[i]) srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_debug_name[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
+
+               trace_draw_call_data.srv_mip[i] = GetSRVMipLevel(srv_desc);
+               uint3 base_size = uint3{ trace_draw_call_data.sr_size[i].x, trace_draw_call_data.sr_size[i].y, trace_draw_call_data.sr_size[i].z };
+               trace_draw_call_data.srv_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.srv_mip[i]);
             }
          }
 
@@ -480,7 +541,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                if (srvs[i]) srvs[i]->GetDesc(&srv_desc);
                trace_draw_call_data.srv_format[i] = srv_desc.Format;
 
-               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
+               GetResourceInfo(srvs[i].get(), trace_draw_call_data.sr_size[i], trace_draw_call_data.sr_format[i], &trace_draw_call_data.sr_type_name[i], &trace_draw_call_data.sr_hash[i], &trace_draw_call_data.sr_debug_name[i], &trace_draw_call_data.sr_is_rt[i], &trace_draw_call_data.sr_is_ua[i]);
+
+               trace_draw_call_data.srv_mip[i] = GetSRVMipLevel(srv_desc);
+               uint3 base_size = uint3{ trace_draw_call_data.sr_size[i].x, trace_draw_call_data.sr_size[i].y, trace_draw_call_data.sr_size[i].z };
+               trace_draw_call_data.srv_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.srv_mip[i]);
             }
          }
 
@@ -497,7 +562,11 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                if (uavs[i]) uavs[i]->GetDesc(&uav_desc);
                trace_draw_call_data.uav_format[i] = uav_desc.Format;
 
-               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_is_rt[i]);
+               GetResourceInfo(uavs[i].get(), trace_draw_call_data.ua_size[i], trace_draw_call_data.ua_format[i], &trace_draw_call_data.ua_type_name[i], &trace_draw_call_data.ua_hash[i], &trace_draw_call_data.ua_debug_name[i], &trace_draw_call_data.ua_is_rt[i]);
+
+               trace_draw_call_data.uav_mip[i] = GetUAVMipLevel(uav_desc);
+               uint3 base_size = uint3{ trace_draw_call_data.ua_size[i].x, trace_draw_call_data.ua_size[i].y, trace_draw_call_data.ua_size[i].z };
+               trace_draw_call_data.uav_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.uav_mip[i]);
             }
          }
 

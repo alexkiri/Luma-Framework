@@ -29,15 +29,16 @@ void main(
   r0.x = -0.5 + r0.x;
   r0.x = r0.x + r0.x;
   r0.yz = cb1[42].xy * v1.xy;
-  r0.yz = (uint2)r0.yz;
-  r0.yz = (uint2)r0.yz;
+  uint2 r0yzu = (uint2)r0.yz;
+  r0.yz = (float2)r0yzu;
   r2.xy = float2(-1,-1) + cb1[42].xy;
   r2.xy = cb0[3].zw * r2.xy;
   r0.yz = r0.yz * cb0[3].xy + r2.xy;
-  r2.xy = (uint2)r0.yz;
-  r2.zw = float2(0,0);
-  r0.yzw = t0.Load(r2.xyww).xyz;
-  r1.w = t3.Load(r2.xyzw).x;
+  uint4 r2u;
+  r2u.xy = (uint2)r0.yz;
+  r2u.zw = 0;
+  r0.yzw = t0.Load(r2u.xyww).xyz;
+  r1.w = t3.Load(r2u.xyzw).x;
 #if 0 // Luma: removed saturate
   r0.yzw = saturate(r0.yzw);
 #endif

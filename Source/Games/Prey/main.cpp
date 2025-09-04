@@ -2320,7 +2320,7 @@ public:
       static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
       if (ImGui::Button(contributing_link.c_str()))
       {
-         system("start https://github.com/Filoppi/Luma");
+         system("start https://github.com/Filoppi/Luma-Framework");
       }
       ImGui::PopStyleColor(3);
 
@@ -2400,6 +2400,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
+      DisableThreadLibraryCalls(hModule);
+
       Globals::SetGlobals(PROJECT_NAME, "Prey (2017) Luma mod", "https://www.nexusmods.com/prey2017/mods/149");
       Globals::VERSION = 6;
 
@@ -2498,6 +2500,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       assert(shader_defines_data.size() < MAX_SHADER_DEFINES);
 
       dlss_game_tooltip = "Select \"SMAA 2TX\" or \"TAA\" in the game's AA settings for DLSS/DLAA to engage.\n";
+
+      cb_luma_global_settings.GameSettings.LensDistortion = 0;
 
 #if !ENABLE_NATIVE_PLUGIN && DEVELOPMENT
       // Test path to upgrade textures directly through classic Luma code, though this has major issues yet (later in rendering, some stuff is too dark and things flicker)

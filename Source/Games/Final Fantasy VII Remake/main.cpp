@@ -711,7 +711,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		};
 		// Upgrade all 16:9 render targets too, because the game defaults to that aspect ratio internally unless mods are applied
 		texture_format_upgrades_2d_size_filters |= (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio;
-		texture_format_upgrades_2d_custom_aspect_ratio = 16.f / 9.f;
+		texture_format_upgrades_2d_custom_aspect_ratios = { 16.f / 9.f };
 		// LUT is 3D 32x
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;

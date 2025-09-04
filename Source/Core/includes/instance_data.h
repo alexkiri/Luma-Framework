@@ -43,7 +43,9 @@ struct TraceDrawCallData
       CPURead,
       CPUWrite,
       Present,
+      CreateCommandList,
       AppendCommandList,
+      ResetCommmandList,
       FlushCommandList,
 		Custom, // Custom draw call for custom passes we added/replaced
    };
@@ -97,16 +99,22 @@ struct TraceDrawCallData
    DXGI_FORMAT rt_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the resource
    DXGI_FORMAT rtv_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the view
    uint4 rt_size[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
+   uint3 rtv_size[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+   UINT rtv_mip[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    std::string rt_type_name[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-   std::string rt_hash[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+   std::string rt_hash[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // Ptr hash (not content hash)
+   std::string rt_debug_name[D3D11_1_UAV_SLOT_COUNT] = {}; // Debug name of the texture or the view
    bool rt_is_swapchain[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    // Shader Resource (Resource+Views)
    const ID3D11ShaderResourceView* srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    DXGI_FORMAT srv_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the view
    DXGI_FORMAT sr_format[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // The format of the resource
    uint4 sr_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
+   uint3 srv_size[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+   UINT srv_mip[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    std::string sr_type_name[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
-   std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+   std::string sr_hash[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // Ptr hash (not content hash)
+   std::string sr_debug_name[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {}; // Debug name of the texture or the view
    bool sr_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    bool sr_is_ua[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    // Unordered Access (Resource+Views)
@@ -114,14 +122,18 @@ struct TraceDrawCallData
    DXGI_FORMAT ua_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource
    DXGI_FORMAT uav_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
    uint4 ua_size[D3D11_1_UAV_SLOT_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
+   uint3 uav_size[D3D11_1_UAV_SLOT_COUNT] = {};
+   UINT uav_mip[D3D11_1_UAV_SLOT_COUNT] = {};
    std::string ua_type_name[D3D11_1_UAV_SLOT_COUNT] = {};
-   std::string ua_hash[D3D11_1_UAV_SLOT_COUNT] = {};
+   std::string ua_hash[D3D11_1_UAV_SLOT_COUNT] = {}; // Ptr hash (not content hash)
+   std::string ua_debug_name[D3D11_1_UAV_SLOT_COUNT] = {}; // Debug name of the texture or the view
    bool ua_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    // Depth Stencil (Resource+View)
    DXGI_FORMAT ds_format = {}; // The format of the resource
    DXGI_FORMAT dsv_format = {}; // The format of the view
    uint2 ds_size = {};
-   std::string ds_hash = {};
+   std::string ds_hash = {}; // Ptr hash (not content hash)
+   std::string ds_debug_name = {}; // Debug name of the texture or the view
 
    bool IsRTVValid(size_t index) const { return rtv_format[index] != DXGI_FORMAT_UNKNOWN && rtv_format[index] != DXGI_FORMAT(-1); }
    bool IsSRVValid(size_t index) const { return srv_format[index] != DXGI_FORMAT_UNKNOWN && srv_format[index] != DXGI_FORMAT(-1); }
@@ -131,7 +143,7 @@ struct TraceDrawCallData
    const char* custom_name = "Unknown";
 };
 
-// Applies to command lists and command queque (DirectX 11 command list and deferred or immediate contexts)
+// Applies to command lists and command queue (DirectX 11 command list and deferred or immediate contexts, though usually it's for "ID3D11DeviceContext")
 struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
 {
    bool is_primary = false; // Immediate/Primary (as opposed to Async/Secondary/Deferred)
@@ -250,9 +262,9 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11ShaderResourceView> ui_texture_srv;
 
    // Misc
-   com_ptr<ID3D11SamplerState> default_sampler_state;
-   com_ptr<ID3D11BlendState> default_blend_state;
-   com_ptr<ID3D11DepthStencilState> default_depth_stencil_state;
+   com_ptr<ID3D11SamplerState> default_sampler_state; // Linear
+   com_ptr<ID3D11BlendState> default_blend_state; // No blend
+   com_ptr<ID3D11DepthStencilState> default_depth_stencil_state; // Depth/Stencil disabled
 
    // Pointer to the current DX buffer for the "global per view" cbuffer.
    com_ptr<ID3D11Buffer> cb_per_view_global_buffer;

@@ -1,7 +1,7 @@
 #define LUT_SIZE 16.0
 #define LUT_MAX (LUT_SIZE - 1.0)
 
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
 
 cbuffer _Globals : register(b0)

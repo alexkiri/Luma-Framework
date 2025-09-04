@@ -366,9 +366,9 @@ public:
    {
 		auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
 
-      device_data.cb_luma_global_settings_dirty = true;
       cb_luma_global_settings.GameSettings.InvOutputRes.x = 1.f / device_data.output_resolution.x;
       cb_luma_global_settings.GameSettings.InvOutputRes.y = 1.f / device_data.output_resolution.y;
+      device_data.cb_luma_global_settings_dirty = true;
    }
 
    bool ForceVanillaSwapchainLinear() const override
@@ -550,11 +550,10 @@ public:
                   float dlss_pre_exposure = 0.f; // TODO: find exposure? It's t4 of the tonemap shader, mixed up with some other value just before, but the auto exposure is calculated earlier (not sure with what formula, some log stuff).
                   float2 jitters = game_device_data.taa_jitters;
 #if DEVELOPMENT
-                  bool dlss_jit_mod = cb_luma_global_settings.DevSettings[8] > 0.0; //TODOFT: delete
-                  if (dlss_jit_mod)
+                  //TODOFT: delete
                   {
-                     jitters.x *= cb_luma_global_settings.DevSettings[8] * 4.f - 2.0;
-                     jitters.y *= cb_luma_global_settings.DevSettings[9] * 4.f - 2.0;
+                     jitters.x *= cb_luma_global_settings.DevSettings[8];
+                     jitters.y *= cb_luma_global_settings.DevSettings[9];
                   }
 #endif
 
@@ -636,6 +635,7 @@ public:
          }
       }
 
+#if 0 // TODO: delete
       if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_ShadowMapProjections))
       {
          uint32_t custom_data_1 = 0;
@@ -648,6 +648,7 @@ public:
 
          return false;
       }
+#endif
 
       // Make sure we dejitter motion vectors when sampling them, as they'd be jittered with Luma's TAA.
       // These are seemengly the only places that use MVs in the game when Luma's TAA is enabled (the MVs encode passes are for the native TAA, which is skipped).
@@ -967,13 +968,35 @@ public:
       if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_Sprite_UI))
       {
          bool is_sr_post_processed_scene = false;
+         bool is_srv_linear = false;
+         bool is_rtv_linear = false;
          com_ptr<ID3D11ShaderResourceView> srv;
          native_device_context->PSGetShaderResources(0 ,1, &srv); // It's always in slot 0
          if (srv)
          {
-            com_ptr<ID3D11Resource> sr;
-            srv->GetResource(&sr);
-            is_sr_post_processed_scene = game_device_data.post_processed_scene == sr;
+            com_ptr<ID3D11Resource> sr_resource;
+            srv->GetResource(&sr_resource);
+            is_sr_post_processed_scene = game_device_data.post_processed_scene == sr_resource;
+
+            D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc;
+            srv->GetDesc(&srv_desc);
+            // We don't check for "DXGI_FORMAT_R11G11B10_FLOAT" etc as UI is always 8 bit (so it seems).
+            // This will detect videos, that are seemengly the only UI sprites to draw from linear views.
+            // Videos are usually 1920x1080 but not all of them.
+            if (srv_desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB || srv_desc.Format == DXGI_FORMAT_B8G8R8X8_UNORM_SRGB || srv_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB)
+            {
+               is_srv_linear = true;
+            }
+#if 0
+            com_ptr<ID3D11Texture2D> sr;
+            HRESULT hr = sr_resource->QueryInterface(&sr);
+            ASSERT_ONCE(SUCCEEDED(hr));
+            if (SUCCEEDED(hr))
+            {
+               D3D11_TEXTURE2D_DESC sr_desc;
+               sr->GetDesc(&sr_desc);
+            }
+#endif
          }
 
          bool is_rt_swapchain = false;
@@ -981,6 +1004,11 @@ public:
          native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
          if (rtv)
          {
+            D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
+            rtv->GetDesc(&rtv_desc);
+            // Note: this works under the assumption we don't upgrade R8G8B8A8_UNORM/R8G8B8A8_TYPELESS to R16G16B16A16_FLOAT
+            is_rtv_linear = rtv_desc.Format == DXGI_FORMAT_R11G11B10_FLOAT || rtv_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || rtv_desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM_SRGB || rtv_desc.Format == DXGI_FORMAT_B8G8R8X8_UNORM_SRGB || rtv_desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+
             com_ptr<ID3D11Resource> rt_resource;
             rtv->GetResource(&rt_resource);
             is_rt_swapchain = device_data.back_buffers.contains((uint64_t)rt_resource.get());
@@ -988,8 +1016,6 @@ public:
             bool is_rt_swapchain_or_back_buffer = is_rt_swapchain;
             if (!is_rt_swapchain)
             {
-               D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
-               rtv->GetDesc(&rtv_desc);
                ASSERT_ONCE(rtv_desc.Format == DXGI_FORMAT_R11G11B10_FLOAT || rtv_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT);
 
                com_ptr<ID3D11Texture2D> rt;
@@ -1013,8 +1039,10 @@ public:
          // Needed to branch on gamma conversions in the shaders
          uint32_t custom_data_1 = is_rt_swapchain ? 1 : 0;
          uint32_t custom_data_2 = is_sr_post_processed_scene ? 1 : 0;
+         float custom_data_3 = is_srv_linear ? 1.f : 0.f;
+         float custom_data_4 = is_rtv_linear ? 1.f : 0.f;
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
-         SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2);
+         SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
          updated_cbuffers = true;
          return false;
       }
@@ -1065,6 +1093,11 @@ public:
       }
 #endif
 
+      if (!game_device_data.has_drawn_taa)
+      {
+			device_data.force_reset_dlss_sr = true; // If the frame didn't draw the scene, DLSS needs to reset to prevent the old history from blending with the new scene
+      }
+
       game_device_data.motion_vectors = nullptr;
       game_device_data.depth = nullptr;
 
@@ -1099,11 +1132,10 @@ public:
       game_device_data.taa_jitters.y = Halton(temporal_frame + 1, 3) - 0.5f;
 
 #if DEVELOPMENT
-      bool dlss_jit_mod = cb_luma_global_settings.DevSettings[4] > 0.0; //TODOFT: delete
-      if (dlss_jit_mod)
+      //TODOFT: delete
       {
-         game_device_data.taa_jitters.x *= cb_luma_global_settings.DevSettings[4] * 4.f - 2.0;
-         game_device_data.taa_jitters.y *= cb_luma_global_settings.DevSettings[5] * 4.f - 2.0;
+         game_device_data.taa_jitters.x *= cb_luma_global_settings.DevSettings[4];
+         game_device_data.taa_jitters.y *= cb_luma_global_settings.DevSettings[5];
       }
 #endif
       bool no_jitters = false;
@@ -1258,6 +1290,26 @@ public:
       }
    }
 
+#if DEVELOPMENT || TEST
+   void PrintImGuiInfo(const DeviceData& device_data) override
+   {
+      auto& game_device_data = GetGameDeviceData(device_data);
+
+      ImGui::NewLine();
+
+      ImGui::Text("View Projection Matrix:");
+
+      // XMMATRIX stores 4 XMVECTOR rows
+      for (int i = 0; i < 4; i++)
+      {
+         DirectX::XMVECTOR row = game_device_data.view_projection_mat.r[i];
+         float values[4];
+         DirectX::XMStoreFloat4(reinterpret_cast<DirectX::XMFLOAT4*>(values), row);
+         ImGui::Text("%.10f %.10f %.10f %.10f", values[0], values[1], values[2], values[3]);
+      }
+   }
+#endif
+
    void PrintImGuiAbout() override
    {
       ImGui::Text("Luma for \"Mafia III\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.", "");
@@ -1297,7 +1349,7 @@ public:
       static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
       if (ImGui::Button(contributing_link.c_str()))
       {
-         system("start https://github.com/Filoppi/Luma");
+         system("start https://github.com/Filoppi/Luma-Framework");
       }
       ImGui::PopStyleColor(3);
 
@@ -1424,11 +1476,7 @@ public:
 			if (is_valid_cbuffer && !game_device_data.has_drawn_taa)
 			{
             // We write them even if DLSS is off, just because... We don't have to as our additive jitters might be 0
-#if DEVELOPMENT || TEST
-            if (test_index != 17) //TODOFT5: broken
-#else
-            if (false)
-#endif
+            if (test_index != 17)
             {
                DirectX::XMMATRIX view_projection_mat;
                view_projection_mat = DirectX::XMLoadFloat4x4(reinterpret_cast<DirectX::XMFLOAT4X4*>(&float_data[22]));
@@ -1468,11 +1516,10 @@ public:
                jitters.x = (jitters.x * +2.f) / (float)device_data.render_resolution.x;
                jitters.y = (jitters.y * -2.f) / (float)device_data.render_resolution.y;
 #if DEVELOPMENT
-               bool dlss_jit_mod = cb_luma_global_settings.DevSettings[6] > 0.0; //TODOFT: delete
-               if (dlss_jit_mod)
+               //TODOFT: delete
                {
-                  jitters.x *= cb_luma_global_settings.DevSettings[6] * 4.f - 2.0;
-                  jitters.y *= cb_luma_global_settings.DevSettings[7] * 4.f - 2.0;
+                  jitters.x *= cb_luma_global_settings.DevSettings[6];
+                  jitters.y *= cb_luma_global_settings.DevSettings[7];
                }
                //if (cb_luma_global_settings.DevSettings[0] > 0.0)
                //{
@@ -1552,7 +1599,7 @@ public:
                //memcpy(&float_data[22], &view_projection_mat, sizeof(DirectX::XMMATRIX));
 
 #if DEVELOPMENT
-               if (cb_luma_global_settings.DevSettings[4] > 0)
+               if (cb_luma_global_settings.DevSettings[1] > 0)
                   memcpy(&float_data[26], &view_projection_mat, sizeof(DirectX::XMMATRIX)); // TODO
 
                //memcpy(&float_data[30], &view_projection_mat, sizeof(DirectX::XMMATRIX)); // This makes a mess
@@ -1710,6 +1757,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
+      DisableThreadLibraryCalls(hModule);
+
       Globals::SetGlobals(PROJECT_NAME, "Mafia III Luma mod");
       Globals::VERSION = 1;
 
@@ -1741,6 +1790,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // These play back movies and sometimes even the scene (during cutscenes)
       shader_hashes_Sprite_UI.pixel_shaders.emplace(std::stoul("6B4B9B6D", nullptr, 16));
       shader_hashes_Sprite_UI.pixel_shaders.emplace(std::stoul("2C052C85", nullptr, 16));
+      shader_hashes_Sprite_UI.pixel_shaders.emplace(std::stoul("B6F720AE", nullptr, 16));
 
       shader_hashes_3D_UI.pixel_shaders.emplace(std::stoul("CDB35CB7", nullptr, 16));
       shader_hashes_3D_UI.pixel_shaders.emplace(std::stoul("22EE786B", nullptr, 16));
@@ -1757,6 +1807,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       forced_shader_names.emplace(std::stoul("287063DE", nullptr, 16), "Downscale Type 1 (e.g. Bloom)");
       forced_shader_names.emplace(std::stoul("6AB07017", nullptr, 16), "Downscale Type 2 (e.g. Bloom)");
       forced_shader_names.emplace(std::stoul("B0227624", nullptr, 16), "Downscale Type 3 (e.g. Bloom)"); // Also used for non bloom
+      forced_shader_names.emplace(std::stoul("5021911B", nullptr, 16), "Downscale Type 4");
+      forced_shader_names.emplace(std::stoul("0390A051", nullptr, 16), "Downscale Type 5");
+      forced_shader_names.emplace(std::stoul("DDCF04CE", nullptr, 16), "Copy Mip"); // Samples a mip and copies it on output
       forced_shader_names.emplace(std::stoul("BD2F44E6", nullptr, 16), "Compose Downscaled Blooms");
       forced_shader_names.emplace(std::stoul("3FF5913A", nullptr, 16), "Generate First Exposure Mip");
       forced_shader_names.emplace(std::stoul("65A0E902", nullptr, 16), "Downscale Exposure Mip");
@@ -1798,9 +1851,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       forced_shader_names.emplace(std::stoul("01C8970C", nullptr, 16), "Some Shadow Map ?");
       forced_shader_names.emplace(std::stoul("A2C3D0F2", nullptr, 16), "Screen Space Reflections ?");
       forced_shader_names.emplace(std::stoul("685D5D10", nullptr, 16), "Screen Space Reflections");
+      forced_shader_names.emplace(std::stoul("7E83AA58", nullptr, 16), "Screen Space Reflections");
       forced_shader_names.emplace(std::stoul("5F4BC362", nullptr, 16), "Sky Mask ?");
       forced_shader_names.emplace(std::stoul("B812B7FC", nullptr, 16), "Generation Clouds");
-      forced_shader_names.emplace(std::stoul("4A74FD61", nullptr, 16), "Draw Sky and Clouds");
+      forced_shader_names.emplace(std::stoul("4A74FD61", nullptr, 16), "Draw Sky, Clouds and Volumetrics");
       forced_shader_names.emplace(std::stoul("21562E2E", nullptr, 16), "Draw Some Clouds Stuff");
       forced_shader_names.emplace(std::stoul("35DFEC90", nullptr, 16), "Generate HQ Ambient Occlusion");
       forced_shader_names.emplace(std::stoul("26AB1E66", nullptr, 16), "Compose Light onto Scene"); // This also draws a second RT with a map of how much lighting there is per pixel, seemengly later used by hair to do approximate lighting
@@ -1815,13 +1869,52 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       forced_shader_names.emplace(std::stoul("6B4B9B6D", nullptr, 16), "UI Video with Film Grain");
       forced_shader_names.emplace(std::stoul("2C052C85", nullptr, 16), "UI Sprite with Color Filter");
       forced_shader_names.emplace(std::stoul("CDB35CB7", nullptr, 16), "UI Sprite"); // This is used as the brightness calibration text
+      forced_shader_names.emplace(std::stoul("BC824E7F", nullptr, 16), "UI Color"); // This is used for black bars (etc?)
+
+      cb_luma_dev_settings_set_from_code = true;
+
+      cb_luma_dev_settings_names[1] = "Write View Projection Matrix";
+
+      cb_luma_dev_settings_names[4] = "Global Jitters Scale X";
+      cb_luma_dev_settings_default_value[4] = 1;
+      cb_luma_dev_settings_min_value[4] = -2;
+      cb_luma_dev_settings_max_value[4] = 2;
+      cb_luma_dev_settings_names[5] = "Global Jitters Scale Y";
+      cb_luma_dev_settings_default_value[5] = 1;
+      cb_luma_dev_settings_min_value[5] = -2;
+      cb_luma_dev_settings_max_value[5] = 2;
+
+      cb_luma_dev_settings_names[6] = "CBuffer Jitters Scale X";
+      cb_luma_dev_settings_default_value[6] = 1;
+      cb_luma_dev_settings_min_value[6] = -2;
+      cb_luma_dev_settings_max_value[6] = 2;
+      cb_luma_dev_settings_names[7] = "CBuffer Jitters Scale Y";
+      cb_luma_dev_settings_default_value[7] = 1;
+      cb_luma_dev_settings_min_value[7] = -2;
+      cb_luma_dev_settings_max_value[7] = 2;
+
+      cb_luma_dev_settings_names[8] = "DLSS Jitters Scale X";
+      cb_luma_dev_settings_default_value[8] = 1;
+      cb_luma_dev_settings_min_value[8] = -2;
+      cb_luma_dev_settings_max_value[8] = 2;
+      cb_luma_dev_settings_names[9] = "DLSS Jitters Scale Y";
+      cb_luma_dev_settings_default_value[9] = 1;
+      cb_luma_dev_settings_min_value[9] = -2;
+      cb_luma_dev_settings_max_value[9] = 2;
+
+      cb_luma_global_settings.DevSettings[4] = 1.f;
+      cb_luma_global_settings.DevSettings[5] = 1.f;
+      cb_luma_global_settings.DevSettings[6] = 1.f;
+      cb_luma_global_settings.DevSettings[7] = 1.f;
+      cb_luma_global_settings.DevSettings[8] = 1.f;
+      cb_luma_global_settings.DevSettings[9] = 1.f;
 #endif
 
       // TODO: distribute DLSS with the build! Also test for crashes when going back to the menu! Also remove the memory patching library if not used. Also add compat with the NO TAA mod? Reduce fog?
       // Also fix when pressing square in the car, screen became darker!? Add photo mode and hide UI buttons.
       // Also.. test mirrors! Also check FOG... sometimes it's too much?
       // Sun and City Lights scale when zooming in!
-      // Videos are broken?
+      // Test debug layer for errors.
 
       enable_swapchain_upgrade = true;
       swapchain_upgrade_type = 1;

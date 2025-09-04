@@ -107,6 +107,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
+      DisableThreadLibraryCalls(hModule);
+
       wchar_t file_path_char[MAX_PATH] = L"";
       GetModuleFileNameW(hModule, file_path_char, ARRAYSIZE(file_path_char));
       std::filesystem::path file_path = file_path_char;

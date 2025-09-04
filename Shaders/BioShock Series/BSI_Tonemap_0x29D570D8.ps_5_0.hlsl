@@ -3,7 +3,7 @@
 
 #define GCT_DEFAULT GCT_MIRROR
 
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
 
@@ -33,10 +33,6 @@ Texture2D<float4> BloomOnlyImage : register(t3);
 Texture2D<float4> LightShaftTexture : register(t4); // Note: this texture is SDR (UNORM)
 Texture2D<float4> ColorGradingLUT : register(t5);
 
-#ifndef TONEMAP_TYPE
-#define TONEMAP_TYPE 1
-#endif
-
 #ifndef ENABLE_FAKE_HDR
 #define ENABLE_FAKE_HDR 1
 #endif
@@ -59,10 +55,6 @@ Texture2D<float4> ColorGradingLUT : register(t5);
 
 #ifndef ENABLE_POST_PROCESS
 #define ENABLE_POST_PROCESS 1
-#endif
-
-#ifndef ENABLE_COLOR_GRADING
-#define ENABLE_COLOR_GRADING 1
 #endif
 
 #if TONEMAP_IN_WIDER_GAMUT && TONEMAP_TYPE == 1
@@ -101,7 +93,7 @@ void main(
   float blurStrength = DOFAndMotionBlurInfoImage.Sample(DOFAndMotionBlurInfoImage_s, v1.xy).z;
   float4 lightShaftsColor = DecodeInput(LightShaftTexture.Sample(LightShaftTexture_s, v0.zw).xyzw);
 
-  float3 mixedSceneColor = lerp(sceneColor, blurredSceneColor, blurStrength) + bloomedSceneColor;
+  float3 mixedSceneColor = lerp(sceneColor, blurredSceneColor, blurStrength) + (bloomedSceneColor * LumaSettings.GameSettings.BloomIntensity); // TODO: expose Motion Blur multiplier? Also, does this game have MVs (DLSS)?
   float logSceneLuminance = min(1.0, exp2(GetLuminance(mixedSceneColor, COLOR_SPACE) * -3.0)); // LUMA: fixed wrong ~BT.601 luminance (0.3,0.59,0.11)
   mixedSceneColor = (mixedSceneColor * lightShaftsColor.w) + (0 * 4.0 * logSceneLuminance);
 #if !ENABLE_POST_PROCESS
@@ -157,6 +149,7 @@ void main(
   // HDR LUT Extrapolation
   LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
   extrapolationData.inputColor = tonemappedColor;
+  extrapolationData.vanillaInputColor = saturate(tonemappedSDRColor); // TODO: is this in the right encoding and the right color space? Also apply the "1.035" multiplier above
 
   LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
   extrapolationSettings.enableExtrapolation = bool(ENABLE_LUT_EXTRAPOLATION);
@@ -270,10 +263,8 @@ void main(
   outColor.rgb = NormalizeLUT(vOriginalGamma, vBlackGamma, vMidGrayGamma, vWhiteGamma, vNeutralGamma);
 #endif // ENABLE_LUT_NORMALIZATION_TYPE
 
-#if 0 // Awful in this game
-  const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
-  const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-  outColor.rgb = linear_to_gamma(PumboAutoHDR(gamma_to_linear(outColor.rgb), peakWhite, paperWhite, 6.667));
+#if 0 // Awful in this game?
+  outColor.rgb = linear_to_gamma(PumboAutoHDR(gamma_to_linear(outColor.rgb), 600.0, LumaSettings.GamePaperWhiteNits, 6.667));
 #endif
 
   outColor.a = linear_to_gamma1(GetLuminance(gamma_to_linear(outColor.rgb)));

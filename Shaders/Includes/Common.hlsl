@@ -91,20 +91,20 @@ float3 linear_to_game_gamma(float3 Color, bool Mirrored = true)
 // AdvancedAutoHDR pass to generate some HDR brightess out of an SDR signal.
 // This is hue conserving and only really affects highlights.
 // "SDRColor" is meant to be in "SDR range" (linear), as in, a value of 1 matching SDR white (something between 80, 100, 203, 300 nits, or whatever else)
-// This function already knows your Luma peak white nits setting, so actually pass in the max value (e.g. 400-750, beyond that it looks bad)
+// This function already knows your Luma peak white nits setting, so actually pass in the max value for paper white 80 (e.g. 400-750, beyond that it looks bad)
 // https://github.com/Filoppi/PumboAutoHDR
 float3 PumboAutoHDR(float3 SDRColor, float MaxPeakWhiteNits, float _PaperWhiteNits, float ShoulderPow = 2.75f)
 {
-#if 0 // This might disproportionally brighten up pure colors
+#if 1 // This might disproportionally brighten up pure colors
 	const float SDRRatio = max3(SDRColor);
-#elif 1
+#elif 0
 	const float SDRRatio = average(SDRColor);
 #else // This nearly ignores blue!
 	const float SDRRatio = max(GetLuminance(SDRColor), 0.f);
 #endif
 	// Limit AutoHDR brightness, it won't look good beyond a certain level.
 	// The paper white multiplier is applied later so we account for that.
-	const float AutoHDRMaxWhite = max(min(MaxPeakWhiteNits, PeakWhiteNits) / _PaperWhiteNits, 1.f);
+	const float AutoHDRMaxWhite = max(min(MaxPeakWhiteNits / sRGB_WhiteLevelNits, PeakWhiteNits / _PaperWhiteNits), 1.f);
 	const float AutoHDRExtraRatio = pow(saturate(SDRRatio), ShoulderPow) * (AutoHDRMaxWhite - 1.f);
 	const float AutoHDRTotalRatio = SDRRatio + AutoHDRExtraRatio;
 	return SDRColor * safeDivision(AutoHDRTotalRatio, SDRRatio, 1);
@@ -118,7 +118,7 @@ float3 FakeHDR(float3 Color, float NormalizationPoint = 1.0, float FakeHDRIntens
   mixedSceneColorLuminance = mixedSceneColorLuminance > 1.0 ? pow(mixedSceneColorLuminance, 1.0 + FakeHDRIntensity) : mixedSceneColorLuminance;
   Color = RestoreLuminance(Color, mixedSceneColorLuminance * NormalizationPoint, colorSpace);
   // Expand saturation as well, on highlights only
-  if (BoostSaturation)
+  if (BoostSaturation) // TODO: this is broken?
     Color = Saturation(Color, max(mixedSceneColorLuminance, 1.0), colorSpace);
   return Color;
 }
@@ -221,6 +221,7 @@ bool ShouldForceSDR(float2 UV, bool FlipY /*= false*/, out bool blackBar, float 
 #if 1 // Draw black bars
 	if (numberOfBars != 3)
 	{
+    [unroll]
 		for (uint i = 1; i < numberOfBars; i++)
 		{
 			float barUV = (float)i / numberOfBars;
@@ -235,6 +236,7 @@ bool ShouldForceSDR(float2 UV, bool FlipY /*= false*/, out bool blackBar, float 
 	else
 	{
    	float2 splits = float2(0.25, 0.75);
+    [unroll]
 		for (uint i = 0; i < 2; i++)
 		{
 			float barUV = splits[i];

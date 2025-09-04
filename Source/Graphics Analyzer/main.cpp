@@ -55,6 +55,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
+      DisableThreadLibraryCalls(hModule);
+
       Globals::SetGlobals(PROJECT_NAME, "Luma DX11 Graphics Analyzer", "https://github.com/Filoppi/Luma-Framework/");
 
       // Don't automatically dump game shaders

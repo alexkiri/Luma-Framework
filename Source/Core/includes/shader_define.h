@@ -361,8 +361,6 @@ namespace Shader
          // Note: if we decrease "MAX_SHADER_DEFINES", this won't clear them all, in that case, we could run it until index 99.
          for (uint32_t i = shader_defines_data.size(); i < MAX_SHADER_DEFINES; i++)
          {
-            char char_buffer_2[SHADER_DEFINES_MAX_VALUE_LENGTH] = "";
-            size_t size = SHADER_DEFINES_MAX_VALUE_LENGTH;
             sprintf(&char_buffer[0], i < 10 ? "Define#%iName" : "Define%iName", i);
             reshade::set_config_value(runtime, config_name.c_str(), &char_buffer[0], (const char*)nullptr);
             sprintf(&char_buffer[0], i < 10 ? "Define#%iValue" : "Define%iValue", i);

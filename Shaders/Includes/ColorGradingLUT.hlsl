@@ -132,7 +132,7 @@ void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1, uint c
 
 // Restores the source color hue (and optionally brightness) through Oklab (this works on colors beyond SDR in brightness and gamut too).
 // The strength sweet spot for a strong hue restoration seems to be 0.75, while for chrominance, going up to 1 is ok.
-float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hueStrength = 0.75, float chrominanceStrength = 1.0, float lightnessStrength = 0.0, uint colorSpace = CS_DEFAULT)
+float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hueStrength = 0.75, float chrominanceStrength = 1.0, float minChrominanceChange = 0.0, float maxChrominanceChange = FLT_MAX, float lightnessStrength = 0.0, uint colorSpace = CS_DEFAULT)
 {
 	if (hueStrength == 0.0 && chrominanceStrength == 0.0 && lightnessStrength == 0.0) // Static optimization (useful if the param is const)
 		return targetColor;
@@ -144,37 +144,35 @@ float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hu
 	const float3 sourceOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(sourceColor);
 	float3 targetOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(targetColor) : linear_srgb_to_oklab(targetColor);
    
-  targetOklab.x = lerp(targetOklab.x, sourceOklab.x, lightnessStrength); //TODOFT5: the alt method was used by Bioshock 2, did it make sense? Should it be here?
+  targetOklab.x = lerp(targetOklab.x, sourceOklab.x, lightnessStrength);
   
 	float currentChrominance = length(targetOklab.yz);
-	float chrominanceRatio = 1.0;
 
   if (hueStrength != 0.0)
   {
     // First correct both hue and chrominance at the same time (oklab a and b determine both, they are the color xy coordinates basically).
-    // As long as we don't restore the hue to a 100% (which should be avoided), this will always work perfectly even if the source color is pure white (or black, any "hueless" and "chromaless" color).
+    // As long as we don't restore the hue to a 100% (which should be avoided?), this will always work perfectly even if the source color is pure white (or black, any "hueless" and "chromaless" color).
     // This method also works on white source colors because the center of the oklab ab diagram is a "white hue", thus we'd simply blend towards white (but never flipping beyond it (e.g. from positive to negative coordinates)),
     // and then restore the original chrominance later (white still conserving the original hue direction, so likely spitting out the same color as the original, or one very close to it).
     const float chrominancePre = currentChrominance;
     targetOklab.yz = lerp(targetOklab.yz, sourceOklab.yz, hueStrength);
     const float chrominancePost = length(targetOklab.yz);
     // Then restore chrominance to the original one
-    chrominanceRatio = safeDivision(chrominancePre, chrominancePost, 1);
-    currentChrominance = chrominancePost;
+    float chrominanceRatio = safeDivision(chrominancePre, chrominancePost, 1);
+    targetOklab.yz *= chrominanceRatio;
+    //currentChrominance = chrominancePre; // Redundant
   }
 
   if (chrominanceStrength != 0.0)
   {
     const float sourceChrominance = length(sourceOklab.yz);
     // Scale original chroma vector from 1.0 to ratio of target to new chroma
-    // Note that this might reduce or increase the chroma.
+    // Note that this might either reduce or increase the chroma.
     float targetChrominanceRatio = safeDivision(sourceChrominance, currentChrominance, 1);
-#if 0 // Optional safe boundaries, alternatively we could do a max raw offset
-    targetChrominanceRatio = min(targetChrominanceRatio, 1.333f);
-#endif
-    chrominanceRatio = lerp(chrominanceRatio, targetChrominanceRatio, chrominanceStrength);
+    // Optional safe boundaries (0.333x to 2x is a decent range)
+    targetChrominanceRatio = clamp(targetChrominanceRatio, minChrominanceChange, maxChrominanceChange);
+    targetOklab.yz *= lerp(1.0, targetChrominanceRatio, chrominanceStrength);
   }
-  targetOklab.yz *= chrominanceRatio;
 
 	return colorSpace == CS_BT2020 ? oklab_to_linear_bt2020(targetOklab) : oklab_to_linear_srgb(targetOklab);
 }
@@ -303,7 +301,7 @@ float3 RestorePostProcess(float3 nonPostProcessedTargetColor, float3 nonPostProc
   // This often ends up shifting the hue too much, either looking too desaturated or too saturated, mostly because in SDR highlights are all burned to white by LUTs, and by the Vanilla SDR tonemappers.
 	if (hueRestoration > 0)
 	{
-		newPostProcessedColor = RestoreHueAndChrominance(newPostProcessedColor, postProcessedSourceColor, hueRestoration, 0.0, 0.0, BT2020 ? CS_BT2020 : CS_DEFAULT);
+		newPostProcessedColor = RestoreHueAndChrominance(newPostProcessedColor, postProcessedSourceColor, hueRestoration, 0.0, 0.0, FLT_MAX, 0.0, BT2020 ? CS_BT2020 : CS_DEFAULT);
 	}
   
 	if (BT2020)
@@ -390,6 +388,7 @@ float3 ColorGradingLUTTransferFunctionOut(float3 col, uint transferFunction, boo
   {
     return RestoreHueAndChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel, 0.0, 1.0);
   }
+  return 0; // Possibly avoids warnings
 }
 
 // Use the LUT input transfer function within 0-1 and the LUT output transfer function beyond 0-1 (e.g. sRGB to gamma 2.2),
@@ -715,8 +714,8 @@ struct LUTExtrapolationSettings
   // It's generally not suggested to use it as basically it undoes the LUT extrapolation, but if you have LUTs not far from being neutral,
   // you might set this to a smallish value and get better results (e.g. better hues).
   float neutralLUTRestorationAmount;
-  // How much we blend back towards the vanilla LUT color (or hue).
-  // It can be used to restore some of the vanilla hues on bright (or not bright) colors (they would likely be desaturated on highlights).
+  // How much we blend back towards the vanilla LUT color (or hue/chrominance).
+  // It can be used to restore some of the vanilla hues or chrominance on bright (or not bright) colors (they would likely have desaturated on highlights).
   // This adds one sample per pixel.
   float vanillaLUTRestorationAmount;
 
@@ -795,16 +794,14 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 encoded
   const bool highQualityLUTCoordinateAdjustments = settings.samplingQuality >= 1;
   const bool tetrahedralInterpolation = settings.samplingQuality >= 2;
   
-#pragma warning( disable : 4000 ) // It's not clear why this function generates this error (sometimes?), maybe it's because we should add an else case for the return
   float3 sampleCoordinates = AdjustLUTCoordinatesForLinearLUT(encodedCoordinates, highQualityLUTCoordinateAdjustments, settings.transferFunctionIn, settings.lutInputLinear, settings.lutOutputLinear, settings.lutSize, specifyLinearColor, linearCoordinates);
   float3 color = SampleLUT(lut, samplerState, sampleCoordinates, settings.lutSize, tetrahedralInterpolation, settings.lutInputLinear, settings.lutOutputLinear, settings.transferFunctionIn);
   // We appply the transfer function even beyond 0-1 as if the color comes from a linear LUT, it shouldn't already have any kind of gamma correction applied to it (gamma correction runs later).
   if (!settings.lutOutputLinear && forceOutputLinear)
   {
-			return ColorGradingLUTTransferFunctionOut(color, settings.transferFunctionIn, true);
+		color = ColorGradingLUTTransferFunctionOut(color, settings.transferFunctionIn, true); // Doing a return directly here causes warning 4000
   }
   return color;
-#pragma warning( default : 4000 )
 }
 
 //TODOFT: store the acceleration around the lut's last texel in the alpha channel?
@@ -1442,7 +1439,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
       lutOutputLinear = true;
     }
 #if 1 // Advanced hue restoration
-    outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, 0.0, settings.vanillaLUTRestorationAmount, 0.0); // Restore chrominance instead of hue, it should better preserve highlights desaturation //TODOFT5: try it!!!
+    outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount * 0.25, settings.vanillaLUTRestorationAmount, 0.0); // Restore chrominance instead of hue, it should better preserve highlights desaturation //TODOFT5: try it!!! And just expose them as separate params, for now we defaulted to a decent looking value. 0.25 for BS2 and 0 for Mafia III
     //outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount, 0.0, 0.0);
 #else // Restoration by luminance
 		float3 extrapolatedVanillaSample = RestoreLuminance(vanillaSample, outputSample);
@@ -1537,6 +1534,7 @@ float3 DrawLUTTexture(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float2 Pi
 
     LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
     extrapolationData.inputColor = LUTCoordinates.rgb;
+    extrapolationData.vanillaInputColor = LUTCoordinates.rgb;
 
     LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
     extrapolationSettings.enableExtrapolation = bool(ENABLE_LUT_EXTRAPOLATION);

@@ -191,8 +191,11 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float UIPaperWhiteNits; // Access this through the global variables below (only usable in certain "UI_DRAW_TYPE" modes)
     uint DLSS; // Is DLSS enabled (implies it engaged and it's compatible) (this is on even in fullscreen UI menus that don't use upscaling)
     uint FrameIndex; // Frame counter, no need for this to be by device or swapchain
-
-#if DEVELOPMENT
+    
+// These ideally should be after anything else or if we toggled the "DEVELOPMENT" flag, the rest would get misaligned,
+// however for some reason the alignment of nested structs (the ones below) doesn't match between c++ and hlsl,
+// so we have to do tricks on this one. We already tried "alignas(16)" and other types of padding to no success.
+#if DEVELOPMENT || (defined(CPU_DEVELOPMENT) && CPU_DEVELOPMENT)
     // These are reflected in ImGui (the number of them is hardcoded in c++).
     // You can add up to 3 numbers as comment to their right to define the UI settings sliders default, min and max values, and their name.
     // Like: float DevSetting01; // DefaultValue, MinValue, MaxValue, Name

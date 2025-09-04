@@ -1,6 +1,6 @@
 #pragma once
 
-#include <include/reshade.hpp>
+#include "include/reshade.hpp"
 #include "./format.hpp"
 
 namespace Shader
@@ -22,11 +22,14 @@ namespace Shader
          switch (subobject.type)
          {
          case reshade::api::pipeline_subobject_type::vertex_shader:
+#if 0
          case reshade::api::pipeline_subobject_type::hull_shader:
          case reshade::api::pipeline_subobject_type::domain_shader:
+#endif
          case reshade::api::pipeline_subobject_type::geometry_shader:
          case reshade::api::pipeline_subobject_type::compute_shader:
          case reshade::api::pipeline_subobject_type::pixel_shader:
+#if defined(DX12) && DX12
          case reshade::api::pipeline_subobject_type::amplification_shader:
          case reshade::api::pipeline_subobject_type::mesh_shader:
          case reshade::api::pipeline_subobject_type::raygen_shader:
@@ -35,6 +38,7 @@ namespace Shader
          case reshade::api::pipeline_subobject_type::miss_shader:
          case reshade::api::pipeline_subobject_type::intersection_shader:
          case reshade::api::pipeline_subobject_type::callable_shader:
+#endif
          {
             new_subobjects[i].data = malloc(sizeof(reshade::api::shader_desc));
             memcpy(new_subobjects[i].data, subobject.data, sizeof(reshade::api::shader_desc));
@@ -61,6 +65,7 @@ namespace Shader
 #endif
             break;
          }
+#if defined(DX12) && DX12
          case reshade::api::pipeline_subobject_type::input_layout:
          new_subobjects[i].data = malloc(sizeof(reshade::api::input_element) * subobject.count);
          memcpy(new_subobjects[i].data, subobject.data, sizeof(reshade::api::input_element) * subobject.count);
@@ -119,6 +124,8 @@ namespace Shader
          new_subobjects[i].data = malloc(sizeof(reshade::api::pipeline_flags) * subobject.count);
          memcpy(new_subobjects[i].data, subobject.data, sizeof(reshade::api::pipeline_flags) * subobject.count);
          break;
+#endif
+         default:
          case reshade::api::pipeline_subobject_type::unknown:
          break;
          }
@@ -135,13 +142,13 @@ namespace Shader
 
          switch (suboject.type)
          {
-         case reshade::api::pipeline_subobject_type::geometry_shader:
          case reshade::api::pipeline_subobject_type::vertex_shader:
+         case reshade::api::pipeline_subobject_type::geometry_shader:
          case reshade::api::pipeline_subobject_type::compute_shader:
          case reshade::api::pipeline_subobject_type::pixel_shader:
          {
             auto* desc = static_cast<reshade::api::shader_desc*>(suboject.data);
-            delete desc->code;
+            free(const_cast<void*>(desc->code));
             desc->code = nullptr;
             break;
          }
@@ -149,7 +156,7 @@ namespace Shader
          break;
          }
 
-         delete suboject.data;
+         free(suboject.data);
          suboject.data = nullptr;
       }
       delete[] subojects;

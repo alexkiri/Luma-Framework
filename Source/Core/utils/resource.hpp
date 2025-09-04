@@ -39,10 +39,89 @@ std::optional<std::string> GetD3DNameW(ID3D11DeviceChild* obj)
 }
 #endif
 
-void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, bool* render_target_flag = nullptr, bool* unordered_access_flag = nullptr)
+UINT GetTextureMipSize(UINT base_size, UINT mip_level)
+{
+   // Shift down by mip level, clamp to at least 1
+   return max(min(base_size, 1), base_size >> mip_level);
+}
+
+uint3 GetTextureMipSize(uint3 base_size, UINT mip_level)
+{
+   uint3 mip_size;
+   mip_size.x = GetTextureMipSize(base_size.x, mip_level);
+   mip_size.y = GetTextureMipSize(base_size.y, mip_level);
+   mip_size.z = GetTextureMipSize(base_size.z, mip_level);
+   return mip_size;
+}
+
+UINT GetSRVMipLevel(const D3D11_SHADER_RESOURCE_VIEW_DESC& desc)
+{
+   switch (desc.ViewDimension)
+   {
+   case D3D11_SRV_DIMENSION_TEXTURE1D:
+      return desc.Texture1D.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURE1DARRAY:
+      return desc.Texture1DArray.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURE2D:
+      return desc.Texture2D.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURE2DARRAY:
+      return desc.Texture2DArray.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURE3D:
+      return desc.Texture3D.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURECUBE:
+      return desc.TextureCube.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURECUBEARRAY:
+      return desc.TextureCubeArray.MostDetailedMip;
+   case D3D11_SRV_DIMENSION_TEXTURE2DMS:
+   case D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY:
+   default:
+      return 0;
+   }
+}
+UINT GetRTVMipLevel(const D3D11_RENDER_TARGET_VIEW_DESC& desc)
+{
+   switch (desc.ViewDimension)
+   {
+   case D3D11_RTV_DIMENSION_TEXTURE1D:
+      return desc.Texture1D.MipSlice;
+   case D3D11_RTV_DIMENSION_TEXTURE1DARRAY:
+      return desc.Texture1DArray.MipSlice;
+   case D3D11_RTV_DIMENSION_TEXTURE2D:
+      return desc.Texture2D.MipSlice;
+   case D3D11_RTV_DIMENSION_TEXTURE2DARRAY:
+      return desc.Texture2DArray.MipSlice;
+   case D3D11_RTV_DIMENSION_TEXTURE3D:
+      return desc.Texture3D.MipSlice;
+   case D3D11_RTV_DIMENSION_TEXTURE2DMS:
+   case D3D11_RTV_DIMENSION_TEXTURE2DMSARRAY:
+   default:
+      return 0;
+   }
+}
+UINT GetUAVMipLevel(const D3D11_UNORDERED_ACCESS_VIEW_DESC& desc)
+{
+   switch (desc.ViewDimension)
+   {
+   case D3D11_UAV_DIMENSION_TEXTURE1D:
+      return desc.Texture1D.MipSlice;
+   case D3D11_UAV_DIMENSION_TEXTURE1DARRAY:
+      return desc.Texture1DArray.MipSlice;
+   case D3D11_UAV_DIMENSION_TEXTURE2D:
+      return desc.Texture2D.MipSlice;
+   case D3D11_UAV_DIMENSION_TEXTURE2DARRAY:
+      return desc.Texture2DArray.MipSlice;
+   case D3D11_UAV_DIMENSION_TEXTURE3D:
+      return desc.Texture3D.MipSlice;
+   default:
+      return 0;
+   }
+}
+
+void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, std::string* debug_name = nullptr, bool* render_target_flag = nullptr, bool* unordered_access_flag = nullptr)
 {
    size = { };
    format = DXGI_FORMAT_UNKNOWN;
+   // Note: clearing strings isn't very useful, they shoudl be expected to be null already
    if (type_name)
    {
       *type_name = "";
@@ -50,6 +129,10 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
    if (hash)
    {
       *hash = "";
+   }
+   if (debug_name)
+   {
+      *debug_name = "";
    }
    if (render_target_flag)
    {
@@ -61,10 +144,14 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
    }
    if (!resource) return;
 
-#if DEVELOPMENT // TODO: add debug string names!
    if (hash)
    {
-      ASSERT_ONCE(!GetD3DNameW(resource).has_value()); // Note: this game has debug names for textures! We should add support and show them in the UI
+      *hash = std::to_string(std::hash<void*>{}(resource));
+   }
+#if DEVELOPMENT
+   if (debug_name)
+   {
+      *debug_name = GetD3DNameW(resource).value_or("");
    }
 #endif
 
@@ -125,10 +212,6 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
       {
          *type_name = "Texture 3D";
       }
-      if (hash)
-      {
-         *hash = std::to_string(std::hash<void*>{}(resource));
-      }
       if (render_target_flag)
       {
          *render_target_flag = (texture_3d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
@@ -156,10 +239,6 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
             *type_name = "Texture 1D Array";
          }
       }
-      if (hash)
-      {
-         *hash = std::to_string(std::hash<void*>{}(resource));
-      }
       if (render_target_flag)
       {
          *render_target_flag = (texture_1d_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0;
@@ -181,10 +260,6 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
       {
          *type_name = "Buffer"; // This exact name might be assumed elsewhere, scan the code before changing it
       }
-      if (hash)
-      {
-         *hash = std::to_string(std::hash<void*>{}(resource));
-      }
       if (render_target_flag)
       {
          *render_target_flag = false; // Implied by being a buffer!
@@ -197,17 +272,30 @@ void GetResourceInfo(ID3D11Resource* resource, uint4& size, DXGI_FORMAT& format,
    }
    ASSERT_ONCE_MSG(false, "Unknown texture type");
 }
-void GetResourceInfo(ID3D11View* view, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, bool* render_target_flag = nullptr, bool* unordered_access_flag = nullptr)
+void GetResourceInfo(ID3D11View* view, uint4& size, DXGI_FORMAT& format, std::string* type_name = nullptr, std::string* hash = nullptr, std::string* debug_name = nullptr, bool* render_target_flag = nullptr, bool* unordered_access_flag = nullptr)
 {
    if (!view)
    {
-      GetResourceInfo((ID3D11Resource*)nullptr, size, format, type_name, hash, render_target_flag, unordered_access_flag);
+      GetResourceInfo((ID3D11Resource*)nullptr, size, format, type_name, hash, debug_name, render_target_flag, unordered_access_flag);
       return;
    }
    // Note that specific cast views have a desc that could tell us the resource type
    com_ptr<ID3D11Resource> view_resource;
    view->GetResource(&view_resource);
-   return GetResourceInfo(view_resource.get(), size, format, type_name, hash, render_target_flag, unordered_access_flag);
+   GetResourceInfo(view_resource.get(), size, format, type_name, hash, debug_name, render_target_flag, unordered_access_flag);
+#if DEVELOPMENT
+   // Add the view debug name as well if it's present
+   if (debug_name)
+   {
+      auto view_debug_name = GetD3DNameW(view);
+      if (view_debug_name.has_value())
+      {
+         if (!debug_name->empty()) // Separator (we could change to \n if we confirmed the way we visualize this text allows multiline)
+            *debug_name += " | ";
+         *debug_name += view_debug_name.value();
+      }
+   }
+#endif
 }
 
 // Note: this is a bit approximate!
@@ -386,9 +474,9 @@ enum class DebugDrawTextureOptionsMask : uint32_t
    UVToPixelSpace = 1 << 20,
    Denormalize = 1 << 21,
 };
-// If true we are drawing the render target texture, otherwise the shader resource texture
 enum class DebugDrawMode : uint32_t
 {
+   Custom,
    // TODO: rename all of these to "View", or not (and also Depth to Depth+Stencil?)
    RenderTarget,
    UnorderedAccessView,
@@ -396,6 +484,7 @@ enum class DebugDrawMode : uint32_t
    Depth,
 };
 static constexpr const char* debug_draw_mode_strings[] = {
+    "Custom",
     "Render Target",
     "Unordered Access View",
     "Shader Resource",
@@ -409,6 +498,7 @@ bool CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
    DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
    com_ptr<ID3D11Resource> texture_resource;
+   DXGI_FORMAT forced_texture_format = DXGI_FORMAT_UNKNOWN;
    if (debug_draw_mode == DebugDrawMode::RenderTarget || debug_draw_mode == DebugDrawMode::Depth)
    {
       com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
@@ -444,7 +534,8 @@ bool CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          break;
          case DXGI_FORMAT_D24_UNORM_S8_UINT:
          {
-            device_data.debug_draw_texture_format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+            device_data.debug_draw_texture_format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; // Or use "DXGI_FORMAT_X24_TYPELESS_G8_UINT" to do SRV on Stencil
+            forced_texture_format = DXGI_FORMAT_R24G8_TYPELESS;
          }
          break;
          case DXGI_FORMAT_D32_FLOAT:
@@ -454,7 +545,8 @@ bool CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          break;
          case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
          {
-            device_data.debug_draw_texture_format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+            device_data.debug_draw_texture_format = DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS; // Or use "DXGI_FORMAT_X32_TYPELESS_G8X24_UINT" to do SRV on Stencil
+            forced_texture_format = DXGI_FORMAT_R32G8X24_TYPELESS;
          }
          break;
          }
@@ -526,10 +618,12 @@ bool CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          ASSERT_ONCE_MSG((texture_desc.MiscFlags & D3D11_RESOURCE_MISC_TEXTURECUBE) != 0 || texture_desc.ArraySize != 6, "Texture Cube Debug Drawing is likely not supported");
          texture_desc.Usage = D3D11_USAGE_DEFAULT;
          texture_desc.CPUAccessFlags = 0;
-         texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE; // We don't need "D3D11_BIND_RENDER_TARGET" nor "D3D11_BIND_UNORDERED_ACCESS" for now
+         texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE; // We don't need "D3D11_BIND_RENDER_TARGET" nor "D3D11_BIND_UNORDERED_ACCESS" nor "D3D11_BIND_DEPTH_STENCIL" for now
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_GENERATE_MIPS;
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_SHARED;
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_TEXTURECUBE; // Remove the cube flag in an attempt to support it anyway as a 2D Array
+         if (forced_texture_format != DXGI_FORMAT_UNKNOWN)
+            texture_desc.Format = forced_texture_format;
          hr = native_device->CreateTexture2D(&texture_desc, nullptr, reinterpret_cast<ID3D11Texture2D**>(&device_data.debug_draw_texture)); // TODO: figure out error, happens sometimes. And make thread safe!
       }
       else if (texture_3d)
@@ -541,6 +635,8 @@ bool CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_GENERATE_MIPS;
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_SHARED;
+         if (forced_texture_format != DXGI_FORMAT_UNKNOWN)
+            texture_desc.Format = forced_texture_format;
          hr = native_device->CreateTexture3D(&texture_desc, nullptr, reinterpret_cast<ID3D11Texture3D**>(&device_data.debug_draw_texture));
       }
       else if (texture_1d)
@@ -552,6 +648,8 @@ bool CopyDebugDrawTexture(DebugDrawMode debug_draw_mode, int32_t debug_draw_view
          texture_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_GENERATE_MIPS;
          texture_desc.MiscFlags &= ~D3D11_RESOURCE_MISC_SHARED;
+         if (forced_texture_format != DXGI_FORMAT_UNKNOWN)
+            texture_desc.Format = forced_texture_format;
          hr = native_device->CreateTexture1D(&texture_desc, nullptr, reinterpret_cast<ID3D11Texture1D**>(&device_data.debug_draw_texture));
       }
       // Back it up as it gets immediately overwritten or re-used later

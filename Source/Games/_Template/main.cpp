@@ -112,10 +112,14 @@ public:
    }
 };
 
+// This is where everything starts from, the very first call to the dll.
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
+      // Optimization (we don't need DLL_THREAD_ATTACH)
+      DisableThreadLibraryCalls(hModule);
+
       // Setup the globals (e.g. name etc). It's good to do this stuff before registering the ReShade addon, to make sure the names are up to date.
       const char* project_name = PROJECT_NAME;
       const char* cleared_project_name = (project_name[0] == '_') ? (project_name + 1) : project_name; // Remove the potential "_" at the beginning. This can include spaces!

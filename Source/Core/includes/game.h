@@ -27,6 +27,8 @@ struct GameInfo
 class Game
 {
 public:
+   virtual ~Game() = default; // Avoids warnings. Using the destructor is not suggested if not to clear up persistently allocated memory.
+
    // The mod dll loaded (before init)
    virtual void OnLoad(std::filesystem::path& file_path, bool failed = false) {}
    // The mod initialized

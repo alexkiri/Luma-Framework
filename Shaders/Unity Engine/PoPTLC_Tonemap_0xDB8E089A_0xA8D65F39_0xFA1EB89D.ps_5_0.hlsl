@@ -65,6 +65,7 @@ float3 ApplyLUT(float3 color, Texture2D<float4> _texture, SamplerState _sampler)
   {
     LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
     extrapolationData.inputColor = color.rgb;
+    extrapolationData.vanillaInputColor = saturate(color.rgb);
   
     LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
     extrapolationSettings.lutSize = round(1.0 / cb0[130].y);
@@ -114,15 +115,16 @@ float3 ApplyLUT(float3 color, Texture2D<float4> _texture, SamplerState _sampler)
 
 float3 Tonemap(float3 color)
 {
-  DICESettings config = DefaultDICESettings();
-  config.Type = DICE_TYPE_BY_CHANNEL_PQ; // Do DICE by channel to desaturate highlights and keep the SDR range unotuched
+  DICESettings config = DefaultDICESettings(DICE_TYPE_BY_CHANNEL_PQ); // Do DICE by channel to desaturate highlights and keep the SDR range unotuched
   float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
   float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
 #if 0 // Test: make PQ tonemapping indepdenent from the user paper white (the result seems about identical if we start the shoulder from paper white), this isn't what the design intended
   peakWhite /= paperWhite;
   paperWhite = 1.0;
 #endif
+#if 0 // Disabled as it makes highlights weaker // TODO: investigate in all games. Is this a good thing?
   config.ShoulderStart = paperWhite / peakWhite; // Start tonemapping beyond paper white, so we leave the SDR range untouched (roughly, given that this tonemaps in BT.2020)
+#endif
   return DICETonemap(color * paperWhite, peakWhite, config) / paperWhite;
 }
 
@@ -156,7 +158,9 @@ void main(
 #endif
 
 #if UI_DRAW_TYPE == 2 // Scale by the inverse of the relative UI brightness so we can draw the UI at brightness 1x and then multiply it back to its intended range
+	ColorGradingLUTTransferFunctionInOutCorrected(color.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
   color.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+	ColorGradingLUTTransferFunctionInOutCorrected(color.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif
 
   outColor = float4(color.rgb, 1.0);

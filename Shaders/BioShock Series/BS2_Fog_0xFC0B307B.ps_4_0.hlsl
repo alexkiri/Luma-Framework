@@ -1,5 +1,6 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/Oklab.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 cbuffer _Globals : register(b0)
 {
@@ -34,7 +35,7 @@ float4 GetAdditiveFogByDepth(float depth, float2 depthUV, float4 fogOpacity, flo
 {
   float4 r0,r1;
   r0.x = 1 + -wToZScaleAndBias.z;
-  r0.w = (depth >= 0.00999999978) ? 1.000000 : 0;
+  r0.w = (depth >= 0.01) ? 1.0 : 0; // No fog below 0.01?
   r0.x = r0.w * r0.x + wToZScaleAndBias.z;
   r0.x = depth * r0.x + -wToZScaleAndBias.x;
   r1.z = wToZScaleAndBias.y / r0.x;
@@ -69,40 +70,49 @@ void main(
   const float2 depthUV = v0.xy / v0.ww;
   const float depth = s_sceneDepth.Sample(s_sceneDepth_s, depthUV).x;
   float4 additiveFog = GetAdditiveFogByDepth(depth, depthUV, fogOpacity, fogIntensity);
-  //additiveFog.rgba = max(additiveFog.rgba - (GetAdditiveFogByDepth(0.0, depthUV, fogOpacity, fogIntensity).rgba * (1.0 - pow(depth, 125.0))), 0.0);
 
-  const float3 backgroundColor = sceneTexture.Sample(s_sceneDepth_s, depthUV).rgb;
-#if 1 // LUMA: Fix fog to avoid it raising blacks
-  // Pre-blend with the background and force the alpha to 1 to fully control the result (we can't fix the fact that it raises blacks without knowing the background color)
-  outColor.rgb = lerp(backgroundColor.rgb, additiveFog.rgb, additiveFog.a);
-  outColor.a = 1;
+  additiveFog.a = pow(additiveFog.a, 1.0 / LumaSettings.GameSettings.FogIntensity); // Division by 0 goes +INF
+  //additiveFog.a *= LumaSettings.GameSettings.FogIntensity; // Doesn't properly work > 1
+
+#if ENABLE_LUMA // LUMA: Fix fog to avoid it raising blacks
+
+  //additiveFog.rgba = max(additiveFog.rgba - (GetAdditiveFogByDepth(0.0, depthUV, fogOpacity, fogIntensity).rgba * (1.0 - pow(depth, 125.0))), 0.0); // Attempted change
+
+  // Pre-blend with the background (straight alpha, as the state was set to) and force the alpha to 1 to fully control the result (we can't fix the fact that it raises blacks without knowing the background color)
+  const float3 backgroundColor = sceneTexture.Sample(s_sceneDepth_s, depthUV).rgb; // Added by luma
+  float4 sceneWithFog = float4(lerp(backgroundColor.rgb, additiveFog.rgb, additiveFog.a), 1.0);
+
   // Restore the original luminance near the camera, to fog can only make the scene brighter further in the distance
-#if 0
+#if 1
+  float3 prevSceneWithFog = sceneWithFog.rgb;
   float3 backgroundOklab = linear_srgb_to_oklab(backgroundColor.rgb);
-  float3 outputOklab = linear_srgb_to_oklab(outColor.rgb);
-  outputOklab[0] = lerp(backgroundOklab[0], outputOklab[0], pow(depth, 33.333));
-  //outputOklab[1] = backgroundOklab[1];
-  //outputOklab[2] = backgroundOklab[2];
-  outputOklab[1] *= lerp(2.0, 1.0, pow(depth, LumaSettings.DevSetting01));
-  outputOklab[2] *= lerp(2.0, 1.0, pow(depth, LumaSettings.DevSetting01));
-  outColor.rgb = oklab_to_linear_srgb(outputOklab);
-#else
-  float3 correctedColor = RestoreLuminance(outColor.rgb, backgroundColor.rgb, true);
-  float correctionRatio = 1.0 - saturate(GetLuminance(correctedColor) / GetLuminance(outColor.rgb));
+  float3 sceneWithFogOklab = linear_srgb_to_oklab(sceneWithFog.rgb);
+  //float3 fogOklab = linear_srgb_to_oklab(additiveFog.rgb);
+
+  // Start from the non fogged scene background and restore some of the fogged scene brightness in the distance (not close to the camera, to avoid raised blacks)
+  backgroundOklab.x = lerp(backgroundOklab.x, sceneWithFogOklab.x, pow(saturate(depth), 33.333)); // Heuristically found value (hopefully the depth far plane is consistent through the game)
+  float3 backgroundColorWithFogBrightness = oklab_to_linear_srgb(backgroundOklab);
+  
+  // Restore the fog hue and chrominance, to indeed have it look similar to vanilla
+  const float fogSaturation = 1.0; // Values beyond 0.7 and 0.9 make the fog look a bit closer to vanilla, without raising blacks, but it looks nicer with extra saturation and goes into BT.2020
+  sceneWithFog.rgb = RestoreHueAndChrominance(backgroundColorWithFogBrightness, sceneWithFog.rgb, 1.0, fogSaturation); // I'm a bit confused as to why but if we restore any less hue than 1, it looks either broken or bad
+
+  sceneWithFog.rgb = lerp(prevSceneWithFog, sceneWithFog.rgb, LumaSettings.GameSettings.FogCorrectionIntensity);
+#else // Alternative older version, it's not as accurate to the vanilla fog not as good looking as the oklab version
+  float3 correctedColor = RestoreLuminance(sceneWithFog.rgb, backgroundColor.rgb, true);
+  float correctionRatio = 1.0 - saturate(GetLuminance(correctedColor) / GetLuminance(sceneWithFog.rgb));
   // Re-tint the fog by adding the additive color again, and the restoring the luminance again (there might be a way to do it with simpler math but whatever)
   correctedColor = RestoreLuminance(correctedColor + (additiveFog.rgb * additiveFog.a * pow(correctionRatio, 0.333) * 3.333), correctedColor, true);
-  outColor.rgb = lerp(correctedColor, outColor.rgb, pow(depth, 66.666)); // Heuristically found value (hopefully the depth far plane is consistent through the game)
-  //outColor.rgb = lerp(GetLuminance(outColor.rgb), outColor.rgb, 1.0 + (1.0 - pow(depth, 33.333)));
+  correctedColor = lerp(sceneWithFog.rgb, correctedColor, LumaSettings.GameSettings.FogCorrectionIntensity);
+  sceneWithFog.rgb = lerp(correctedColor, sceneWithFog.rgb, pow(depth, 66.666)); // Heuristically found value (hopefully the depth far plane is consistent through the game)
+  //sceneWithFog.rgb = lerp(GetLuminance(sceneWithFog.rgb), sceneWithFog.rgb, 1.0 + (1.0 - pow(depth, 33.333)));
 #endif
-#elif 0 // Disable fog
-#if 0
-  outColor.rgb = 0;
-  outColor.a = 0;
-#else // Dumber way
-  outColor.rgb = backgroundColor;
-  outColor.a = 1;
-#endif
+
+  outColor = sceneWithFog;
+
 #else
+
   outColor = additiveFog;
+
 #endif
 }

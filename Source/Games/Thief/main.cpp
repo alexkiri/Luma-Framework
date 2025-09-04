@@ -116,7 +116,7 @@ public:
       static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
       if (ImGui::Button(contributing_link.c_str()))
       {
-         system("start https://github.com/Filoppi/Luma");
+         system("start https://github.com/Filoppi/Luma-Framework");
       }
       ImGui::PopStyleColor(3);
 

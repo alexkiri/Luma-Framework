@@ -86,6 +86,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool sRGB = (LumaData.CustomData2 & (1 << 19)) != 0; // sRGB in/out (instead of gamma 2.2)
 		bool UVToPixelSpace = (LumaData.CustomData2 & (1 << 20)) != 0;
 		bool denormalize = (LumaData.CustomData2 & (1 << 21)) != 0;
+		int mipLevel = LumaData.CustomData3 + 0.5; // 10 bits for the mip level
 	
 		float3 debugPos = float3(pos.xy, 0.5);
 		int sliceWidth = debugWidth + 0.5;
@@ -141,7 +142,6 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		bool validTexel = debugPos.x < debugSize.x && debugPos.y < debugSize.y && debugPos.z < debugSize.z && debugPos.x >= 0.0 && debugPos.y >= 0.0 && debugPos.z >= 0.0;
 		float4 color = 0.0;
 		int sampleIndex = 0; // Not really relevant, from 0 to 3 with MSAA 4 for example, ideally we'd take the average of all samples (maybe we should use a linear sampler instead)
-		int mipLevel = 0; // TODO: add support for exposing this?
 		if (_texture1D && _textureArray)
 		{
 			debugTexture1DArray.Load(int3(debugPosInt.x, debugPosInt.y, mipLevel)); // The array elements are spread vertically
@@ -170,7 +170,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		else
 		{
 			if (bilinear) // TODO: implement for other texture types
-				color = debugTexture2D.Sample(linearSampler, debugPos.xy / debugSize.xy);
+				color = debugTexture2D.SampleLevel(linearSampler, debugPos.xy / debugSize.xy, mipLevel);
 			else
 				color = debugTexture2D.Load(int3(debugPosInt.x, debugPosInt.y, mipLevel)); // Approximate to the closest texel (sharp!)
 		}
@@ -213,7 +213,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		if (tonemap)
 		{
     		const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-  			color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, peakWhite / gamePaperWhite);
+  			color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, -1.0, peakWhite / gamePaperWhite);
 		}
 		if (invertColors) // Only works on in SDR range
 		{
@@ -245,6 +245,10 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 
 	float2 uv = pos.xy / float2(sourceWidth, sourceHeight);
 
+#if 0 // TEST: draw gradient
+	return float4(uv.x, uv.x, uv.x, 1.0) * 2;
+#endif
+
 	float targetHeight1 = 1080.0 * DVS4;
 	float targetHeight2 = targetHeight1 * DVS5 * 0.5;
 	float mipLevel1 = log2(sourceHeight / targetHeight1);
@@ -268,7 +272,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 				color;
 	mipColor2 /= 5.0;
 #endif
-//return mipColor2; //TODOFT
+	//return mipColor2; //TODOFT
 	// This case means the game currently doesn't have Luma custom shaders built in (fallback in case of problems), or has manually unloaded them, so the value of some macro defines do not matter
 	const bool modActive = LumaData.CustomData1 == 0;
 	if (!modActive)
@@ -365,18 +369,16 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		color.rgb *= gamePaperWhite;
 		return float4(color.rgb, color.a);
 	}
+
+	float postLinearizationScale = 1.0;
 	
 //TODOFT: split this and other code behaviours into functions
-#if UI_DRAW_TYPE == 2 // The scene color was scaled by "scene paper white / UI paper white" (in linear space) to make the UI blend in correctly in gamma space without modifying its shaders
+#if UI_DRAW_TYPE == 2 // The scene color was scaled by "scene paper white / UI paper white" (in linear space) to make the UI blend in correctly in gamma space without modifying its shaders. sRGB/2.2 gamma mismatch correction would have already applied temporarily at native SDR range on the pre-UI scene color, before scaling it by the UI factors, to then be undone. So we need to re-apply the gamma mismatch fix on the UI SDR range color (and the rest of the scene, for which the fix was already undone at that scaling level, and thus will normalize itself out).
 
-	float paperWhitePow = 1.0;
-#if POST_PROCESS_SPACE_TYPE != 1 // Multiplying a gamma space color by a gammified ratio has the same results as multiplying the linear color by the original ratio (I know it doesn't sound intuitive) (this applies over multiple multiplications/divisions too, not just one)
-	paperWhitePow = 1.0 / DefaultGamma;
-#endif // POST_PROCESS_SPACE_TYPE != 1
-  	color.rgb *= pow(UIPaperWhite, paperWhitePow);
+  	postLinearizationScale *= UIPaperWhite;
 #if !EARLY_DISPLAY_ENCODING
-  	color.rgb /= pow(gamePaperWhite, paperWhitePow);
-#endif // !EARLY_DISPLAY_ENCODING
+  	postLinearizationScale /= gamePaperWhite;
+#endif
 
 #elif UI_DRAW_TYPE == 3 // Compose UI on top of "scene" and tonemap the scene background //TODOFT6: finish one (then clean up all the defines that we don't need anymore)
 
@@ -430,6 +432,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		// Revert whatever gamma adjustment "GAMMA_CORRECTION_TYPE" would have made, and get the color is sRGB gamma encoding (which would have been meant for 2.2 displays)
 		// This function does more stuff than we need (like handling colors beyond the 0-1 range, which we've clamped out above), but we use it anyway for simplicity
 		ColorGradingLUTTransferFunctionInOutCorrected(color.rgb, (EARLY_DISPLAY_ENCODING && GAMMA_CORRECTION_TYPE < 2) ? GAMMA_CORRECTION_TYPE : VANILLA_ENCODING_TYPE, LUT_EXTRAPOLATION_TRANSFER_FUNCTION_SRGB, true);
+		// No need for "postLinearizationScale", it should always be 1 in SDR.
 #else // POST_PROCESS_SPACE_TYPE != 1
 		// In SDR, we ignore "GAMMA_CORRECTION_TYPE" as they are not that relevant
 		// We are target the gamma 2.2 look here, which would likely match the average SDR screen, so
@@ -479,7 +482,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 // we moved it to a single application here (it might not look as good but it's certainly good enough).
 // Any linear->gamma->linear encoding (e.g. "PostAAComposites") or linear->gamma->luminance encoding (e.g. Anti Aliasing)
 // should fall back on gamma 2.2 instead of sRGB for this gamma correction type, but we haven't bothered implementing that (it's not worth it).
-#elif GAMMA_CORRECTION_TYPE >= 2
+#elif GAMMA_CORRECTION_TYPE >= 2 // Note: this might not work with "UI_DRAW_TYPE == 2"
 
    		float3 colorInExcess = color.rgb - saturate(color.rgb); // Only correct in the 0-1 range
 		color.rgb = saturate(color.rgb);
@@ -501,8 +504,10 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 
 #endif // POST_PROCESS_SPACE_TYPE != 1
 
+		color.rgb *= postLinearizationScale;
+
 		bool gamutMap = true;
-#if DEVELOPMENT // Optionally clip in SDR to properly emulate SDR (dev only)
+#if DEVELOPMENT || TEST // Optionally clip in SDR to properly emulate SDR (dev only)
 		if (LumaSettings.DisplayMode >= 2)
 		{
 			color.rgb = saturate(color.rgb);
@@ -523,7 +528,8 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #if defined(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL) && TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL
 				color.rgb = saturate(color.rgb);
 #else // Tonemap instead of raw clipping if the game didn't natively implement our split view mode in the tonemapper
-  				color.rgb = Reinhard::ReinhardRange(color.rgb); // TODO: acknowledge the previous peak tonemapping to better compress from the HDR display to the SDR range
+    			const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+  				color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, peakWhite, 1.0, true); // Acknowledge the previous peak tonemapping to better compress from the HDR display to the SDR range
 #endif
 			}
 		}

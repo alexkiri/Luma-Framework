@@ -139,6 +139,7 @@ float3 CombineColorGradingWithColorChartPS(float3 Color, bool adjustLevels, bool
 
   LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
   extrapolationData.inputColor = col.xyz;
+  extrapolationData.vanillaInputColor = saturate(col.xyz);
 
   LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
   extrapolationSettings.enableExtrapolation = bool(ENABLE_LUT_EXTRAPOLATION);

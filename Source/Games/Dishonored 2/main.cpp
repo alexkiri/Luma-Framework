@@ -912,7 +912,7 @@ public:
       static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
       if (ImGui::Button(contributing_link.c_str()))
       {
-         system("start https://github.com/Filoppi/Luma");
+         system("start https://github.com/Filoppi/Luma-Framework");
       }
       ImGui::PopStyleColor(3);
 
@@ -976,6 +976,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
+      DisableThreadLibraryCalls(hModule);
+
       Globals::SetGlobals(PROJECT_NAME, "Dishonored 2 + Death of the Outsider Luma mod");
       Globals::VERSION = 1;
 

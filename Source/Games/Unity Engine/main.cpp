@@ -13,8 +13,12 @@ namespace
    constexpr uint32_t GAME_POPTLC = 4;
    constexpr uint32_t GAME_COCOON = 5;
    constexpr uint32_t GAME_INSIDE = 6;
+   constexpr uint32_t GAME_FAR_LONE_SAILS = 7;
+   constexpr uint32_t GAME_FAR_CHANGING_TIDES = 8;
+   constexpr uint32_t GAME_HOLLOW_KNIGHT_SILKSONG = 9;
    //TODOFT: add a way to add shader hashes name definitions hardcoded in code for debugging
-   // TODO: 0x2C49DEA4 draws the first pass of blur... Cut off negative values from it
+   // TODO: 0x2C49DEA4 draws the first pass of blur... Cut off negative values from it (INSIDE?)
+   // TODO: PoP has a resource written by the CPU at the beginning
 
    // List of all the games this generic engine mod supports.
    // Other games might be supported too if they use the same shaders.
@@ -26,6 +30,9 @@ namespace
        { { "TheLostCrown.exe", "TheLostCrown_plus.exe" }, MAKE_GAME_INFO("Prince of Persia: The Lost Crown", "PoPTLC", GAME_POPTLC, std::vector<std::string>({ "Ersh", "Pumbo" })), },
        { { "universe.exe" }, MAKE_GAME_INFO("COCOON", "COCN", GAME_COCOON, { "Pumbo" }) },
        { { "INSIDE.exe" }, MAKE_GAME_INFO("INSIDE", "INSD", GAME_INSIDE, { "Pumbo" }) },
+       { { "FarLoneSails.exe" }, MAKE_GAME_INFO("FAR: Lone Sails", "FLS", GAME_FAR_LONE_SAILS, { "Pumbo" }) },
+       { { "FarChangingTides.exe" }, MAKE_GAME_INFO("FAR: Changing Tides", "FCT", GAME_FAR_CHANGING_TIDES, { "Pumbo" }) },
+       { { "Hollow Knight Silksong.exe" }, MAKE_GAME_INFO("Hollow Knight: Silksong", "HKS", GAME_HOLLOW_KNIGHT_SILKSONG, { "Pumbo" }) },
    };
 
    const GameInfo& GetGameInfoFromID(uint32_t id)
@@ -44,7 +51,19 @@ namespace
    // If not found, treat everything as generic (assuming default engine behaviours)
    const GameInfo* game_info = nullptr;
    uint32_t game_id = GAME_UNITY_ENGINE_GENERIC;
+
+   ShaderHashesList shader_hashes_UI_VideoDecode;
+   ShaderHashesList shader_hashes_UI_Sprite;
+   ShaderHashesList shader_hashes_Tonemap;
+
+   float fake_hdr_effect = 1.f;
 }
+
+struct GameDeviceDataHollowKnightSilksong final : public GameDeviceData
+{
+   bool video_playing = false;
+   com_ptr<ID3D11Resource> video_texture;
+};
 
 class UnityEngine final : public Game
 {
@@ -105,6 +124,8 @@ public:
          sub_game_shader_define = "GAME_UNITY_ENGINE_GENERIC";
       }
 
+      char ui_type = '2';
+
       // Games like SoD have problems if upgrading random resources, they get stuck during loading screens (we could try some more advanced upgrade rules, but it's not particularly necessary).
       // Unity does bloom in HDR so upgrading mips isn't really necessary, and often it's seemingly done at full resolution anyway.
       if (game_id != GAME_SHADOWS_OF_DOUBT)
@@ -114,11 +135,29 @@ public:
          if (game_id == GAME_COCOON // Main menu is 16:9
             || game_id == GAME_INSIDE // Whole game is 16:9
             || game_id == GAME_POPTLC // Whole game is 16:9
+            || game_id == GAME_FAR_CHANGING_TIDES // Whole game is 16:9
             )
          {
             texture_format_upgrades_2d_size_filters |= (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio;
-            texture_format_upgrades_2d_custom_aspect_ratio = 16.f / 9.f;
+            texture_format_upgrades_2d_custom_aspect_ratios = { 16.f / 9.f };
          }
+      }
+
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      {
+         texture_format_upgrades_2d_size_filters |= (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio;
+         //prevent_fullscreen_state = false; // TODO: FSE crashes whether this is true or not. Not to be used.
+         // TODO: this game resizes render targets before the swapchain, so if we upgrade by swapchain aspect ratio, sometimes it fails
+
+         shader_hashes_UI_VideoDecode.pixel_shaders.emplace(std::stoul("8674BE1F", nullptr, 16));
+         shader_hashes_UI_Sprite.pixel_shaders.emplace(std::stoul("2FDE313D", nullptr, 16));
+
+         shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("12E5FE2B", nullptr, 16));
+         shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("871453FD", nullptr, 16));
+
+         texture_format_upgrades_2d_aspect_ratio_pixel_threshold = 4; // Needed for videos... somehow they have border scaling
+
+         GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
       }
 
       // The entire game rendering pipeline was SDR
@@ -132,6 +171,14 @@ public:
          forced_shader_names.emplace(Shader::Hash_StrToNum("A6B71745"), "Downscale 1/2");
          forced_shader_names.emplace(Shader::Hash_StrToNum("E34B6A4A"), "Downscale Bloom");
 #endif
+      }
+
+      if (game_id == GAME_FAR_LONE_SAILS)
+      {
+         // This game was HDR out of the box (simply clipped), and thus requires no custom shaders.
+         // It's not clear why the tonemapping + color grading LUT maps to an output greater than 1, but it appears like the game was just clipped.
+         // TODO: for now this lacks tonemapping but it barely matters as the game isn't that bright.
+         ui_type = '0';
       }
 
       // Games that use the ACES tonemapping LUT should go here
@@ -171,6 +218,13 @@ public:
          GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
          GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
       }
+      else if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      {
+         GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+         // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning (likely as an extreme optimization)!
+         GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+         GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
+      }
       else
       {
          // All recent Unity games do all post processing in linear space, until the swapchain (usually included too)
@@ -181,7 +235,15 @@ public:
       }
       // Unity games almost always have a clear last shader, so we can pre-scale by the inverse of the UI brightness, so the UI can draw at a custom brightness.
       // The UI usually draws in linear space too, though that's an engine setting.
-      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue(ui_type);
+   }
+
+   void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      {
+         device_data.game = new GameDeviceDataHollowKnightSilksong;
+      }
    }
 
    // Needed by "SoD" given it used sRGB views (it should work on other Unity games too)
@@ -192,6 +254,104 @@ public:
       if (game_id == GAME_INSIDE)
          return false;
       return true;
+   }
+
+   void OnInitSwapchain(reshade::api::swapchain* swapchain) override
+   {
+      // The game is locked to a maximum aspect ratio of 2.3916666666666666666666666666667, at least without mods
+      // The video files, at least some, are in 1916x1080 and downscale through bloom
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      {
+         auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
+
+         float output_aspect_ratio = device_data.output_resolution.x / device_data.output_resolution.y;
+         texture_format_upgrades_2d_custom_aspect_ratios = { 16.f / 9.f, 1916.f / 1080.f, min(output_aspect_ratio, 2.3916666666666666666666666666667f) };
+      }
+   }
+
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   {
+      // TODO: make a subclass for this game?
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      {
+         auto& game_device_data = *static_cast<GameDeviceDataHollowKnightSilksong*>(device_data.game);
+
+         if (original_shader_hashes.Contains(shader_hashes_UI_VideoDecode))
+         {
+            com_ptr<ID3D11RenderTargetView> rtv;
+            native_device_context->OMGetRenderTargets(0, &rtv, nullptr);
+            if (rtv.get())
+            {
+               game_device_data.video_texture = nullptr;
+               rtv->GetResource(&game_device_data.video_texture); // Note: we need to keep this in memory as the decoding shader only runs every x frames, hopefully it's not re-used for other purposes later but I doubt, it's of a specific size
+            }
+            return false;
+         }
+
+         if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_UI_Sprite))
+         {
+            com_ptr<ID3D11ShaderResourceView> srv;
+            native_device_context->PSGetShaderResources(0, 1, &srv);
+            if (srv.get())
+            {
+               com_ptr<ID3D11Resource> resource;
+               srv->GetResource(&resource);
+
+               if (resource == game_device_data.video_texture)
+               {
+                  game_device_data.video_playing = true;
+               }
+            }
+            return false;
+         }
+
+         if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_Tonemap))
+         {
+            // TODO: AutoHDR doesn't work but we got the alternatives anyway!
+            uint custom_data_1 = game_device_data.video_playing; // AutoHDR on videos in the tonemap pass
+            float custom_data_3 = fake_hdr_effect; // Note that this will apply over some black screens with UI too, and Menus, because they pass through tonemapping (and it's cool that they do!)
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, 0, custom_data_3);
+            updated_cbuffers = true;
+            return false;
+         }
+      }
+
+      return false;
+   }
+
+   void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      {
+         auto& game_device_data = *static_cast<GameDeviceDataHollowKnightSilksong*>(device_data.game);
+         game_device_data.video_playing = false;
+         //game_device_data.video_texture = nullptr;
+      }
+   }
+
+
+   void LoadConfigs() override
+   {
+      reshade::api::effect_runtime* runtime = nullptr;
+      reshade::get_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+   }
+
+   void DrawImGuiSettings(DeviceData& device_data) override
+   {
+      reshade::api::effect_runtime* runtime = nullptr;
+
+      ImGui::NewLine();
+
+      if (ImGui::SliderFloat("Fake HDR Effect", &fake_hdr_effect, 0.f, 1.f))
+      {
+         reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("Increases the amount of highlights in the game, in an artificial way, due to the game's lighting being mostly created for SDR");
+      }
+      DrawResetButton(fake_hdr_effect, 1.f, "FakeHDREffect", runtime);
    }
 
 #if DEVELOPMENT
@@ -207,11 +367,28 @@ public:
       {
          game_name = "Auto";
       }
-      // TODO: turn into a drop down list
+      // TODO: turn into a drop down list (we'd need to store an extra setting)
       if (ImGui::SliderInt("Game ID", &(int&)game_id, 0, games_database.size(), game_name.c_str()))
       {
          reshade::set_config_value(runtime, NAME, "GameID", game_id);
       }
+#if 0
+      int current_game_id = game_id;
+
+      // Build an array of names or get from your database
+      std::vector<const char*> game_names;
+      game_names.push_back("Auto");
+      game_names.reserve(games_database.size());
+      for (auto& game : games_database) {
+         game_names.push_back(game.second.title.c_str());
+      }
+
+      if (ImGui::Combo("Game ID", &current_game_id, game_names.data(), (int)game_names.size()))
+      {
+         game_id = current_game_id;
+         reshade::set_config_value(runtime, NAME, "GameID", game_id);
+      }
+#endif
    }
 #endif
 
@@ -271,7 +448,7 @@ public:
       static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
       if (ImGui::Button(contributing_link.c_str()))
       {
-         system("start https://github.com/Filoppi/Luma");
+         system("start https://github.com/Filoppi/Luma-Framework");
       }
       ImGui::PopStyleColor(3);
 

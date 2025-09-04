@@ -1,4 +1,5 @@
  #include "Includes/Common.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 Texture2D<float4> t2 : register(t2);
 Texture2D<float4> t1 : register(t1);
@@ -26,10 +27,14 @@ void main(
   o0.rgb = linear_to_gamma(o0.rgb);
 #endif
 
-#if 0 // Actually not needed, it was writing from to non sRGB views, though we might need some custom handling if we upgraded its textures too
-  o0.rgb = linear_to_sRGB_gamma(o0.rgb, GCT_MIRROR); // Needed because the original view was a R8G8B8A8_UNORM_SRGB, with the input being float/linear, so there was an implicity sRGB encoding.
-#endif
 #if UI_DRAW_TYPE == 2 // This is drawn in the UI phase but it's not really UI, so make sure it scales with the game brightness instead
-  o0.rgb *= pow(LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits, 1.0 / DefaultGamma);
+    bool linearEncoding = false;
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, linearEncoding);
+    o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, linearEncoding);
+#endif
+
+#if 0 // Actually not needed, it was writing from to non sRGB views (gamma to gamma), though we might need some custom handling if we upgraded its textures too
+  o0.rgb = linear_to_sRGB_gamma(o0.rgb, GCT_MIRROR); // Needed because the original view was a R8G8B8A8_UNORM_SRGB, with the input being float/linear, so there was an implicit sRGB encoding.
 #endif
 }
