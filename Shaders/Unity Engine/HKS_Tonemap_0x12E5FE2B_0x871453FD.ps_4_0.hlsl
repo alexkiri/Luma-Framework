@@ -73,7 +73,7 @@ float4 sampleLUTWithExtrapolation(Texture2D<float4> lut, SamplerState samplerSta
       const bool extrapolateVerticalCoordinates = extrapolationDirection == 0 || extrapolationDirection == 2;
 
       float2 backwardsAmount = lutTexelRange;
-#if 1 // New distance to travel back of, to avoid the hue shifts that are often at the edges of LUTs
+#if 1 // New distance to travel back of, to avoid the hue shifts that are often at the edges of LUTs. Taking two samples in two different backwards points and blending them also looks worse in this game.
       if (extrapolateHorizontalCoordinates)
         backwardsAmount.x = 0.5;
       if (extrapolateVerticalCoordinates)
@@ -129,45 +129,50 @@ void main(
     xOffset = 0.0;
   }
 
-  float4 redLUT = sampleLUTWithExtrapolation(t1, s0_s, float2((sceneColor.r * xScale) + xOffset, 0.125), extrapolateLUTsMethod).rgba;
-  float4 greenLUT = sampleLUTWithExtrapolation(t1, s0_s, float2((sceneColor.g * xScale) + xOffset, 0.375), extrapolateLUTsMethod).rgba;
-  float4 blueLUT = sampleLUTWithExtrapolation(t1, s0_s, float2((sceneColor.b * xScale) + xOffset, 0.625), extrapolateLUTsMethod).rgba;
+  float4 redLUT = sampleLUTWithExtrapolation(t1, s1_s, float2((sceneColor.r * xScale) + xOffset, 0.125), extrapolateLUTsMethod).rgba;
+  float4 greenLUT = sampleLUTWithExtrapolation(t1, s1_s, float2((sceneColor.g * xScale) + xOffset, 0.375), extrapolateLUTsMethod).rgba;
+  float4 blueLUT = sampleLUTWithExtrapolation(t1, s1_s, float2((sceneColor.b * xScale) + xOffset, 0.625), extrapolateLUTsMethod).rgba;
   float3 gradedSceneColor = float3(redLUT.r, greenLUT.g, blueLUT.b);
   float3 gradedSceneColorLinear;
 
   // Hues correction
   if (!vanilla)
   {
+    float4 redBlackLUT = t1.Sample(s1_s, float2((0 * xScale) + xOffset, 0.125)).rgba;
+    float4 greenBlackLUT = t1.Sample(s1_s, float2((0 * xScale) + xOffset, 0.375)).rgba;
+    float4 blueBlackLUT = t1.Sample(s1_s, float2((0 * xScale) + xOffset, 0.625)).rgba;
+    float3 gradedBlackColorLinear = gamma_to_linear(float3(redBlackLUT.r, greenBlackLUT.g, greenBlackLUT.b));
+
     float lutMidGreyIn = 0.75; // Customize it (bad naming)
-    float4 redMidGreyLUT = t1.Sample(s0_s, float2((lutMidGreyIn * xScale) + xOffset, 0.125)).rgba;
-    float4 greenMidGreyLUT = t1.Sample(s0_s, float2((lutMidGreyIn * xScale) + xOffset, 0.375)).rgba;
-    float4 blueMidGreyLUT = t1.Sample(s0_s, float2((lutMidGreyIn * xScale) + xOffset, 0.625)).rgba;
-    float3 gradedMidGreyColor = float3(redMidGreyLUT.r, greenMidGreyLUT.g, blueMidGreyLUT.b);
+    float4 redMidGreyLUT = t1.Sample(s1_s, float2((lutMidGreyIn * xScale) + xOffset, 0.125)).rgba;
+    float4 greenMidGreyLUT = t1.Sample(s1_s, float2((lutMidGreyIn * xScale) + xOffset, 0.375)).rgba;
+    float4 blueMidGreyLUT = t1.Sample(s1_s, float2((lutMidGreyIn * xScale) + xOffset, 0.625)).rgba;
+    float3 gradedMidGreyColorLinear = gamma_to_linear(float3(redMidGreyLUT.r, greenMidGreyLUT.g, blueMidGreyLUT.b));
 
     gradedSceneColorLinear = gamma_to_linear(gradedSceneColor, GCT_MIRROR);
-    
+
+    // Fix potentially raised LUT floor
+    float3 blackFloorFixColorLinear = gradedSceneColorLinear - (gradedBlackColorLinear * (1.0 - saturate(gradedSceneColorLinear * 10.0)));
+    float3 blackFloorFixColorOklab = linear_srgb_to_oklab(blackFloorFixColorLinear);
+    float3 gradedSceneColorOklab = linear_srgb_to_oklab(gradedSceneColorLinear);
+    gradedSceneColorOklab.x = lerp(gradedSceneColorOklab.x, blackFloorFixColorOklab.x, 2.0 / 3.0); // Keep the hue and chrominance of the raised/tinted shadow, but restore much of the original shadow level for contrast
+    gradedSceneColorLinear = oklab_to_linear_srgb(gradedSceneColorOklab);
+
     float minChrominanceChange = 0.8; // Mostly desaturation for now, we only want the hue shifts (e.g. turning white into yellow)
     float maxChrominanceChange = FLT_MAX; // Setting this to 1 works too, it prevents the clipped color from boosting saturation, however, that's very unlikely to happen
-    float3 clippedColorOklab =  linear_srgb_to_oklab(saturate(gradedSceneColorLinear));
-    float3 colorOklab =  linear_srgb_to_oklab(gradedSceneColorLinear);
+    float3 clippedColorOklab = linear_srgb_to_oklab(saturate(gradedSceneColorLinear));
     float hueStrength = 0.0;
     float chrominanceStrength = 0.8 * saturate(clippedColorOklab.x); // Desaturate bright colors more
     gradedSceneColorLinear = RestoreHueAndChrominance(gradedSceneColorLinear, saturate(gradedSceneColorLinear), hueStrength, chrominanceStrength, minChrominanceChange, maxChrominanceChange);
     
     // Restore the highlights color filter on new highlights, this helps avoiding turning highlights to pure white/yellow
-    hueStrength = (saturate(clippedColorOklab.x) - (2.0 / 3.0)) * 3.0 * 0.8; // Never restore hue to 100%, it messes up
-    gradedSceneColorLinear = RestoreHueAndChrominance(gradedSceneColorLinear, gradedMidGreyColor, hueStrength, 0.0);
+    hueStrength = max(saturate(clippedColorOklab.x) - (2.0 / 3.0), 0.0) * 3.0 * 0.8; // Never restore hue to 100%, it messes up
+    gradedSceneColorLinear = RestoreHueAndChrominance(gradedSceneColorLinear, gradedMidGreyColorLinear, hueStrength, 0.0);
 
     gradedSceneColor = linear_to_gamma(gradedSceneColorLinear, GCT_MIRROR);
   }
-
-  // Re-apply the contrast boost without clipping black or white (well actually it might clip black)
-  if (!vanilla)
-  {
-    float contrastBoost = 0.5 / lutWidth;
-    gradedSceneColor = ((gradedSceneColor - 0.5) * (1.0 + contrastBoost)) + 0.5;
-  }
 #else // !ENABLE_LUMA
+  // Note: Vanilla was using a nearest neighbor sampler, which butchered detail beyond 8bit (that's why the LUT input colors (UVs) didn't the half texel offset acknowledged).
   float4 redLUT = t1.Sample(s0_s, float2(sceneColor.r, 0.125)).rgba;
   float4 greenLUT = t1.Sample(s0_s, float2(sceneColor.g, 0.375)).rgba;
   float4 blueLUT = t1.Sample(s0_s, float2(sceneColor.b, 0.625)).rgba;
@@ -182,6 +187,11 @@ void main(
 
 #if ENABLE_LUMA
   gradedSceneColorLinear = gamma_to_linear(gradedSceneColor, GCT_MIRROR);
+#if defined(ENABLE_COLOR_GRADING) && !ENABLE_COLOR_GRADING // TODO: expose? mmm Nah
+  float3 sceneColorLinear = gamma_to_linear(sceneColor.rgb, GCT_MIRROR);
+  gradedSceneColorLinear = lerp(sceneColorLinear, gradedSceneColorLinear, 0.0);
+#endif
+
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
   const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
   if (vanilla)
@@ -192,7 +202,6 @@ void main(
   else if (LumaData.CustomData1)
   {
     gradedSceneColorLinear = PumboAutoHDR(gradedSceneColorLinear, lerp(sRGB_WhiteLevelNits, 600.0, LumaData.CustomData3), LumaSettings.GamePaperWhiteNits);
-    gradedSceneColorLinear *= 300;
   }
   // TODO: try Reinhard for all. it seems next to identical?
   else if (LumaSettings.DisplayMode == 1)
@@ -205,7 +214,7 @@ void main(
     float3 fakeHDRColor = FakeHDR(gradedSceneColorLinear, normalizationPoint, fakeHDRIntensity, false);
     
     // Boost saturation
-    float highlightsSaturationIntensity = 0.25;
+    float highlightsSaturationIntensity = 0.25; // Anything more is deep fried.
     float luminanceTonemap = saturate(Reinhard::ReinhardRange(GetLuminance(gradedSceneColorLinear), 0.18, -1.0, 1.0, false).x);
     //gradedSceneColorLinear = Saturation(gradedSceneColorLinear, DVS4 * 5);
     fakeHDRColor = linear_srgb_to_oklab(fakeHDRColor);

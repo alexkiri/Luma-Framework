@@ -56,7 +56,7 @@ namespace
    ShaderHashesList shader_hashes_UI_Sprite;
    ShaderHashesList shader_hashes_Tonemap;
 
-   float fake_hdr_effect = 1.f;
+   float fake_hdr_effect = 0.667f;
 }
 
 struct GameDeviceDataHollowKnightSilksong final : public GameDeviceData
@@ -156,6 +156,14 @@ public:
          shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("871453FD", nullptr, 16));
 
          texture_format_upgrades_2d_aspect_ratio_pixel_threshold = 4; // Needed for videos... somehow they have border scaling
+
+         std::vector<ShaderDefineData> game_shader_defines_data = {
+            {"ENABLE_LUMA", '1', false, false, "Enables all Luma's post processing modifications, to improve the image and output HDR"},
+            {"ENABLE_CHARACTER_LIGHT", '1', false, false, "Allow disabling the character/hero/player light that the game uses to give visibility around the character"},
+            {"ENABLE_VIGNETTE", '1', false, false, "Allows disabling the vignette effect. Luma already fixes it for ultrawide given it was too strong out of the box"},
+            {"ENABLE_DARKNESS_EFFECT", '1', false, false, "Allows disabling the darkness effect. The game draws a veil of darkness at the edges of the screen, especially on top"},
+         };
+         shader_defines_data.append_range(game_shader_defines_data);
 
          GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
       }
@@ -343,15 +351,18 @@ public:
 
       ImGui::NewLine();
 
-      if (ImGui::SliderFloat("Fake HDR Effect", &fake_hdr_effect, 0.f, 1.f))
+      if (cb_luma_global_settings.DisplayMode == 1)
       {
-         reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+         if (ImGui::SliderFloat("Fake HDR Effect", &fake_hdr_effect, 0.f, 1.f))
+         {
+            reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Increases the amount of highlights in the game, in an artificial way, due to the game's lighting being mostly created for SDR");
+         }
+         DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
       }
-      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-      {
-         ImGui::SetTooltip("Increases the amount of highlights in the game, in an artificial way, due to the game's lighting being mostly created for SDR");
-      }
-      DrawResetButton(fake_hdr_effect, 1.f, "FakeHDREffect", runtime);
    }
 
 #if DEVELOPMENT

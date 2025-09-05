@@ -309,6 +309,8 @@ bool ShouldSkipPostProcess(float2 PixelPosition, uint PassType = 0)
   return false;
 }
 
+// "gammaSpace" is whether gamma was pre-applied
+// "paperWhite" is the paper white that was pre-applied
 void ApplyDithering(inout float3 color, float2 uv, bool gammaSpace = true, float paperWhite = 1.0, uint bitDepth = DITHERING_BIT_DEPTH, float time = 0, bool useTime = false)
 {
   // LUMA FT: added in/out encoding
