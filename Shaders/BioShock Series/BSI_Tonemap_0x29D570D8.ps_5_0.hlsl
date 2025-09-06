@@ -264,7 +264,7 @@ void main(
 #endif // ENABLE_LUT_NORMALIZATION_TYPE
 
 #if 0 // Awful in this game?
-  outColor.rgb = linear_to_gamma(PumboAutoHDR(gamma_to_linear(outColor.rgb), 600.0, LumaSettings.GamePaperWhiteNits, 6.667));
+  outColor.rgb = linear_to_gamma(PumboAutoHDR(gamma_to_linear(outColor.rgb), 400.0, LumaSettings.GamePaperWhiteNits, 6.667));
 #endif
 
   outColor.a = linear_to_gamma1(GetLuminance(gamma_to_linear(outColor.rgb)));

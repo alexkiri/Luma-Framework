@@ -118,6 +118,66 @@ float3 RestoreChrominance(float3 sourceColor, float3 targetColor, uint colorSpac
 	return Saturation(targetColor, chrominanceRatio, colorSpace);
 }
 
+// This basically does gamut mapping, however it's not focused on gamut as primaries, but on peak white.
+// The color is expected to be in the specified color space and in linear.
+// 
+// The sum of "DesaturationAmount" and "DarkeningAmount" needs to be <= 1, both within 0 and 1.
+// The closer the sum is to 1, the more each color channel will be containted within its peak range.
+float3 CorrectOutOfRangeColor(float3 Color, bool FixNegatives = true, bool FixPositives = true, float DesaturationAmount = 0.5, float DarkeningAmount = 0.5, float Peak = 1.0, uint ColorSpace = CS_DEFAULT)
+{
+  if (FixNegatives && any(Color < 0.0)) // Optional "optimization" branch
+  {
+    float colorLuminance = GetLuminance(Color, ColorSpace);
+
+    float3 positiveColor = max(Color.xyz, 0.0);
+	float3 negativeColor = min(Color.xyz, 0.0);
+	float positiveLuminance = GetLuminance(positiveColor, ColorSpace);
+	float negativeLuminance = GetLuminance(negativeColor, ColorSpace);
+	// Desaturate until we are not out of gamut anymore
+	if (colorLuminance > FLT_MIN)
+	{
+#if 0
+	  float negativePositiveLuminanceRatio = -negativeLuminance / positiveLuminance;
+	  float3 positiveColorRestoredLuminance = RestoreLuminance(positiveColor, colorLuminance, true, ColorSpace);
+	  Color = lerp(lerp(Color, positiveColorRestoredLuminance, sqrt(DesaturationAmount)), colorLuminance, negativePositiveLuminanceRatio * sqrt(DesaturationAmount));
+#else // This should look better and be faster
+	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : Rec709_Luminance;
+	  float3 negativePositiveLuminanceRatio = -(negativeColor / luminanceRatio) / (positiveLuminance / luminanceRatio);
+	  Color = lerp(Color, colorLuminance, negativePositiveLuminanceRatio * DesaturationAmount);
+#endif
+	  // TODO: "DarkeningAmount" isn't normalized with "DesaturationAmount", so setting both to 50% won't perfectly stop gamut clip
+      positiveColor = max(Color.xyz, 0.0);
+	  negativeColor = min(Color.xyz, 0.0);
+	  Color = positiveColor + (negativeColor * (1.0 - DarkeningAmount)); // It's not darkening but brightening in this case
+	}
+	// Increase luminance until it's 0 if we were below 0 (it will clip out the negative gamut)
+	else if (colorLuminance < -FLT_MIN)
+	{
+	  float negativePositiveLuminanceRatio = positiveLuminance / -negativeLuminance;
+	  negativeColor.xyz *= negativePositiveLuminanceRatio;
+	  Color.xyz = positiveColor + negativeColor;
+	}
+	// Snap to 0 if the overall luminance was zero, there's nothing to savage, no valid information on rgb ratio
+	else
+	{
+	  Color.xyz = 0.0;
+	}
+  }
+
+  if (FixPositives && any(Color > Peak)) // Optional "optimization" branch
+  {
+    float colorLuminance = GetLuminance(Color, ColorSpace);
+    float colorLuminanceInExcess = colorLuminance - Peak;
+    float maxColorInExcess = max3(Color) - Peak; // This is guaranteed to be >= "colorLuminanceInExcess"
+    float brightnessReduction = saturate(safeDivision(Peak, max3(Color), 1)); // Fall back to one in case of division by zero
+    float desaturateAlpha = saturate(safeDivision(maxColorInExcess, maxColorInExcess - colorLuminanceInExcess, 0)); // Fall back to zero in case of division by zero
+    Color = lerp(Color, colorLuminance, desaturateAlpha * DesaturationAmount);
+    Color = lerp(Color, Color * brightnessReduction, DarkeningAmount); // Also reduce the brightness to partially maintain the hue, at the cost of brightness
+  }
+
+  return Color;
+}
+
 float3 linear_to_gamma(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
 {
 	float3 colorSign = sign(Color);

@@ -298,7 +298,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #if GAMMA_CORRECTION_TYPE == 1
 				color.rgb = colorGammaCorrectedByChannel;
 #elif GAMMA_CORRECTION_TYPE == 2
-  				color.rgb = RestoreLuminance(color.rgb, colorGammaCorrectedByChannelMip1);
+  				color.rgb = RestoreLuminance(color.rgb, colorGammaCorrectedByChannel);
 				float3 colorGammaCorrectedByChannelMip1 = gamma_to_linear(linear_to_sRGB_gamma(mipColor1.rgb, GCT_MIRROR), GCT_MIRROR);
 				float3 colorGammaCorrectedByChannelMip2 = gamma_to_linear(linear_to_sRGB_gamma(mipColor2.rgb, GCT_MIRROR), GCT_MIRROR);
   				mipColor1.rgb = RestoreLuminance(mipColor1.rgb, colorGammaCorrectedByChannelMip1);

@@ -191,7 +191,7 @@ jobs:
           name: Release (Build ${{ github.run_number }})
           body: |
             The current version of all Luma mods (based on latest commit).
-            Extract all the files in the same folder as ReShade is (the latest version of it).
+            Extract all the files in the same folder where ReShade is installed (the latest version of it, with Addons support, you don't need anything else, no ReShade effects needed etc).
             "Test" mods are made to be tested and have tools to investigate what's going on, and help the developers gather information.
             Note that some mods here might not be complete, like "Prey", which misses (optional) data for the rest of the mod.
 

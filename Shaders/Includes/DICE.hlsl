@@ -6,39 +6,40 @@
 
 namespace DICE
 {
-   // Applies exponential ("Photographic") luminance/luma compression.
-   // The max is the max possible range to compress from, to not lose any output range if the input range was limited.
-   float rangeCompress(float X, float Max = FLT_MAX)
-   {
-     // Branches are for static parameters optimizations
-     if (Max == FLT_MAX) {
-       // This does e^X. We expect X to be between 0 and 1.
-       return 1.f - exp(-X);
-     }
-     const float lostRange = exp(-Max);
-     const float restoreRangeScale = 1.f / (1.f - lostRange);
-     return (1.f - exp(-X)) * restoreRangeScale;
-   }
+  // Applies exponential ("Photographic") luminance/luma compression.
+  // The max is the max possible range to compress from, to not lose any output range if the input range was limited.
+  float rangeCompress(float X, float Max = FLT_MAX)
+  {
+    // Branches are for static parameters optimizations
+    if (Max == FLT_MAX)
+    {
+      // This does e^X. We expect X to be between 0 and 1.
+      return 1.f - exp(-X);
+    }
+    const float lostRange = exp(-Max);
+    const float restoreRangeScale = 1.f / (1.f - lostRange);
+    return (1.f - exp(-X)) * restoreRangeScale;
+  }
 
-   // Refurbished DICE HDR tonemapper (per channel or luminance).
-   // Expects "InValue" to be >= "ShoulderStart" and "OutMaxValue" to be > "ShoulderStart".
-   float luminanceCompress(
-     float InValue,
-     float OutMaxValue,
-     float ShoulderStart = 0.f,
-     bool ConsiderMaxValue = false,
-     float InMaxValue = FLT_MAX)
-   {
-     const float compressableValue = InValue - ShoulderStart;
-     const float compressableRange = InMaxValue - ShoulderStart;
-     const float compressedRange = OutMaxValue - ShoulderStart;
-     const float possibleOutValue = ShoulderStart + compressedRange * rangeCompress(compressableValue / compressedRange, ConsiderMaxValue ? (compressableRange / compressedRange) : FLT_MAX);
-   #if 1
-     return possibleOutValue;
-   #else // Enable this branch if "InValue" can be smaller than "ShoulderStart"
-     return (InValue <= ShoulderStart) ? InValue : possibleOutValue;
-   #endif
-   }
+  // Refurbished DICE HDR tonemapper (per channel or luminance).
+  // Expects "InValue" to be >= "ShoulderStart" and "OutMaxValue" to be > "ShoulderStart".
+  float luminanceCompress(
+    float InValue,
+    float OutMaxValue,
+    float ShoulderStart = 0.f,
+    bool ConsiderMaxValue = false,
+    float InMaxValue = FLT_MAX)
+  {
+    const float compressableValue = InValue - ShoulderStart;
+    const float compressableRange = InMaxValue - ShoulderStart;
+    const float compressedRange = OutMaxValue - ShoulderStart;
+    const float possibleOutValue = ShoulderStart + compressedRange * rangeCompress(compressableValue / compressedRange, ConsiderMaxValue ? (compressableRange / compressedRange) : FLT_MAX);
+#if 1
+    return possibleOutValue;
+#else // Enable this branch if "InValue" can be smaller than "ShoulderStart"
+    return (InValue <= ShoulderStart) ? InValue : possibleOutValue;
+#endif
+  }
 }
 
 // Compresses by luminance in rgb linear space. Highlights compression is too weak and stuff clips.
@@ -71,6 +72,9 @@ struct DICESettings
   // This should always be between 0 and 1.
   float ShoulderStart;
 
+  // Tonemap negative colors as well. It might better compress out of gamut colors.
+  bool Mirrored;
+
   // For "Type == DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" and "DICE_TYPE_BY_LUMINANCE_PQ_WITH_BY_CHANNEL_CHROMINANCE_PLUS_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" only:
   // The sum of these needs to be <= 1, both within 0 and 1.
   // The closer the sum is to 1, the more each color channel will be containted within its peak range.
@@ -83,6 +87,7 @@ DICESettings DefaultDICESettings(uint Type = DICE_TYPE_BY_CHANNEL_PQ)
   DICESettings Settings;
   Settings.Type = Type;
   Settings.ShoulderStart = (Settings.Type > DICE_TYPE_BY_LUMINANCE_RGB) ? (1.0 / 3.0) : 0.0; // Setting it higher than 1/3 might cause highlights clipping as detail is too compressed. Setting it lower than 1/4 would probably look dynamic range. 1/3 seems like the best compromize. There's usually no need to start compressing from paper white just to keep the SDR range unchanged.
+  Settings.Mirrored = false;
   Settings.DesaturationAmount = 0.5;
   Settings.DarkeningAmount = 0.5;
   return Settings;
@@ -147,24 +152,13 @@ float3 DICETonemap(
 
         if (Settings.Type == DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE || Settings.Type == DICE_TYPE_BY_LUMINANCE_PQ_WITH_BY_CHANNEL_CHROMINANCE_PLUS_CORRECT_CHANNELS_BEYOND_PEAK_WHITE)
         {
-          float3 colorBT2020 = BT2020 ? Color : BT709_To_BT2020(Color);
-          if (any(colorBT2020 > PeakWhite)) // Optional "optimization" branch
-          {
-            float colorLuminance = GetLuminance(colorBT2020, CS_BT2020);
-            float colorLuminanceInExcess = colorLuminance - PeakWhite;
-            float maxColorInExcess = max3(colorBT2020) - PeakWhite; // This is guaranteed to be >= "colorLuminanceInExcess"
-            float brightnessReduction = saturate(safeDivision(PeakWhite, max3(colorBT2020), 1)); // Fall back to one in case of division by zero
-            float desaturateAlpha = saturate(safeDivision(maxColorInExcess, maxColorInExcess - colorLuminanceInExcess, 0)); // Fall back to zero in case of division by zero
-            colorBT2020 = lerp(colorBT2020, colorLuminance, desaturateAlpha * Settings.DesaturationAmount);
-            colorBT2020 = lerp(colorBT2020, colorBT2020 * brightnessReduction, Settings.DarkeningAmount); // Also reduce the brightness to partially maintain the hue, at the cost of brightness
-            Color = colorBT2020;
-            BT2020 = true;
-          }
+          Color = CorrectOutOfRangeColor(BT2020 ? Color : BT709_To_BT2020(Color), false, true, Settings.DesaturationAmount, Settings.DarkeningAmount, PeakWhite, CS_BT2020);
+          BT2020 = true;
         }
 
         if (BT2020)
         {
-            Color = BT2020_To_BT709(Color);
+          Color = BT2020_To_BT709(Color);
         }
       }
     }
@@ -174,7 +168,9 @@ float3 DICETonemap(
 
       // Tonemap in BT.2020 to more closely match the primaries (and range) of modern displays
       Color = BT709_To_BT2020(Color);
-      const float3 sourceColorNormalized = Color / HDR10_MaxWhite;
+      float3 sourceColorNormalized = Color / HDR10_MaxWhite;
+      if (Settings.Mirrored) // TODO: implement "Mirrored" in other DICE types
+        sourceColorNormalized = abs(sourceColorNormalized);
       const float3 sourceColorPQ = Linear_to_PQ(sourceColorNormalized, GCT_POSITIVE);
 
       [unroll]

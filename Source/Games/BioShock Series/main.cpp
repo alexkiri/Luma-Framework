@@ -237,7 +237,7 @@ public:
          "\nRenoDX"
          "\n3Dmigoto"
          "\nDXVK"
-         "\nBioShock 2 Remastered Crash Fix"
+         "\ngir489 (BioShock 2 Remastered Crash Fix)"
          "\nOklab"
          "\nDICE (HDR tonemapper)"
          , "");
@@ -391,7 +391,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       {
          bioshock_game = BioShockGame::BioShock_2_Remastered;
       }
-      else if (executable_name == "ShippingPC-XGame.exe")
+      // Steam and Epic Store versions respectively
+      else if (executable_name == "BioShockInfinite.exe" || executable_name == "ShippingPC-XGame.exe")
       {
          bioshock_game = BioShockGame::BioShock_Infinite;
       }

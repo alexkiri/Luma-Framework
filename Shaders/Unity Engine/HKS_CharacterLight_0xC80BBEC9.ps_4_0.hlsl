@@ -27,7 +27,7 @@ void main(
 #if ENABLE_LUMA // Luma: fix hero light having a visible step at the edge
   minStep = 0.0;
 #endif
-  r1.xyzw = r0.wxyz * v1.wxyz + float4(-minStep,-0.5,-0.5,-0.5);
+  r1.xyzw = r0.wxyz * v1.wxyz + float4(-minStep, -0.5,-0.5,-0.5);
   r0.xyzw = v1.wxyz * r0.wxyz;
   if (r1.x < 0.0) discard;
   r2.xy = v3.xy / v3.w;
@@ -48,8 +48,14 @@ void main(
 #endif
   o0.xyz = (0.5 < r0.yzw) ? r1.xyz : r2.xyz;
   
-#if ENABLE_LUMA // Luma: fix character light having heavy banding, we found 6 bits to be a good value
+#if ENABLE_LUMA // Luma: fix character light having heavy banding, we found 5 bits to be a good value. It needs to be applied on alpha too for best results.
   //o0.w *= 2.5; // Quick banding test
-  ApplyDithering(o0.xyz, sceneUV, true, 1.0, 6, LumaSettings.FrameIndex, true);
+  ApplyDithering(o0.xyz, sceneUV, true, 1.0, 5, LumaSettings.FrameIndex, true);
+  if (o0.w != 0.0)
+  {
+    float3 outAlpha = o0.w;
+    ApplyDithering(outAlpha, sceneUV, true, 1.0, 5, LumaSettings.FrameIndex, true);
+    o0.w = outAlpha.x; // Clip unused channels
+  }
 #endif
 }

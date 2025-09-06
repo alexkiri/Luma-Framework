@@ -85,7 +85,7 @@ void main(
   o0.xyz = InstanceParams[1].xyz * r0.xyz;
 #if DEVELOPMENT && 1 // Luma: test materials clipping
   o0.xyz *= 30.0;
-#else // Luma: make ambient lighting dimmer, to keep more contrast with lights
+#elif 0 // Luma: make ambient lighting dimmer, to keep more contrast with lights
   o0.xyz *= 0.5;
 #endif
   o0.w = MaterialOpacity;

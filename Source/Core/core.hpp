@@ -506,6 +506,7 @@ namespace
    void DumpShader(uint32_t shader_hash);
    void AutoDumpShaders();
    void AutoLoadShaders(DeviceData* device_data);
+   void OnDestroyPipeline(reshade::api::device* device, reshade::api::pipeline pipeline);
 
    // Quick and unsafe. Passing in the hash instead of the string is the only way make sure strings hashes are calculate them at compile time.
    __forceinline ShaderDefineData& GetShaderDefineData(uint32_t hash)
@@ -1871,6 +1872,15 @@ namespace
 
       game->OnDestroyDeviceData(device_data);
 
+      // It can apparently happen that in DX11 the device destructor callback is sent before its pipelines, so make sure we empty the memory before
+      {
+         const std::unique_lock lock(s_mutex_generic);
+         for (auto& pipeline_pair : device_data.pipeline_cache_by_pipeline_handle)
+         {
+            OnDestroyPipeline(device, reshade::api::pipeline{ pipeline_pair.first });
+         }
+      }
+
       {
          const std::unique_lock lock(s_mutex_device);
          if (std::vector<ID3D11Device*>::iterator position = std::find(global_native_devices.begin(), global_native_devices.end(), native_device); position != global_native_devices.end())
@@ -1984,7 +1994,7 @@ namespace
          {
             desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
          }
-         ASSERT_ONCE((desc.present_flags & (DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO)) == 0); // Uh?
+         ASSERT_ONCE((desc.present_flags & (DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO)) == 0); // Uh? // TODO: happens in Hollow Knight: Silksong
 #if DEVELOPMENT && !GRAPHICS_ANALYZER // TODO: investigate "DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT" (add this to other mirrored code if you finalize it), and anyway make it optional as it lowers lag at the cost of not quequing up frames
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 #endif
@@ -2151,7 +2161,7 @@ namespace
             cb_luma_global_settings.UIPaperWhite = srgb_white_level;
          }
          // Avoid increasing the peak if the user has SDR mode set, SDR mode might still rely on the peak white value
-         else if (cb_luma_global_settings.DisplayMode > 0 && cb_luma_global_settings.DisplayMode < 2)
+         else if (cb_luma_global_settings.DisplayMode != 1)
          {
             cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
          }
@@ -2941,10 +2951,13 @@ namespace
       reshade::api::pipeline pipeline)
    {
       DeviceData& device_data = *device->get_private_data<DeviceData>();
+      ASSERT_ONCE(&device_data != nullptr); // Hacky nullptr check (should ever be able to happen) // TODO: it does in Hollow Knight: Silksong on exit
+
+      // It can happen that the "pipelines" destructor in DX is called after the device destructor (weird)
+      if (&device_data != nullptr)
       {
          const std::unique_lock lock_loading(s_mutex_loading);
          device_data.pipelines_to_reload.erase(pipeline.handle);
-      }
 
       const std::unique_lock lock(s_mutex_generic);
       if (auto pipeline_cache_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle); pipeline_cache_pair != device_data.pipeline_cache_by_pipeline_handle.end())
@@ -2984,6 +2997,7 @@ namespace
          }
 
          device_data.pipeline_cache_by_pipeline_handle.erase(pipeline.handle);
+      }
       }
 
 #if DEVELOPMENT
@@ -4934,7 +4948,7 @@ namespace
          // Delete the converted data we created (there's a chance of memory leaks if creation failed, though unlikely)
          if (upgraded_resource_init_data)
          {
-            delete[] static_cast<uint8_t*>(upgraded_resource_init_data);
+            delete[] static_cast<uint8_t*>(upgraded_resource_init_data); // TODO: this has a memory leak when a thread is closed if it last failed. Make it a smart ptr.
             upgraded_resource_init_data = nullptr; // optional, avoid dangling pointer
          }
 
@@ -8687,11 +8701,12 @@ namespace
                      ImGui::PushID(custom_shader.second->preprocessed_hash); // Avoid files by the same simplified name (we also shader files with multiple hashes) from conflicting
                      
                      std::string file_name = custom_shader.second->file_path.stem().string();
-                     const auto sm_length = strlen("xs_n_n"); // Shader Model
-                     const size_t suffix_length = (custom_shader.second->is_luma_native ? 0 : (HASH_CHARACTERS_LENGTH + 2)) + 1 + sm_length; // Add "0x" and "." or "_"
-                     if (file_name.length() >= suffix_length)
+                     // Remove all the shader hashes and the shader model ("xs_n_n")
+                     if (!custom_shader.second->is_luma_native)
                      {
-                        file_name.erase(file_name.length() - suffix_length, suffix_length);
+                        size_t pos = file_name.find("0x");
+                        if (pos != std::string::npos)
+                           file_name.erase(pos);
                      }
                      if (file_name.ends_with('_'))
                      {
@@ -8728,27 +8743,100 @@ namespace
             ImGui::SameLine();
             if (ImGui::BeginChild("##ShaderDetails", ImVec2(0, 0)))
             {
-               ImGui::BeginDisabled(selected_custom_shader != nullptr);
+               ImGui::BeginDisabled(selected_custom_shader == nullptr);
+
+               uint64_t pipeline_to_recompile = 0;
 
                // Make sure our selected shader is still in the "custom_shaders_cache" list, without blocking its mutex through the whole imgui rendering
                bool custom_shader_found = false;
-               const std::shared_lock lock(s_mutex_loading);
+               uint32_t shader_hash;
+               std::string shader_hash_str;
+               std::unique_lock lock(s_mutex_loading);
                for (const auto& custom_shader : custom_shaders_cache)
                {
                   if (selected_custom_shader != nullptr && custom_shader.second == selected_custom_shader)
                   {
                      custom_shader_found = true;
+                     shader_hash = uint32_t(custom_shader.first);
+                     shader_hash_str = Shader::Hash_NumToStr(shader_hash, true);
                      break;
                   }
                }
+
                if (custom_shader_found)
                {
-                  // TODO: show more info here (e.g. in how many pipelines it's used), the shader type, show the code, the hash, add open folder buttons etc
+                  // TODO: show more info here (e.g. in how many pipelines it's used), the shader type. Unify with the other shader views from the graphics captures list. Allow hiding the ones not used by this sub game (e.g. unity) or by the current scene
 
                   ImGui::Text("Type: %s", selected_custom_shader->is_hlsl ? "hlsl" : "cso");
                   ImGui::Text("Luma Native: %s", selected_custom_shader->is_luma_native ? "True" : "False");
-
                   ImGui::Text("Full Path: %s", selected_custom_shader->file_path.string().c_str());
+                  if (!selected_custom_shader->is_luma_native)
+                  {
+                     ImGui::Text("Original Hash: %s", shader_hash_str.c_str());
+
+                     {
+                        int i = 0;
+                        std::unique_lock lock(s_mutex_generic);
+                        auto pipelines_pair = device_data.pipeline_caches_by_shader_hash.find(shader_hash);
+                        if (pipelines_pair != device_data.pipeline_caches_by_shader_hash.end())
+                        {
+                           for (auto pipeline : pipelines_pair->second)
+                           {
+                              ASSERT_ONCE(pipeline->cloned);
+
+                              ImGui::PushID(i);
+                              ImGui::NewLine();
+                              pipeline->custom_name.empty() ? ImGui::Text("Pipeline: %i", i) : ImGui::Text("Pipeline: %s", pipeline->custom_name.c_str());
+                              if (pipeline->HasPixelShader() || pipeline->HasComputeShader())
+                              {
+                                 ImGui::SliderInt("Shader Skip Type", reinterpret_cast<int*>(&pipeline->skip_type), 0, IM_ARRAYSIZE(CachedPipeline::shader_skip_type_names) - 1, CachedPipeline::shader_skip_type_names[(size_t)pipeline->skip_type], ImGuiSliderFlags_NoInput);
+                              }
+                              if (ImGui::Button("Unload"))
+                              {
+                                 UnloadCustomShaders(device_data, { reinterpret_cast<uint64_t>(pipeline) }, false, false);
+                              }
+#if 0 // TODO: this still deadlocks!
+                              if (ImGui::Button(pipeline->cloned ? "Recompile" : "Load"))
+                              {
+                                 pipeline_to_recompile = reinterpret_cast<uint64_t>(pipeline);
+                              }
+#endif
+                              ImGui::PopID();
+
+                              i++;
+                           }
+                        }
+                     }
+
+                     ImGui::NewLine();
+
+                     if (ImGui::Button("Copy Shader Hash to Clipboard"))
+                     {
+                        System::CopyToClipboard(shader_hash_str);
+                     }
+                  }
+                  else
+                  {
+                     ImGui::NewLine();
+                  }
+
+                  if (selected_custom_shader->is_hlsl && !selected_custom_shader->file_path.empty() && ImGui::Button("Open hlsl in IDE"))
+                  {
+                     HINSTANCE ret_val = ShellExecuteA(nullptr, "open", "code", ("\"" + selected_custom_shader->file_path.string() + "\"").c_str(), nullptr, SW_SHOWNORMAL);
+                     ASSERT_ONCE(ret_val > (HINSTANCE)32); // Unknown reason
+                  }
+
+                  if (!selected_custom_shader->file_path.empty() && ImGui::Button("Open in Explorer"))
+                  {
+                     System::OpenExplorerToFile(selected_custom_shader->file_path);
+                  }
+               }
+
+               if (pipeline_to_recompile != 0)
+               {
+                  s_mutex_loading.unlock(); // Avoids deadlock
+                  bool recompile = true;
+                  LoadCustomShaders(device_data, { pipeline_to_recompile }, recompile);
                }
 
                ImGui::EndDisabled();
@@ -8852,7 +8940,7 @@ namespace
                   // Note: there possibly might be more, spread into render targets (actually they don't seem to add references?), SRVs etc, that we set ourselves, but it's hard, but it might actually be correct already.
                   // ReShade doesn't seem to keep textures with hard refences, instead they add private data with a destructor to them, to detect when they are being garbage collected, and anyway it doesn't see the resources we created.
 
-                  ImGui::Text("Reference Count: %ul", selected_resource.ref_count() - (unsigned long)(extra_refs));
+                  ImGui::Text("Reference Count: %lu", selected_resource.ref_count() - (unsigned long)(extra_refs));
 
                   com_ptr<ID3D11Texture2D> selected_texture_2d;
                   selected_resource->QueryInterface(&selected_texture_2d);
@@ -9462,7 +9550,8 @@ namespace
                   device_data.debug_draw_texture_size = {};
                }
                ImGui::SameLine();
-               bool debug_draw_enabled = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0; // It wants to be shown (if it manages!)
+               // Allow it to go through if we have a custom debug draw texture set
+               bool debug_draw_enabled = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0 || (debug_draw_mode == DebugDrawMode::Custom && device_data.debug_draw_texture.get()); // It wants to be shown (if it manages!)
                // Show the reset button for both conditions or they could get stuck
                if (debug_draw_enabled)
                {
@@ -9487,8 +9576,7 @@ namespace
                   size.y += style.FramePadding.y;
                   ImGui::InvisibleButton("", ImVec2(size.x, size.y));
                }
-               // Allow it to go through if we have a custom debug draw texture set
-               if (debug_draw_enabled || (debug_draw_mode == DebugDrawMode::Custom && device_data.debug_draw_texture.get()))
+               if (debug_draw_enabled)
                {
                   if (debug_draw_mode != DebugDrawMode::Custom)
                   {
@@ -10674,7 +10762,7 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
          reshade::register_event<reshade::addon_event::create_resource>(OnCreateResource);
          reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       }
-#if DEVELOPMENT || GAME_PREY
+#if DEVELOPMENT
       else
       {
          reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
@@ -10780,7 +10868,7 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
          reshade::unregister_event<reshade::addon_event::create_resource>(OnCreateResource);
          reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       }
-#if DEVELOPMENT || GAME_PREY
+#if DEVELOPMENT
       else
       {
          reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);

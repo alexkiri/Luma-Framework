@@ -31,6 +31,7 @@ void main(
 
   float2 uv2 = v2.xy;
   float ndc2 = (uv2.x - 0.5) * 2.0;
+  // No need to disable this with "ENABLE_LUMA"
   ndc2 = pow(abs(ndc2), max(ar / (21.0 / 9.0), 1.0)) * sign(ndc2); // Adjust by aspect ratio as vignette was extremely stretched at 32:9, we do it at 21:9 because the game supports that, and scaling it from 16:9 seems too much
   uv2.x = (ndc2 / 2.0) + 0.5;
 

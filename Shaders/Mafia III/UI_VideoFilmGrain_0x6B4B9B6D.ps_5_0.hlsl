@@ -82,7 +82,7 @@ void main(
   float3 rawVideoColor = r1.xyz;
   float3 filmGrainVideoColor = rawVideoColor;
 #if ENABLE_AUTO_HDR // Approximately undo PumboAutoHDR if it was already applied or film grain would go wild on > 1 colors (the PumboAutoHDR is not easily reversible). If we don't do this, film grain would go wild in bright areas.
-  filmGrainVideoColor = Reinhard::ReinhardRange(rawVideoColor, MidGray, 600.0 / sRGB_WhiteLevelNits, 1.0, false);
+  filmGrainVideoColor = Reinhard::ReinhardRange(rawVideoColor, MidGray, 400.0 / sRGB_WhiteLevelNits, 1.0, false);
   float3 reinhardScale = safeDivision(rawVideoColor / filmGrainVideoColor, 1);
 #endif
 
@@ -148,7 +148,7 @@ void main(
 #if ENABLE_AUTO_HDR && 0 // This was already linear->linear. Note that PumboAutoHDR was moved to the previous UI pass, as film grain only runs sometimes and we can't know upfront.
     if (!isSourceScene)
     {
-      o0.rgb = PumboAutoHDR(o0.rgb, 600.0, LumaSettings.GamePaperWhiteNits);
+      o0.rgb = PumboAutoHDR(o0.rgb, 400.0, LumaSettings.GamePaperWhiteNits);
     }
 #endif
 

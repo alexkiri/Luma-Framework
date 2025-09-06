@@ -20,7 +20,7 @@ void main(
   if (LumaData.CustomData1)
   {
     o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR); // Unlikely to need mirroring but... whatever
-    o0.rgb = PumboAutoHDR(o0.rgb, 600.0, LumaSettings.GamePaperWhiteNits);
+    o0.rgb = PumboAutoHDR(o0.rgb, 400.0, LumaSettings.GamePaperWhiteNits);
     o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);
   }
 #endif

@@ -60,7 +60,7 @@ void main(
 #if ENABLE_AUTO_HDR // This was already linear->linear
   if (!isSourceScene && isSourceLinear && isTargetLinear)
   {
-    o0.rgb = PumboAutoHDR(o0.rgb, 600.0, LumaSettings.GamePaperWhiteNits);
+    o0.rgb = PumboAutoHDR(o0.rgb, 400.0, LumaSettings.GamePaperWhiteNits);
   }
 #endif
 #if 0 // TODO: delete? Doesn't seem to be needed as this either draws UI (which targets gamma space even with swapchain upgrades), or videos, and in that case the input and outputs are linear even in the vanilla game

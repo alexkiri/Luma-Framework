@@ -57,6 +57,7 @@ namespace
    ShaderHashesList shader_hashes_Tonemap;
 
    float fake_hdr_effect = 0.667f;
+   float expand_hdr_gamut = 0.1f;
 }
 
 struct GameDeviceDataHollowKnightSilksong final : public GameDeviceData
@@ -158,14 +159,17 @@ public:
          texture_format_upgrades_2d_aspect_ratio_pixel_threshold = 4; // Needed for videos... somehow they have border scaling
 
          std::vector<ShaderDefineData> game_shader_defines_data = {
-            {"ENABLE_LUMA", '1', false, false, "Enables all Luma's post processing modifications, to improve the image and output HDR"},
-            {"ENABLE_CHARACTER_LIGHT", '1', false, false, "Allow disabling the character/hero/player light that the game uses to give visibility around the character"},
-            {"ENABLE_VIGNETTE", '1', false, false, "Allows disabling the vignette effect. Luma already fixes it for ultrawide given it was too strong out of the box"},
-            {"ENABLE_DARKNESS_EFFECT", '1', false, false, "Allows disabling the darkness effect. The game draws a veil of darkness at the edges of the screen, especially on top"},
+            {"ENABLE_LUMA", '1', false, false, "Enables all Luma's post processing modifications, to improve the image and output HDR."},
+            {"ENABLE_CHARACTER_LIGHT", '1', false, false, "Allow disabling the character/hero/player light that the game uses to give visibility around the character."},
+            {"ENABLE_VIGNETTE", '1', false, false, "Allows disabling the vignette effect. Luma already fixes it for ultrawide given it was too strong out of the box."},
+            {"ENABLE_DARKNESS_EFFECT", '1', false, false, "Allows disabling the darkness effect. The game draws a veil of darkness at the edges of the screen, especially on top."},
+            {"ENABLE_DITHERING", '1', false, false, "Adds a pass of dithering on the HDR output, to fight off banding due to the game excessive usage of low quality textures.\nLuma already fixes most of the banding to begin with, so this is optional."},
+            {"ENABLE_COLOR_GRADING", '1', false, false, "Disables the game's color grading LUT. The game won't look as intended without it, so just use this if you are curious."},
          };
          shader_defines_data.append_range(game_shader_defines_data);
 
          GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
+         GetShaderDefineData(GAMUT_MAPPING_TYPE_HASH).SetDefaultValue('1'); // Needed in HDR 
       }
 
       // The entire game rendering pipeline was SDR
@@ -259,7 +263,7 @@ public:
    {
       // Most recent Unity games do the whole post processing, UI and swapchain presentation in linear (sRGB textures), even if the swapchain isn't sRGB.
       // Inside was UNORM all along (no float in the rendering)
-      if (game_id == GAME_INSIDE)
+      if (game_id == GAME_INSIDE || game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
          return false;
       return true;
    }
@@ -287,7 +291,7 @@ public:
          if (original_shader_hashes.Contains(shader_hashes_UI_VideoDecode))
          {
             com_ptr<ID3D11RenderTargetView> rtv;
-            native_device_context->OMGetRenderTargets(0, &rtv, nullptr);
+            native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
             if (rtv.get())
             {
                game_device_data.video_texture = nullptr;
@@ -315,11 +319,11 @@ public:
 
          if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_Tonemap))
          {
-            // TODO: AutoHDR doesn't work but we got the alternatives anyway!
             uint custom_data_1 = game_device_data.video_playing; // AutoHDR on videos in the tonemap pass
             float custom_data_3 = fake_hdr_effect; // Note that this will apply over some black screens with UI too, and Menus, because they pass through tonemapping (and it's cool that they do!)
+            float custom_data_4 = expand_hdr_gamut / 4.0; // From 0-1 to 0-0.25, which in shader becomes from 1-1.25
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
-            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, 0, custom_data_3);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, 0, custom_data_3, custom_data_4);
             updated_cbuffers = true;
             return false;
          }
@@ -343,6 +347,7 @@ public:
    {
       reshade::api::effect_runtime* runtime = nullptr;
       reshade::get_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+      reshade::get_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
    }
 
    void DrawImGuiSettings(DeviceData& device_data) override
@@ -353,15 +358,25 @@ public:
 
       if (cb_luma_global_settings.DisplayMode == 1)
       {
-         if (ImGui::SliderFloat("Fake HDR Effect", &fake_hdr_effect, 0.f, 1.f))
+         if (ImGui::SliderFloat("HDR Boost", &fake_hdr_effect, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
          {
             reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
          }
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
          {
-            ImGui::SetTooltip("Increases the amount of highlights in the game, in an artificial way, due to the game's lighting being mostly created for SDR");
+            ImGui::SetTooltip("\"Artificially\" increases the amount of highlights in the game, given that the game's lighting was created for SDR and is fairly flat.\nHigher values are better to be reserved for lower \"Scene Paper White\" values.");
          }
          DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
+
+         if (ImGui::SliderFloat("Expand Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+         {
+            reshade::set_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.");
+         }
+         DrawResetButton(expand_hdr_gamut, 0.1f, "ExpandHDRGamut", runtime);
       }
    }
 
@@ -504,6 +519,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r8g8b8a8_typeless,
             reshade::api::format::r11g11b10_float,
       };
+
+#if DEVELOPMENT // Unity flips Y coordinates on all textures until the final swapchain draws
+      debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::FlipY;
+#endif
 
       game = new UnityEngine();
    }

@@ -1480,6 +1480,87 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 	return outputSample;
 }
 
+// Sample that allows to go beyond the 0-1 coordinates range through extrapolation.
+// It finds the rate of change (acceleration) of the LUT color around the requested clamped coordinates, and guesses what color the sampling would have with the out of range coordinates.
+// Extrapolating LUT by re-apply the rate of change has the benefit of consistency. If the LUT has the same color at (e.g.) uv 0.9 0.9 and 1.0 1.0, thus clipping to white or black, the extrapolation will also stay clipped.
+// Additionally, if the LUT had inverted colors or highly fluctuating colors, extrapolation would work a lot better than a raw LUT out of range extraction with a luminance multiplier.
+//
+// This function does not acknowledge the LUT transfer function nor any specific LUT properties.
+// This function allows your to pick whether you want to extrapolate diagonal, horizontal or veretical coordinates.
+// Note that this function might return "invalid colors", they could have negative values etc etc, so make sure to clamp them after if you need to.
+// This version is for a 2D float4 texture with a single gradient (not a 3D map reprojected in 2D with horizontal/vertical slices), but the logic applies to 3D textures too.
+//
+// "unclampedUV" is expected to have been remapped within the range that excludes that last half texels at the edges.
+// "extrapolationDirection" 0 is both hor and ver. 1 is hor only. 2 is ver only.
+float4 sampleLUTWithExtrapolation1D(Texture2D<float4> lut, SamplerState samplerState, float2 unclampedUV, const int extrapolationDirection = 0)
+{
+  // LUT size in texels
+  float lutWidth;
+  float lutHeight;
+  lut.GetDimensions(lutWidth, lutHeight);
+  const float2 lutSize = float2(lutWidth, lutHeight);
+  const float2 lutMax = lutSize - 1.0;
+  const float2 uvScale = lutMax / lutSize;        // Also "1-(1/lutSize)"
+  const float2 uvOffset = 1.0 / (2.0 * lutSize);  // Also "(1/lutSize)/2"
+  // The uv distance between the center of one texel and the next one
+  const float2 lutTexelRange = 1.0 / lutMax;
+
+  // Remap the input coords to also include the last half texels at the edges, essentually working in full 0-1 range,
+  // we will re-map them out when sampling, this is essential for proper extrapolation math.
+  if (lutMax.x != 0)
+    unclampedUV.x = (unclampedUV.x - uvOffset.x) / uvScale.x;
+  if (lutMax.y != 0)
+    unclampedUV.y = (unclampedUV.y - uvOffset.y) / uvScale.y;
+
+  const float2 clampedUV = saturate(unclampedUV);
+  const float distanceFromUnclampedToClamped = length(unclampedUV - clampedUV);
+  const bool uvOutOfRange = distanceFromUnclampedToClamped > FLT_MIN;  // Some threshold is needed to avoid divisions by tiny numbers
+
+  const float4 clampedSample = lut.Sample(samplerState, (clampedUV * uvScale) + uvOffset).xyzw;  // Use "clampedUV" instead of "unclampedUV" as we don't know what kind of sampler was in use here
+
+  if (uvOutOfRange && extrapolationDirection >= 0)
+  {
+    float2 centeredUV;
+    // Diagonal
+    if (extrapolationDirection == 0) // TODO: delete this case, it's not used and wasn't good
+    {
+      // Find the direction between the clamped and unclamped coordinates, flip it, and use it to determine
+      // where more centered texel for extrapolation is.
+      centeredUV = clampedUV - (normalize(unclampedUV - clampedUV) * (1.0 - lutTexelRange));
+    }
+    // Horizontal or Vertical (use Diagonal if you want both Horizontal and Vertical at the same time)
+    else
+    {
+      const bool extrapolateHorizontalCoordinates = extrapolationDirection == 0 || extrapolationDirection == 1;
+      const bool extrapolateVerticalCoordinates = extrapolationDirection == 0 || extrapolationDirection == 2;
+
+      float2 backwardsAmount = lutTexelRange;
+#if 1 // New distance to travel back of, to avoid the hue shifts that are often at the edges of LUTs. Taking two samples in two different backwards points and blending them also looks worse in this game.
+      if (extrapolateHorizontalCoordinates)
+        backwardsAmount.x = 0.5;
+      if (extrapolateVerticalCoordinates)
+        backwardsAmount.y = 0.5;
+#endif
+
+      centeredUV = float2(clampedUV.x >= 0.5 ? max(clampedUV.x - backwardsAmount.x, 0.5) : min(clampedUV.x + backwardsAmount.x, 0.5), clampedUV.y >= 0.5 ? max(clampedUV.y - backwardsAmount.y, 0.5) : min(clampedUV.y + backwardsAmount.y, 0.5));
+      centeredUV = float2(extrapolateHorizontalCoordinates ? centeredUV.x : unclampedUV.x, extrapolateVerticalCoordinates ? centeredUV.y : unclampedUV.y);
+    }
+
+    const float4 centeredSample = lut.Sample(samplerState, (centeredUV * uvScale) + uvOffset).xyzw;
+    // Note: if we are only doing "Horizontal" or "Vertical" extrapolation, we could replace this "length()" calculation with a simple subtraction
+    const float distanceFromClampedToCentered = length(clampedUV - centeredUV);
+    const float extrapolationRatio = distanceFromClampedToCentered == 0.0 ? 0.0 : (distanceFromUnclampedToClamped / distanceFromClampedToCentered);
+#if 1  // Lerp in gamma space, this seems to look better for this game (the whole rendering is in gamma space, never linearized), and the "extrapolationRatio" is in gamma space too
+    const float4 extrapolatedSample = lerp(centeredSample, clampedSample, 1.0 + extrapolationRatio);
+#else  // Lerp in linear space to make it more "accurate"
+    float4 extrapolatedSample = lerp(pow(centeredSample, 2.2), pow(clampedSample, 2.2), 1.0 + extrapolationRatio);
+    extrapolatedSample = pow(abs(extrapolatedSample), 1.0 / 2.2) * sign(extrapolatedSample);
+#endif
+    return extrapolatedSample;
+  }
+  return clampedSample;
+}
+
 // Note that this function expects "LUT_SIZE" to be divisible by 2. If your LUT is (e.g.) 15x instead of 16x, move some math to be floating point and round to the closest pixel.
 // "PixelPosition" is expected to be centered around texles center, so the first pixel would be 0.5 0.5, not 0 0.
 // This partially mirrors "ShouldSkipPostProcess()".
