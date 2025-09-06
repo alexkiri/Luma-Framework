@@ -23,6 +23,7 @@ float4 OptionalSaturate(float4 x)
 #endif // ENABLE_LUMA
 }
 
+// Scales the image to 1/4 of the resolution
 void main(
   float4 v0 : SV_POSITION0,
   float2 v1 : TEXCOORD0,
@@ -53,6 +54,8 @@ void main(
   r0.xyzw = r2.xyzw + r0.xyzw;
   r0.xyzw = r0.xyzw + r1.xyzw;
   r0.xyzw = r0.xyzw * 0.125 + -cb0[4].z;
+#if !ENABLE_LUMA // Clamping is done on composition, so no information is lost during mips generation
   r0.xyzw = max(float4(0,0,0,0), r0.xyzw);
+#endif
   o0.xyzw = cb0[4].w * r0.xyzw;
 }

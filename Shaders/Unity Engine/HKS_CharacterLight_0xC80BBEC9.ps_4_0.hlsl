@@ -48,7 +48,7 @@ void main(
 #endif
   o0.xyz = (0.5 < r0.yzw) ? r1.xyz : r2.xyz;
   
-#if ENABLE_LUMA // Luma: fix character light having heavy banding, we found 5 bits to be a good value. It needs to be applied on alpha too for best results.
+#if ENABLE_LUMA // Luma: fix character light having heavy banding, we found 5 bits to be a good value, even if it ends up showing a bit of grain. It needs to be applied on alpha too for best results.
   //o0.w *= 2.5; // Quick banding test
   ApplyDithering(o0.xyz, sceneUV, true, 1.0, 5, LumaSettings.FrameIndex, true);
   if (o0.w != 0.0)

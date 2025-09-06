@@ -1535,7 +1535,7 @@ float4 sampleLUTWithExtrapolation1D(Texture2D<float4> lut, SamplerState samplerS
       const bool extrapolateVerticalCoordinates = extrapolationDirection == 0 || extrapolationDirection == 2;
 
       float2 backwardsAmount = lutTexelRange;
-#if 1 // New distance to travel back of, to avoid the hue shifts that are often at the edges of LUTs. Taking two samples in two different backwards points and blending them also looks worse in this game.
+#if 1 // New distance to travel back of, to avoid the hue shifts that are often at the edges of LUTs. Taking two samples in two different backwards points and blending them also looks worse in "Hollow Knight: Silksong".
       if (extrapolateHorizontalCoordinates)
         backwardsAmount.x = 0.5;
       if (extrapolateVerticalCoordinates)
@@ -1550,7 +1550,7 @@ float4 sampleLUTWithExtrapolation1D(Texture2D<float4> lut, SamplerState samplerS
     // Note: if we are only doing "Horizontal" or "Vertical" extrapolation, we could replace this "length()" calculation with a simple subtraction
     const float distanceFromClampedToCentered = length(clampedUV - centeredUV);
     const float extrapolationRatio = distanceFromClampedToCentered == 0.0 ? 0.0 : (distanceFromUnclampedToClamped / distanceFromClampedToCentered);
-#if 1  // Lerp in gamma space, this seems to look better for this game (the whole rendering is in gamma space, never linearized), and the "extrapolationRatio" is in gamma space too
+#if 1  // Lerp in gamma space, this seems to look better for old games (especially when the whole renders is in gamma space, never linearized), and the "extrapolationRatio" is in gamma space too
     const float4 extrapolatedSample = lerp(centeredSample, clampedSample, 1.0 + extrapolationRatio);
 #else  // Lerp in linear space to make it more "accurate"
     float4 extrapolatedSample = lerp(pow(centeredSample, 2.2), pow(clampedSample, 2.2), 1.0 + extrapolationRatio);

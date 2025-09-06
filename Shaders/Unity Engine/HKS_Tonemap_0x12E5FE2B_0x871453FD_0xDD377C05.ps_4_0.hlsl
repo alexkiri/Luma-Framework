@@ -38,7 +38,7 @@ void main(
   float brightness = cb0[2].x;
   float contrast = cb0[2].y;
 
-  // The game uses a 256x4 LUT, with the horizontal axis being contrast, and each vertical line being a different color (rgb, 4th axis is unknown)
+  // The game uses a 256x4 LUT, with the horizontal axis being contrast, and each vertical line being a different color (rgb, 4th axis is unknown, seems never used, probably just to make the texture res even)
 #if ENABLE_LUMA
   const bool extrapolateLUTsMethod = vanilla ? -1 : 1;
   
@@ -67,6 +67,25 @@ void main(
     float4 blueBlackLUT = t1.Sample(s1_s, float2((0 * xScale) + xOffset, 0.625)).rgba;
     float3 gradedBlackColorLinear = gamma_to_linear(float3(redBlackLUT.r, greenBlackLUT.g, greenBlackLUT.b));
 
+// Draw purple if the LUT is pre-clipped (e.g. going full black before the min input point, and going full white before the max input point).
+// We don't care for the case where LUTs don't reach 1 on the max input point, because LUT extrapolation will take care of the rest.
+// And the case where the min input point is raised beyond 0, is already handled below.
+#if TEST && 0 // TODO: add min/max scaling to LUTs to unclip them (because this happens!)
+    float redBlackPlus1LUT = t1.Load(float3(1, 0, 0)).r;
+    float greenBlackPlus1LUT = t1.Load(float3(1, 1, 0)).g;
+    float blueBlackPlus1LUT = t1.Load(float3(1, 2, 0)).b;
+
+    float redWhiteMinus1LUT = t1.Load(float3(lutWidth - 2, 0, 0)).r;
+    float greenWhiteMinus1LUT = t1.Load(float3(lutWidth - 2, 1, 0)).g;
+    float blueWhiteMinus1LUT = t1.Load(float3(lutWidth - 2, 2, 0)).b;
+
+    if (redBlackPlus1LUT <= FLT_MIN || greenBlackPlus1LUT <= FLT_MIN  || blueBlackPlus1LUT <= FLT_MIN || redWhiteMinus1LUT >= (1.0 - FLT_MIN) || greenWhiteMinus1LUT >= (1.0 - FLT_MIN) || blueWhiteMinus1LUT >= (1.0 - FLT_MIN))
+    {
+      o0 = float4(1, 0, 1, 1);
+      return;
+    }
+#endif
+
     float lutMidGreyIn = 0.75; // Customize it (bad naming)
     float4 redMidGreyLUT = t1.Sample(s1_s, float2((lutMidGreyIn * xScale) + xOffset, 0.125)).rgba;
     float4 greenMidGreyLUT = t1.Sample(s1_s, float2((lutMidGreyIn * xScale) + xOffset, 0.375)).rgba;
@@ -93,7 +112,48 @@ void main(
     hueStrength = max(saturate(clippedColorOklab.x) - (2.0 / 3.0), 0.0) * 3.0 * 0.8; // Never restore hue to 100%, it messes up
     gradedSceneColorLinear = RestoreHueAndChrominance(gradedSceneColorLinear, gradedMidGreyColorLinear, hueStrength, 0.0);
 
+    // Luma: fixed slightly wrong BT.709 luminance, and calculating it in linear
+#if 0 // Linearly blended saturation (doesn't look close to vanilla)
+    float gradedSceneColorLuminance = GetLuminance(gradedSceneColorLinear);
+    gradedSceneColorLinear = lerp(gradedSceneColorLuminance, gradedSceneColorLinear, pow(saturation, 0.5)); // Do an arbitrary pow on saturation to align it with vanilla
     gradedSceneColor = linear_to_gamma(gradedSceneColorLinear, GCT_MIRROR);
+#elif 1 // Keep blending it in gamma, saturation in linear looks very different (even if it'd look better)
+    float gradedSceneColorLuminance = linear_to_gamma1(max(GetLuminance(gradedSceneColorLinear), 0.0));
+    gradedSceneColor = linear_to_gamma(gradedSceneColorLinear, GCT_MIRROR);
+    gradedSceneColor = lerp(gradedSceneColorLuminance, gradedSceneColor, saturation);
+#else // ~Vanilla saturation, looks about the same as the improved one above
+    gradedSceneColor = linear_to_gamma(gradedSceneColorLinear, GCT_MIRROR);
+    float gradedSceneColorLuminance = GetLuminance(gradedSceneColor);
+    gradedSceneColor = lerp(gradedSceneColorLuminance, gradedSceneColor, saturation);
+#endif
+
+#if _12E5FE2B
+
+  gradedSceneColor *= brightness; // Applying this in linear or gamma space is the same (we need to convert "brightness" to linear too if we want to apply it in linear space)
+  
+  float contrastMidPoint = 0.5;
+#if 1 /// Better matches vanilla, given that it also increases saturation
+
+  gradedSceneColor = ((gradedSceneColor - contrastMidPoint) * contrast) + contrastMidPoint;
+
+#else // Luma modern contrast method that doesn't raise blacks not generate invalid colors
+
+	// Empirical value to match the original game constrast formula look more.
+	// This has been carefully researched and applies to both positive and negative contrast.
+#if 0 // Keep doing it in gamma space, it should be all right (it will boost saturation too)
+  gradedSceneColor = linear_to_gamma(gradedSceneColor, GCT_MIRROR);
+  contrastMidPoint = gamma_to_linear1(contrastMidPoint);
+#endif
+	const float adjustedContrast = pow(contrast, 1.25); // The pow was set to 2 in Starfield Luma but looks neutral at ~1 here.
+	// Do abs() to avoid negative power, even if it doesn't make 100% sense, these formulas are fine as long as they look good
+	gradedSceneColor = pow(abs(gradedSceneColor) / contrastMidPoint, adjustedContrast) * contrastMidPoint * sign(gradedSceneColor);
+#if 0
+  gradedSceneColor = gamma_to_linear(gradedSceneColor, GCT_MIRROR);
+#endif
+
+#endif
+
+#endif // _12E5FE2B
   }
 #else // !ENABLE_LUMA
   // Note: Vanilla was using a nearest neighbor sampler, which butchered detail beyond 8bit (that's why the LUT input colors (UVs) didn't the half texel offset acknowledged).
@@ -101,13 +161,14 @@ void main(
   float4 greenLUT = t1.Sample(s0_s, float2(sceneColor.g, 0.375)).rgba;
   float4 blueLUT = t1.Sample(s0_s, float2(sceneColor.b, 0.625)).rgba;
   float3 gradedSceneColor = float3(redLUT.r, greenLUT.g, blueLUT.b);
-#endif // ENABLE_LUMA
-  float gradedSceneColorLuminance = GetLuminance(gradedSceneColor); // Luma: fixed slightly wrong BT.709 luminance
+  float gradedSceneColorLuminance = dot(gradedSceneColor, float3(0.22,0.707,0.071)); // Wrong luminance vector, doesn't sum up to 1 either
   gradedSceneColor = lerp(gradedSceneColorLuminance, gradedSceneColor, saturation);
+  
 #if _12E5FE2B
-  gradedSceneColor *= brightness;
-  gradedSceneColor = ((gradedSceneColor - 0.5) * contrast) + 0.5;
-#endif
+  gradedSceneColor *= brightness; // Game brightness slider, goes from 0.1 to 2.0, possibly affected by other things too (causes raw clipping in native SDR, but in Luma it's ok in SDR and HDR, still, it's better left at default as it works in gamma space). It's also weird that brightness was done before contrast, as the contrast center doesn't shift...
+  gradedSceneColor = ((gradedSceneColor - 0.5) * contrast) + 0.5; // Note that this will generate invalid colors and colors beyond the Rec.709 gamut
+#endif // _12E5FE2B
+#endif // ENABLE_LUMA
 
 #endif
 
@@ -118,9 +179,10 @@ void main(
 
 #if ENABLE_LUMA
   gradedSceneColorLinear = gamma_to_linear(gradedSceneColor, GCT_MIRROR);
-#if defined(ENABLE_COLOR_GRADING) && !ENABLE_COLOR_GRADING // TODO: expose? mmm Nah
+#if defined(ENABLE_COLOR_GRADING) && !ENABLE_COLOR_GRADING
   float3 sceneColorLinear = gamma_to_linear(sceneColor.rgb, GCT_MIRROR);
-  gradedSceneColorLinear = lerp(sceneColorLinear, gradedSceneColorLinear, 0.0);
+  float colorGradingStrength = 0.0;
+  gradedSceneColorLinear = lerp(sceneColorLinear, gradedSceneColorLinear, colorGradingStrength);
 #endif
 
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
@@ -149,7 +211,6 @@ void main(
     // Boost saturation
     float highlightsSaturationIntensity = 0.25; // Anything more is deep fried.
     float luminanceTonemap = saturate(Reinhard::ReinhardRange(GetLuminance(gradedSceneColorLinear), MidGray, -1.0, 1.0, false).x);
-    //gradedSceneColorLinear = Saturation(gradedSceneColorLinear, DVS4 * 5);
     fakeHDRColor = linear_srgb_to_oklab(fakeHDRColor);
     fakeHDRColor.yz *= lerp(1.0, max(pow(luminanceTonemap, 1.0 / 2.2) + 0.5, 1.0), highlightsSaturationIntensity); // Arbitrary formula
 	  fakeHDRColor = oklab_to_linear_srgb(fakeHDRColor);
@@ -164,7 +225,7 @@ void main(
     gradedSceneColorLinear = Saturation(gradedSceneColorLinear, 1.0 + LumaData.CustomData4);
 #endif
 
-    bool perChannel = true; // There's basically no difference in this game
+    bool perChannel = true; // There's little difference in this game beside is some very bright scenes (e.g. lava), and per channel looks a lot closer to vanilla
     DICESettings settings = DefaultDICESettings(perChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
     settings.Mirrored = true; // Do DICE mirrored to better handle excessive saturation through negative numbers (it generally makes no difference)
     gradedSceneColorLinear = DICETonemap(gradedSceneColorLinear * paperWhite, peakWhite, settings) / paperWhite;

@@ -559,7 +559,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 			{
 				color.rgb = BT2020_To_BT709(SimpleGamutClip(BT709_To_BT2020(color.rgb), true)); // For scRGB HDR we could go even wider than BT.2020 (e.g. AP0) but it should overall do fine.
 			}
-#if 0 // Display gamut mapped colors
+#if DEVELOPMENT && 0 // Display gamut mapped colors
 			if (any(abs(color.rgb - preColor.rgb) > 0.00001))
 			{
 				color.rgb = 100;

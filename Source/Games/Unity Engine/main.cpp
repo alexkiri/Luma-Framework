@@ -368,13 +368,13 @@ public:
          }
          DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
 
-         if (ImGui::SliderFloat("Expand Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+         if (ImGui::SliderFloat("Expand Color Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
          {
             reshade::set_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
          }
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
          {
-            ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.");
+            ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.\n0 is neutral/vanilla.");
          }
          DrawResetButton(expand_hdr_gamut, 0.1f, "ExpandHDRGamut", runtime);
       }
