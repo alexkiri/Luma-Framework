@@ -34,17 +34,23 @@ float remap(float input, float oldMin, float oldMax, float newMin, float newMax)
 // Returns 0, 1, -1/0/+1 or +/-FLT_MAX if "dividend" is 0
 float safeDivision(float quotient, float dividend, int fallbackMode = 0)
 {
+  float result = 0; // We get warning 4000 if just directly return values
 	if (dividend == 0)
   {
     if (fallbackMode == 0)
-      return 0;
-    if (fallbackMode == 1)
-      return 1;
-    if (fallbackMode == 2)
-        return sign(quotient); // This will return 0 for 0
-    return FLT_MAX * sign(quotient);
+      result = 0;
+    else if (fallbackMode == 1)
+      result = 1;
+    else if (fallbackMode == 2)
+      result = sign(quotient); // This will return 0 for 0
+    else
+      result = FLT_MAX * sign(quotient);
   }
-  return quotient / dividend;
+  else
+  {
+    result = quotient / dividend;
+  }
+  return result;
 }
 // Returns 0, 1 or FLT_MAX if "dividend" is 0
 float3 safeDivision(float3 quotient, float3 dividend, int fallbackMode = 0)

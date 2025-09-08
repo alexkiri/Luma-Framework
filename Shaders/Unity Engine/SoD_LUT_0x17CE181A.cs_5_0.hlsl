@@ -23,7 +23,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[18];
 }
 
-#define cmp -
+#define cmp
 
 static const float3x3 AP1_2_AP0_MAT = {
      0.6954522414, 0.1406786965, 0.1638690622,
@@ -304,13 +304,8 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     r2.xyz = cb0[13].xyz * r2.xyz;
     r1.xyz = r2.xyz * r0.www + r1.xyz;
     r1.xyz = r1.xyz * cb0[10].xyz + cb0[8].xyz;
-    r2.xyz = cmp(float3(0,0,0) < r1.xyz);
-    r3.xyz = cmp(r1.xyz < float3(0,0,0));
-    r2.xyz = (int3)-r2.xyz + (int3)r3.xyz;
-    r2.xyz = (int3)r2.xyz;
-    r1.xyz = log2(abs(r1.xyz));
-    r1.xyz = cb0[9].xyz * r1.xyz;
-    r1.xyz = exp2(r1.xyz);
+    r2.xyz = sign(r1.xyz);
+    r1.xyz = pow(abs(r1.xyz), cb0[9].xyz);
     r3.xyz = r2.xyz * r1.xyz;
     r0.w = cmp(r3.y >= r3.z);
     r0.w = r0.w ? 1.0 : 0;
@@ -466,7 +461,7 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
 	untonemapped = oklch_to_linear_srgb(oklch);
 #else
   float restoreBrightness = 1.0; // We get raised blacks without this
-	untonemapped = RestoreHueAndChrominance(untonemapped, saturate(vanillaTM), 0.75, 0.0, restoreBrightness);
+	untonemapped = RestoreHueAndChrominance(untonemapped, saturate(vanillaTM), 0.75, 0.0, 0.0, FLT_MAX, restoreBrightness);
 #endif
   
 #elif TONEMAP_TYPE == 3 || TONEMAP_TYPE == 4

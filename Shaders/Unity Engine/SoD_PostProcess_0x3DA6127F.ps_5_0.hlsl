@@ -1,4 +1,5 @@
 #include "../Includes/Common.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 Texture2DArray<float4> t2 : register(t2);
 Texture2DArray<float4> t1 : register(t1); // Bloom or additive color / mask
@@ -44,6 +45,8 @@ void main(
   o0.xyz = r1.w * r0.xyz + r1.xyz;
 
 #if UI_DRAW_TYPE == 2 // Scale by the inverse of the relative UI brightness so we can draw the UI at brightness 1x and then multiply it back to its intended range
+	ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
   o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+	ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif
 }

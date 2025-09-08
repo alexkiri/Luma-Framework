@@ -160,9 +160,10 @@ void main(
     o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
   const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-	DICESettings settings = DefaultDICESettings();
-  settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+	DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+#if 0
   settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
+#endif
   o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
   o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);
 #endif

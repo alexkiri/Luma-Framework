@@ -1,5 +1,3 @@
-// ---- Created with 3Dmigoto v1.3.16 on Thu Jul 31 17:12:49 2025
-
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -42,7 +40,6 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
 }
-
 cbuffer MaterialBuffer : register(b3)
 {
   float4 MaterialParams[32] : packoffset(c0);
@@ -53,23 +50,14 @@ SamplerState p_default_Material_0B33AF346638807_Param_sampler_s : register(s1);
 Texture2D<float4> p_default_Material_0B33AFF46643651_Param_texture : register(t0);
 Texture2D<float4> p_default_Material_0B33AF346638807_Param_texture : register(t1);
 
-
-// 3Dmigoto declarations
-#define cmp -
-
-
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
 {
   float4 r0,r1;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
   r1.xyz = p_default_Material_0B33AF346638807_Param_texture.Sample(p_default_Material_0B33AF346638807_Param_sampler_s, r0.xy).xyz;
   r0.xyz = p_default_Material_0B33AFF46643651_Param_texture.Sample(p_default_Material_0B33AFF46643651_Param_sampler_s, r0.xy).xyz;
   o0.xyz = r0.xyz * MaterialParams[0].xxx + r1.xyz;
   o0.w = MaterialOpacity;
-  return;
 }

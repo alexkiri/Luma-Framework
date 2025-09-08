@@ -64,11 +64,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       // For now these are needed, because the scRGB HDR swapchain final draw shader acts as a debug draw texture visualizer.
       // TODO: avoid this. Make it work in SDR, and also just don't upgrade the swapchain!
-      enable_swapchain_upgrade = true;
+      enable_swapchain_upgrade = false;
       swapchain_upgrade_type = 1;
 
       // It might break some games, but at least one can alt tab quickly.
-      prevent_fullscreen_state = true;
+      prevent_fullscreen_state = false;
 
       game = new GraphicsAnalyzer();
    }

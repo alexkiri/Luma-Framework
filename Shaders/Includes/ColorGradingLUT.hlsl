@@ -132,7 +132,7 @@ void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1, uint c
 
 // Restores the source color hue (and optionally brightness) through Oklab (this works on colors beyond SDR in brightness and gamut too).
 // The strength sweet spot for a strong hue restoration seems to be 0.75, while for chrominance, going up to 1 is ok.
-float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hueStrength = 0.75, float chrominanceStrength = 1.0, float lightnessStrength = 0.0, uint colorSpace = CS_DEFAULT)
+float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hueStrength = 0.75, float chrominanceStrength = 1.0, float minChrominanceChange = 0.0, float maxChrominanceChange = FLT_MAX, float lightnessStrength = 0.0, uint colorSpace = CS_DEFAULT)
 {
 	if (hueStrength == 0.0 && chrominanceStrength == 0.0 && lightnessStrength == 0.0) // Static optimization (useful if the param is const)
 		return targetColor;
@@ -144,37 +144,35 @@ float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hu
 	const float3 sourceOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(sourceColor) : linear_srgb_to_oklab(sourceColor);
 	float3 targetOklab = colorSpace == CS_BT2020 ? linear_bt2020_to_oklab(targetColor) : linear_srgb_to_oklab(targetColor);
    
-  targetOklab.x = lerp(targetOklab.x, sourceOklab.x, lightnessStrength); //TODOFT5: the alt method was used by Bioshock 2, did it make sense? Should it be here?
+  targetOklab.x = lerp(targetOklab.x, sourceOklab.x, lightnessStrength);
   
 	float currentChrominance = length(targetOklab.yz);
-	float chrominanceRatio = 1.0;
 
   if (hueStrength != 0.0)
   {
     // First correct both hue and chrominance at the same time (oklab a and b determine both, they are the color xy coordinates basically).
-    // As long as we don't restore the hue to a 100% (which should be avoided), this will always work perfectly even if the source color is pure white (or black, any "hueless" and "chromaless" color).
+    // As long as we don't restore the hue to a 100% (which should be avoided?), this will always work perfectly even if the source color is pure white (or black, any "hueless" and "chromaless" color).
     // This method also works on white source colors because the center of the oklab ab diagram is a "white hue", thus we'd simply blend towards white (but never flipping beyond it (e.g. from positive to negative coordinates)),
     // and then restore the original chrominance later (white still conserving the original hue direction, so likely spitting out the same color as the original, or one very close to it).
     const float chrominancePre = currentChrominance;
     targetOklab.yz = lerp(targetOklab.yz, sourceOklab.yz, hueStrength);
     const float chrominancePost = length(targetOklab.yz);
     // Then restore chrominance to the original one
-    chrominanceRatio = safeDivision(chrominancePre, chrominancePost, 1);
-    currentChrominance = chrominancePost;
+    float chrominanceRatio = safeDivision(chrominancePre, chrominancePost, 1);
+    targetOklab.yz *= chrominanceRatio;
+    //currentChrominance = chrominancePre; // Redundant
   }
 
   if (chrominanceStrength != 0.0)
   {
     const float sourceChrominance = length(sourceOklab.yz);
     // Scale original chroma vector from 1.0 to ratio of target to new chroma
-    // Note that this might reduce or increase the chroma.
+    // Note that this might either reduce or increase the chroma.
     float targetChrominanceRatio = safeDivision(sourceChrominance, currentChrominance, 1);
-#if 0 // Optional safe boundaries, alternatively we could do a max raw offset
-    targetChrominanceRatio = min(targetChrominanceRatio, 1.333f);
-#endif
-    chrominanceRatio = lerp(chrominanceRatio, targetChrominanceRatio, chrominanceStrength);
+    // Optional safe boundaries (0.333x to 2x is a decent range)
+    targetChrominanceRatio = clamp(targetChrominanceRatio, minChrominanceChange, maxChrominanceChange);
+    targetOklab.yz *= lerp(1.0, targetChrominanceRatio, chrominanceStrength);
   }
-  targetOklab.yz *= chrominanceRatio;
 
 	return colorSpace == CS_BT2020 ? oklab_to_linear_bt2020(targetOklab) : oklab_to_linear_srgb(targetOklab);
 }
@@ -303,7 +301,7 @@ float3 RestorePostProcess(float3 nonPostProcessedTargetColor, float3 nonPostProc
   // This often ends up shifting the hue too much, either looking too desaturated or too saturated, mostly because in SDR highlights are all burned to white by LUTs, and by the Vanilla SDR tonemappers.
 	if (hueRestoration > 0)
 	{
-		newPostProcessedColor = RestoreHueAndChrominance(newPostProcessedColor, postProcessedSourceColor, hueRestoration, 0.0, 0.0, BT2020 ? CS_BT2020 : CS_DEFAULT);
+		newPostProcessedColor = RestoreHueAndChrominance(newPostProcessedColor, postProcessedSourceColor, hueRestoration, 0.0, 0.0, FLT_MAX, 0.0, BT2020 ? CS_BT2020 : CS_DEFAULT);
 	}
   
 	if (BT2020)
@@ -390,6 +388,7 @@ float3 ColorGradingLUTTransferFunctionOut(float3 col, uint transferFunction, boo
   {
     return RestoreHueAndChrominance(colorGammaCorrectedByLuminance, colorGammaCorrectedByChannel, 0.0, 1.0);
   }
+  return 0; // Possibly avoids warnings
 }
 
 // Use the LUT input transfer function within 0-1 and the LUT output transfer function beyond 0-1 (e.g. sRGB to gamma 2.2),
@@ -715,8 +714,8 @@ struct LUTExtrapolationSettings
   // It's generally not suggested to use it as basically it undoes the LUT extrapolation, but if you have LUTs not far from being neutral,
   // you might set this to a smallish value and get better results (e.g. better hues).
   float neutralLUTRestorationAmount;
-  // How much we blend back towards the vanilla LUT color (or hue).
-  // It can be used to restore some of the vanilla hues on bright (or not bright) colors (they would likely be desaturated on highlights).
+  // How much we blend back towards the vanilla LUT color (or hue/chrominance).
+  // It can be used to restore some of the vanilla hues or chrominance on bright (or not bright) colors (they would likely have desaturated on highlights).
   // This adds one sample per pixel.
   float vanillaLUTRestorationAmount;
 
@@ -795,16 +794,14 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 encoded
   const bool highQualityLUTCoordinateAdjustments = settings.samplingQuality >= 1;
   const bool tetrahedralInterpolation = settings.samplingQuality >= 2;
   
-#pragma warning( disable : 4000 ) // It's not clear why this function generates this error (sometimes?), maybe it's because we should add an else case for the return
   float3 sampleCoordinates = AdjustLUTCoordinatesForLinearLUT(encodedCoordinates, highQualityLUTCoordinateAdjustments, settings.transferFunctionIn, settings.lutInputLinear, settings.lutOutputLinear, settings.lutSize, specifyLinearColor, linearCoordinates);
   float3 color = SampleLUT(lut, samplerState, sampleCoordinates, settings.lutSize, tetrahedralInterpolation, settings.lutInputLinear, settings.lutOutputLinear, settings.transferFunctionIn);
   // We appply the transfer function even beyond 0-1 as if the color comes from a linear LUT, it shouldn't already have any kind of gamma correction applied to it (gamma correction runs later).
   if (!settings.lutOutputLinear && forceOutputLinear)
   {
-			return ColorGradingLUTTransferFunctionOut(color, settings.transferFunctionIn, true);
+		color = ColorGradingLUTTransferFunctionOut(color, settings.transferFunctionIn, true); // Doing a return directly here causes warning 4000
   }
   return color;
-#pragma warning( default : 4000 )
 }
 
 //TODOFT: store the acceleration around the lut's last texel in the alpha channel?
@@ -1442,7 +1439,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
       lutOutputLinear = true;
     }
 #if 1 // Advanced hue restoration
-    outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, 0.0, settings.vanillaLUTRestorationAmount, 0.0); // Restore chrominance instead of hue, it should better preserve highlights desaturation //TODOFT5: try it!!!
+    outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount * 0.25, settings.vanillaLUTRestorationAmount, 0.0); // Restore chrominance instead of hue, it should better preserve highlights desaturation //TODOFT5: try it!!! And just expose them as separate params, for now we defaulted to a decent looking value. 0.25 for BS2 and 0 for Mafia III
     //outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount, 0.0, 0.0);
 #else // Restoration by luminance
 		float3 extrapolatedVanillaSample = RestoreLuminance(vanillaSample, outputSample);
@@ -1481,6 +1478,87 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
     ColorGradingLUTTransferFunctionInOutCorrected(outputSample.xyz, settings.transferFunctionIn, settings.transferFunctionOut, false);
 	}
 	return outputSample;
+}
+
+// Sample that allows to go beyond the 0-1 coordinates range through extrapolation.
+// It finds the rate of change (acceleration) of the LUT color around the requested clamped coordinates, and guesses what color the sampling would have with the out of range coordinates.
+// Extrapolating LUT by re-apply the rate of change has the benefit of consistency. If the LUT has the same color at (e.g.) uv 0.9 0.9 and 1.0 1.0, thus clipping to white or black, the extrapolation will also stay clipped.
+// Additionally, if the LUT had inverted colors or highly fluctuating colors, extrapolation would work a lot better than a raw LUT out of range extraction with a luminance multiplier.
+//
+// This function does not acknowledge the LUT transfer function nor any specific LUT properties.
+// This function allows your to pick whether you want to extrapolate diagonal, horizontal or veretical coordinates.
+// Note that this function might return "invalid colors", they could have negative values etc etc, so make sure to clamp them after if you need to.
+// This version is for a 2D float4 texture with a single gradient (not a 3D map reprojected in 2D with horizontal/vertical slices), but the logic applies to 3D textures too.
+//
+// "unclampedUV" is expected to have been remapped within the range that excludes that last half texels at the edges.
+// "extrapolationDirection" 0 is both hor and ver. 1 is hor only. 2 is ver only.
+float4 sampleLUTWithExtrapolation1D(Texture2D<float4> lut, SamplerState samplerState, float2 unclampedUV, const int extrapolationDirection = 0)
+{
+  // LUT size in texels
+  float lutWidth;
+  float lutHeight;
+  lut.GetDimensions(lutWidth, lutHeight);
+  const float2 lutSize = float2(lutWidth, lutHeight);
+  const float2 lutMax = lutSize - 1.0;
+  const float2 uvScale = lutMax / lutSize;        // Also "1-(1/lutSize)"
+  const float2 uvOffset = 1.0 / (2.0 * lutSize);  // Also "(1/lutSize)/2"
+  // The uv distance between the center of one texel and the next one
+  const float2 lutTexelRange = 1.0 / lutMax;
+
+  // Remap the input coords to also include the last half texels at the edges, essentually working in full 0-1 range,
+  // we will re-map them out when sampling, this is essential for proper extrapolation math.
+  if (lutMax.x != 0)
+    unclampedUV.x = (unclampedUV.x - uvOffset.x) / uvScale.x;
+  if (lutMax.y != 0)
+    unclampedUV.y = (unclampedUV.y - uvOffset.y) / uvScale.y;
+
+  const float2 clampedUV = saturate(unclampedUV);
+  const float distanceFromUnclampedToClamped = length(unclampedUV - clampedUV);
+  const bool uvOutOfRange = distanceFromUnclampedToClamped > FLT_MIN;  // Some threshold is needed to avoid divisions by tiny numbers
+
+  const float4 clampedSample = lut.Sample(samplerState, (clampedUV * uvScale) + uvOffset).xyzw;  // Use "clampedUV" instead of "unclampedUV" as we don't know what kind of sampler was in use here
+
+  if (uvOutOfRange && extrapolationDirection >= 0)
+  {
+    float2 centeredUV;
+    // Diagonal
+    if (extrapolationDirection == 0) // TODO: delete this case, it's not used and wasn't good
+    {
+      // Find the direction between the clamped and unclamped coordinates, flip it, and use it to determine
+      // where more centered texel for extrapolation is.
+      centeredUV = clampedUV - (normalize(unclampedUV - clampedUV) * (1.0 - lutTexelRange));
+    }
+    // Horizontal or Vertical (use Diagonal if you want both Horizontal and Vertical at the same time)
+    else
+    {
+      const bool extrapolateHorizontalCoordinates = extrapolationDirection == 0 || extrapolationDirection == 1;
+      const bool extrapolateVerticalCoordinates = extrapolationDirection == 0 || extrapolationDirection == 2;
+
+      float2 backwardsAmount = lutTexelRange;
+#if 1 // New distance to travel back of, to avoid the hue shifts that are often at the edges of LUTs. Taking two samples in two different backwards points and blending them also looks worse in "Hollow Knight: Silksong".
+      if (extrapolateHorizontalCoordinates)
+        backwardsAmount.x = 0.5;
+      if (extrapolateVerticalCoordinates)
+        backwardsAmount.y = 0.5;
+#endif
+
+      centeredUV = float2(clampedUV.x >= 0.5 ? max(clampedUV.x - backwardsAmount.x, 0.5) : min(clampedUV.x + backwardsAmount.x, 0.5), clampedUV.y >= 0.5 ? max(clampedUV.y - backwardsAmount.y, 0.5) : min(clampedUV.y + backwardsAmount.y, 0.5));
+      centeredUV = float2(extrapolateHorizontalCoordinates ? centeredUV.x : unclampedUV.x, extrapolateVerticalCoordinates ? centeredUV.y : unclampedUV.y);
+    }
+
+    const float4 centeredSample = lut.Sample(samplerState, (centeredUV * uvScale) + uvOffset).xyzw;
+    // Note: if we are only doing "Horizontal" or "Vertical" extrapolation, we could replace this "length()" calculation with a simple subtraction
+    const float distanceFromClampedToCentered = length(clampedUV - centeredUV);
+    const float extrapolationRatio = distanceFromClampedToCentered == 0.0 ? 0.0 : (distanceFromUnclampedToClamped / distanceFromClampedToCentered);
+#if 1  // Lerp in gamma space, this seems to look better for old games (especially when the whole renders is in gamma space, never linearized), and the "extrapolationRatio" is in gamma space too
+    const float4 extrapolatedSample = lerp(centeredSample, clampedSample, 1.0 + extrapolationRatio);
+#else  // Lerp in linear space to make it more "accurate"
+    float4 extrapolatedSample = lerp(pow(centeredSample, 2.2), pow(clampedSample, 2.2), 1.0 + extrapolationRatio);
+    extrapolatedSample = pow(abs(extrapolatedSample), 1.0 / 2.2) * sign(extrapolatedSample);
+#endif
+    return extrapolatedSample;
+  }
+  return clampedSample;
 }
 
 // Note that this function expects "LUT_SIZE" to be divisible by 2. If your LUT is (e.g.) 15x instead of 16x, move some math to be floating point and round to the closest pixel.
@@ -1537,6 +1615,7 @@ float3 DrawLUTTexture(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float2 Pi
 
     LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
     extrapolationData.inputColor = LUTCoordinates.rgb;
+    extrapolationData.vanillaInputColor = LUTCoordinates.rgb;
 
     LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
     extrapolationSettings.enableExtrapolation = bool(ENABLE_LUT_EXTRAPOLATION);

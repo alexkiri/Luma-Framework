@@ -112,6 +112,7 @@ public:
    }
 };
 
+// This is where everything starts from, the very first call to the dll.
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
@@ -157,6 +158,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 #if DEVELOPMENT // If you want to track any shader names over time, you can hardcode them here by hash (they can be a useful reference in the pipeline)
       forced_shader_names.emplace(std::stoul("FD2925B4", nullptr, 16), "Tracked Shader Name");
+#endif
+
+#if !DEVELOPMENT // Put shaders that a previous version of the mod used but has ever since been deleted here, so that users updating the mod from an older version won't accidentally load them
+      old_shader_file_names.emplace("Bloom_0xDC9373A8.ps_5_0.hlsl");
 #endif
 
       // Create your game sub-class instance (it will be automatically destroyed on exit).

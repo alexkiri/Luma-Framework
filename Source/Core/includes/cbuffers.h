@@ -50,13 +50,13 @@ namespace CB
       uint DLSS;
       uint FrameIndex;
 
-#if DEVELOPMENT // In case we disabled the "DEVELOPMENT" shader define while the code is compiled in "DEVELOPMENT" mode, we'll simply push values that aren't read by shaders
+#if DEVELOPMENT // In case we disabled the "DEVELOPMENT" shader define while the code is compiled in "DEVELOPMENT" mode, we'll simply push values that aren't read by shaders (see "CPU_DEVELOPMENT")
       LumaDevSettings DevSettings;
 #endif // DEVELOPMENT
 
       LumaGameSettings GameSettings; // Custom games setting, with a per game struct
    };
-   // Have a pre-padded version to satisfy DX buffer requirements (if we aligned the original struct, it'd pad in between structs and mess up GPU alignment to the GPU etc)
+   // Have a pre-padded version to satisfy DX buffer requirements (if we aligned the original struct, it'd pad in between structs and mess up the alignment to the GPU etc)
    struct alignas(16) LumaGlobalSettingsPadded : LumaGlobalSettings { };
    static_assert(sizeof(LumaGlobalSettingsPadded) % sizeof(uint32_t) == 0); // ReShade limitation, we probably don't depend on these anymore, still, it's not bad to have 4 bytes alignment, even if cbuffers are seemengly 8 byte aligned?
    static_assert(sizeof(LumaGlobalSettingsPadded) % (sizeof(uint32_t) * 4) == 0); // Apparently needed by DX
@@ -87,7 +87,7 @@ namespace CB
       uint blend_mode = 0;
       float background_tonemapping_amount = 0.f;
    };
-   struct alignas(16) LumaUIDataPadded : LumaUIData {};
+   struct alignas(16) LumaUIDataPadded : LumaUIData { };
    static_assert(sizeof(LumaUIDataPadded) % sizeof(uint32_t) == 0);
    static_assert(sizeof(LumaUIDataPadded) % (sizeof(uint32_t) * 4) == 0);
    static_assert(sizeof(LumaUIDataPadded) >= 16);

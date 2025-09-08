@@ -13,7 +13,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "_Template", "Source\Games\_
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Unity Engine", "Source\Games\Unity Engine\Unity Engine.vcxproj", "{14E5D475-764C-35B7-7A7F-EA9C910C41BB}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BioShock 2", "Source\Games\Bioshock 2\Bioshock 2.vcxproj", "{2D83616E-813C-DB05-0623-2E25145C8CCF}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BioShock Series", "Source\Games\BioShock Series\BioShock Series.vcxproj", "{2D83616E-813C-DB05-0623-2E25145C8CCF}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Dishonored 2", "Source\Games\Dishonored 2\Dishonored 2.vcxproj", "{A2C1A344-DB26-1518-2783-C64CF97DD969}"
 EndProject
@@ -35,13 +35,17 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Deus Ex Human Revolution Di
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "_Generic Mod", "Source\Games\_Generic Mod\Generic Mod.vcxproj", "{08143144-3ABB-D7B3-815C-7B798924E8E6}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "_Graphics Analyzer", "Source\Graphics Analyzer\Graphics Analyzer.vcxproj", "{08143144-3ABB-D7B3-815C-7C798924E8E6}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Graphics Analyzer", "Source\Graphics Analyzer\Graphics Analyzer.vcxproj", "{08143144-3ABB-D7B3-815C-7C798924E8E6}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Thumper", "Source\Games\Thumper\Thumper.vcxproj", "{3C99EF50-7B5C-475C-9E13-F451F0D7A3A1}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Burnout Paradise", "Source\Games\Burnout Paradise\Burnout Paradise.vcxproj", "{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Final Fantasy XV", "Source\Games\Final Fantasy XV\FFXV.vcxproj", "{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Heavy Rain", "Source\Games\Heavy Rain\Heavy Rain.vcxproj", "{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Mafia II Definitive Edition", "Source\Games\Mafia II Definitive Edition\Mafia II Definitive Edition.vcxproj", "{5605BCCC-4F89-4AF3-984F-991105C32602}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -292,21 +296,41 @@ Global
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}.Test-Release|Win32.Build.0 = Test-Release|Win32
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42}.Test-Release|x64.ActiveCfg = Test-Release|Win32
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|Win32.ActiveCfg = Development-Debug|x64
-		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|Win32.Build.0 = Development-Debug|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|x64.ActiveCfg = Development-Debug|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Debug|x64.Build.0 = Development-Debug|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|Win32.ActiveCfg = Development-Release|x64
-		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|Win32.Build.0 = Development-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|x64.ActiveCfg = Development-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Development-Release|x64.Build.0 = Development-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|Win32.ActiveCfg = Publishing-Release|x64
-		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|Win32.Build.0 = Publishing-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|x64.ActiveCfg = Publishing-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Publishing-Release|x64.Build.0 = Publishing-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|Win32.ActiveCfg = Test-Release|x64
-		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|Win32.Build.0 = Test-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|x64.ActiveCfg = Test-Release|x64
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E}.Test-Release|x64.Build.0 = Test-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Development-Debug|Win32.ActiveCfg = Development-Debug|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Development-Debug|x64.ActiveCfg = Development-Debug|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Development-Debug|x64.Build.0 = Development-Debug|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Development-Release|Win32.ActiveCfg = Development-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Development-Release|x64.ActiveCfg = Development-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Development-Release|x64.Build.0 = Development-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Publishing-Release|Win32.ActiveCfg = Publishing-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Publishing-Release|x64.ActiveCfg = Publishing-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Publishing-Release|x64.Build.0 = Publishing-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Test-Release|Win32.ActiveCfg = Test-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Test-Release|x64.ActiveCfg = Test-Release|x64
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E}.Test-Release|x64.Build.0 = Test-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Development-Debug|Win32.ActiveCfg = Development-Debug|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Development-Debug|x64.ActiveCfg = Development-Debug|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Development-Debug|x64.Build.0 = Development-Debug|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Development-Release|Win32.ActiveCfg = Development-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Development-Release|x64.ActiveCfg = Development-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Development-Release|x64.Build.0 = Development-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Publishing-Release|Win32.ActiveCfg = Publishing-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Publishing-Release|x64.ActiveCfg = Publishing-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Publishing-Release|x64.Build.0 = Publishing-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Test-Release|Win32.ActiveCfg = Test-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Test-Release|x64.ActiveCfg = Test-Release|x64
+		{5605BCCC-4F89-4AF3-984F-991105C32602}.Test-Release|x64.Build.0 = Test-Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -329,6 +353,8 @@ Global
 		{3C99EF50-7B5C-475C-9E13-F451F0D7A3A1} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{5671B4DE-DD84-4FCC-890F-D5B7F5437E42} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{8EF11F8D-FD8B-45E1-888E-CEEA5FFB316E} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{D58EB0ED-8EFA-4DB0-B2AD-B2D2A098873E} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{5605BCCC-4F89-4AF3-984F-991105C32602} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {8B799422-BA66-3174-B21F-B9FA07C4B2E3}

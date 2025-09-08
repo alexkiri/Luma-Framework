@@ -44,10 +44,6 @@
 #define ENABLE_LUT_EXTRAPOLATION 1
 #endif
 
-#if !defined(ENABLE_LUT_EXTRAPOLATION)
-#define ENABLE_LUT_EXTRAPOLATION 1
-#endif
-
 #if !defined(EXPAND_COLOR_GAMUT)
 #define EXPAND_COLOR_GAMUT 1
 #endif

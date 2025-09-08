@@ -123,11 +123,14 @@ void main(
       const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
       const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
 
-      DICESettings settings = DefaultDICESettings();
 #if !STRETCH_ORIGINAL_TONEMAPPER && !ENABLE_LUT_EXTRAPOLATION
-      settings.Type = DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE; // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
-#endif // !STRETCH_ORIGINAL_TONEMAPPER
+      DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // We already tonemapped by channel and restored hue/chrominance so let's not shift it anymore by tonemapping by channel
+#else
+      DICESettings settings = DefaultDICESettings();
+#endif // !STRETCH_ORIGINAL_TONEMAPPER && !ENABLE_LUT_EXTRAPOLATION
+#if 0
       settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly), even if we only blend in the SDR tonemapper up to mid grey, if we start earlier HDR would lose range
+#endif
       r0.rgb = DICETonemap(r0.rgb * paperWhite, peakWhite, settings) / paperWhite;
     }
 #endif // ENABLE_LUMA
@@ -161,9 +164,12 @@ void main(
   // Clouds use this shader too, just as post processing, and the rear view mirror hud rendering too
   if (isWritingOnSwapchain)
   {
-    o0.rgb = linear_to_sRGB_gamma(o0.rgb, GCT_MIRROR); // Needed because the original view was a R8G8B8A8_UNORM_SRGB, with the input being float/linear, so there was an implicity sRGB encoding. Following passes are UI and work with non sRGB views.
 #if UI_DRAW_TYPE == 2 // Scale by the inverse of the relative UI brightness so we can draw the UI at brightness 1x and then multiply it back to its intended range
-  	o0.rgb *= pow(LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits, 1.0 / DefaultGamma);
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
+    o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif
+
+    o0.rgb = linear_to_sRGB_gamma(o0.rgb, GCT_MIRROR); // Needed because the original view was a R8G8B8A8_UNORM_SRGB, with the input being float/linear, so there was an implicit sRGB encoding. Following passes are UI and work with non sRGB views.
   }
 }

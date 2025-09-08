@@ -333,7 +333,7 @@ void main(
 #endif
 
   float3 outputColor;
-  float3 vanillaTonemap_ = vanillaTonemap(untonemapped);
+  float3 vanillaTonemap_ = vanillaTonemap(untonemapped); // TODO: remove _
   
 #if 0 // apply color grading to vanillaTonemap so blending doesn't break sliders
   //case: if (LumaSettings.DisplayMode >= 1)
@@ -376,6 +376,7 @@ void main(
     
     LUTExtrapolationData extrapolationData = DefaultLUTExtrapolationData();
     extrapolationData.inputColor = untonemapped.rgb;
+    extrapolationData.vanillaInputColor = vanillaTonemap_;
 
     LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
     extrapolationSettings.enableExtrapolation = bool(ENABLE_LUT_EXTRAPOLATION);

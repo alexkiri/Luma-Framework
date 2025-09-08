@@ -18,14 +18,14 @@ Luma also acts as a graphics analyzer, having deep debugging capabilities (captu
 - Luma uses the game project for developing and shipping mods. Simply toggle between DEVELOPMENT, TEST and PUBLISHING configurations to enable their respective features. They automatically spread to shaders on the next load/compile. Building in Debug (as opposed to Release), simply adds debug symbols etc, but no additional development features.
 
 # Adding a new game mod
-- Add the template file from the ".\Templates\VisualStudio" folder to (e.g.) "%USERPROFILE%\Documents\Visual Studio 2022\Templates\ProjectTemplates".
+- Add the template file from the ".\Templates\VisualStudio" folder to (e.g.) "%USERPROFILE%\Documents\Visual Studio 2022\Templates\ProjectTemplates\Visual C++".
 - Add a new project to the solution and select the Luma Template project, add it under ".\Source\Games". You can name it with the full game name, including spaces etc. You can manually check out the Template project that is already in the Luma solution for more information.
 - Check the newly created main.cpp file and replace what you need to replace, everything is explained there. Check out other game's mods for further inspiration.
 - Each mod's version is stored in "Globals::VERSION" and can be increased there.
 - Win32 (x86/x32) games are compatible too, "BioShock 2" is an example of them, make sure to select the platform for it.
 - Add an environment variable called "LUMA_GAME_NAME_BIN_PATH" (e.g. "LUMA_BIOSHOCK_2_BIN_PATH" for Bioshock 2), and make it point to the game's executable folder (where ReShade goes). Go to the project settings post-build event page and set it to copy the binaries in that folder (it will already be there as "LUMA_TEMPLATE_BIN_PATH").
 - Go to the project settings debugging page and set the Command to the game executable path (e.g. "$(LUMA_PREY_BIN_PATH)\Prey.exe", without the "), so it's run and attached to when debugging (this often doesn't work on games with DRM).
-- Install ReShade 6.5.1+ in the game's directory.
+- Install ReShade 6.5.1+ (or usually the current latest version) in the game's directory.
 - Build the project and run it for debugging, it should automatically run the game with the mod loaded.
 
 # Shaders development
@@ -40,7 +40,7 @@ Github actions automatically build all game projects and package them with their
 Once your mod is ready, make a PR to the original repository.
 
 # Comparison with RenoDX
-Luma shares a lot with RenoDX (https://github.com/clshortfuse/renodx), where it got its original inspiration from, but Luma is more focused on modding games deep down, like for example adding and replacing entire rendering techniques.
+Luma is similar to RenoDX (https://github.com/clshortfuse/renodx), where it got some inspiration from, but Luma is more focused on modding games deep down, like for example adding and replacing entire rendering techniques, adding DLSS or Ultrawide support etc. Porting simple mods between the two is relatively easy.
 
 # Relationship with Starfield and Kingdom Come Deliverance Luma mods
 The Luma Framework was born out of the modding code I originally wrote for Prey (Luma). I soon after realize that I could make it all generic and re-use many of its features on other games.

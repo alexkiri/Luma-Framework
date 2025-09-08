@@ -38,6 +38,7 @@
 *.pdb
 *.exp
 *.vcxproj.user
+Source/Games/**/vcpkg_installed/**
 
 # Compiled, Disassembled and Dumped Shaders
 *.cso

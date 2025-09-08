@@ -45,14 +45,15 @@ float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 {
 	if (colorSpace == CS_BT2020)
 	{
-		return dot( color, Rec2020_Luminance );
+		return dot(color, Rec2020_Luminance);
 	}
-	return dot( color, Rec709_Luminance );
+	return dot(color, Rec709_Luminance);
 }
 
 float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool safe = false, uint colorSpace = CS_DEFAULT)
 {
   float targetColorLuminance = GetLuminance(targetColor, colorSpace);
+  // Handles negative values and gives more tolerance for divisions by small numbers
   if (safe)
   {
 #if 0 // Disabled as it doesn't seem to help (we'd need to set the threshold to "0.001" (which is too high) for this to pick up the cases where divisions end up denormalizing the number etc)
@@ -68,7 +69,6 @@ float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool saf
 #else
     return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 0);
 #endif
-    
   }
   return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 1);
 }
@@ -116,6 +116,66 @@ float3 RestoreChrominance(float3 sourceColor, float3 targetColor, uint colorSpac
 	// We can't simply change the min, max or mid colors independently to change chrominance, or we'd heavily shift the luminance,
 	// so we use the saturation formula.
 	return Saturation(targetColor, chrominanceRatio, colorSpace);
+}
+
+// This basically does gamut mapping, however it's not focused on gamut as primaries, but on peak white.
+// The color is expected to be in the specified color space and in linear.
+// 
+// The sum of "DesaturationAmount" and "DarkeningAmount" needs to be <= 1, both within 0 and 1.
+// The closer the sum is to 1, the more each color channel will be containted within its peak range.
+float3 CorrectOutOfRangeColor(float3 Color, bool FixNegatives = true, bool FixPositives = true, float DesaturationAmount = 0.5, float DarkeningAmount = 0.5, float Peak = 1.0, uint ColorSpace = CS_DEFAULT)
+{
+  if (FixNegatives && any(Color < 0.0)) // Optional "optimization" branch
+  {
+    float colorLuminance = GetLuminance(Color, ColorSpace);
+
+    float3 positiveColor = max(Color.xyz, 0.0);
+	float3 negativeColor = min(Color.xyz, 0.0);
+	float positiveLuminance = GetLuminance(positiveColor, ColorSpace);
+	float negativeLuminance = GetLuminance(negativeColor, ColorSpace);
+	// Desaturate until we are not out of gamut anymore
+	if (colorLuminance > FLT_MIN)
+	{
+#if 0
+	  float negativePositiveLuminanceRatio = -negativeLuminance / positiveLuminance;
+	  float3 positiveColorRestoredLuminance = RestoreLuminance(positiveColor, colorLuminance, true, ColorSpace);
+	  Color = lerp(lerp(Color, positiveColorRestoredLuminance, sqrt(DesaturationAmount)), colorLuminance, negativePositiveLuminanceRatio * sqrt(DesaturationAmount));
+#else // This should look better and be faster
+	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : Rec709_Luminance;
+	  float3 negativePositiveLuminanceRatio = -(negativeColor / luminanceRatio) / (positiveLuminance / luminanceRatio);
+	  Color = lerp(Color, colorLuminance, negativePositiveLuminanceRatio * DesaturationAmount);
+#endif
+	  // TODO: "DarkeningAmount" isn't normalized with "DesaturationAmount", so setting both to 50% won't perfectly stop gamut clip
+      positiveColor = max(Color.xyz, 0.0);
+	  negativeColor = min(Color.xyz, 0.0);
+	  Color = positiveColor + (negativeColor * (1.0 - DarkeningAmount)); // It's not darkening but brightening in this case
+	}
+	// Increase luminance until it's 0 if we were below 0 (it will clip out the negative gamut)
+	else if (colorLuminance < -FLT_MIN)
+	{
+	  float negativePositiveLuminanceRatio = positiveLuminance / -negativeLuminance;
+	  negativeColor.xyz *= negativePositiveLuminanceRatio;
+	  Color.xyz = positiveColor + negativeColor;
+	}
+	// Snap to 0 if the overall luminance was zero, there's nothing to savage, no valid information on rgb ratio
+	else
+	{
+	  Color.xyz = 0.0;
+	}
+  }
+
+  if (FixPositives && any(Color > Peak)) // Optional "optimization" branch
+  {
+    float colorLuminance = GetLuminance(Color, ColorSpace);
+    float colorLuminanceInExcess = colorLuminance - Peak;
+    float maxColorInExcess = max3(Color) - Peak; // This is guaranteed to be >= "colorLuminanceInExcess"
+    float brightnessReduction = saturate(safeDivision(Peak, max3(Color), 1)); // Fall back to one in case of division by zero
+    float desaturateAlpha = saturate(safeDivision(maxColorInExcess, maxColorInExcess - colorLuminanceInExcess, 0)); // Fall back to zero in case of division by zero
+    Color = lerp(Color, colorLuminance, desaturateAlpha * DesaturationAmount);
+    Color = lerp(Color, Color * brightnessReduction, DarkeningAmount); // Also reduce the brightness to partially maintain the hue, at the cost of brightness
+  }
+
+  return Color;
 }
 
 float3 linear_to_gamma(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
@@ -320,6 +380,11 @@ static const float3x3 BT2020_2_BT709 = {
 	-0.12455047667026519775390625f,     1.13289988040924072265625f,     -0.0083494223654270172119140625f,
 	-0.01815076358616352081298828125f, -0.100578896701335906982421875f,  1.11872971057891845703125f };
 
+static const float3x3 BT601_2_BT709 = {
+    0.939497225737661f,					0.0502268452914346f,			0.0102759289709032f,
+    0.0177558637510127f,				0.965824605885027f,				0.0164195303639603f,
+   -0.0016216320996701f,				-0.00437400622653655f,			1.00599563832621f };
+
 float3 BT709_To_BT2020(float3 color)
 {
 	return mul(BT709_2_BT2020, color);
@@ -328,6 +393,12 @@ float3 BT709_To_BT2020(float3 color)
 float3 BT2020_To_BT709(float3 color)
 {
 	return mul(BT2020_2_BT709, color);
+}
+
+// TODO: this doesn't seem to be right... Tested with Mafia III videos.
+float3 BT601_To_BT709(float3 color)
+{
+	return mul(BT601_2_BT709, color);
 }
 
 static const float2 D65xy = float2(0.3127f, 0.3290f);

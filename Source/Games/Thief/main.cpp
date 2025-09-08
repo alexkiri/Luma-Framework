@@ -13,16 +13,6 @@ namespace
 class Thief final : public Game
 {
 public:
-   void OnLoad(std::filesystem::path& file_path, bool failed) override
-   {
-#if 0 // This warning isn't needed anymore, as we load the system version of the dll, and the game supposedly doesn't compile shaders live
-      if (std::filesystem::is_regular_file(file_path.parent_path().append("d3dcompiler_47.dll")))
-      {
-         MessageBoxA(game_window, "Please delete \"d3dcompiler_47.dll\" from the game's executable path,\n\"Luma\" works better without it (Windows already includes the latest version).", NAME, MB_SETFOREGROUND);
-      }
-#endif
-   }
-
    // The final swapchain copy is through an sRGB view, whether the swapchain is sRGB or not (we force it to not be sRGB, because sRGB swapchains don't support flip models).
    bool ForceVanillaSwapchainLinear() const { return true; }
 
@@ -116,7 +106,7 @@ public:
       static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
       if (ImGui::Button(contributing_link.c_str()))
       {
-         system("start https://github.com/Filoppi/Luma");
+         system("start https://github.com/Filoppi/Luma-Framework");
       }
       ImGui::PopStyleColor(3);
 

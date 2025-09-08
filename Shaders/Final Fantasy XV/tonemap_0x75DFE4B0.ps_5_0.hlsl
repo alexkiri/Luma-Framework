@@ -353,9 +353,9 @@ void main(
   float3 graded_sdr = colorGrade(ungraded_sdr);
   graded_sdr = max(graded_sdr, 0.f);
 
-  graded_hdr = RestoreHue(graded_hdr, graded_sdr, 1.0f, false, CS_BT709);
+  graded_hdr = RestoreHueAndChrominance(graded_hdr, graded_sdr, 1.0f, 0.0f);
 
-  r0.rgb = graded_hdr * LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+  r0.rgb = graded_hdr * LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits; // TODO: fix gamma correction with UI scaling
 
   // r0.xyz = max(float3(0,0,0), r0.xyz);
   // r1.xyz = cmp(float3(0.00313080009,0.00313080009,0.00313080009) >= r0.xyz);

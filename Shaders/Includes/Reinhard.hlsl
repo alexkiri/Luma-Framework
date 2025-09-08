@@ -5,9 +5,41 @@
 // ACM Transactions on Graphics (SIGGRAPH), 2002.
 namespace Reinhard 
 {
-  // Only compressed from "shoulderStart", onto "peak" (don't pre-offsetting by the shoulder)
-  float3 ReinhardRange(float3 x, float shoulderStart = MidGray, float peak = 1.f) {
-    return (x > shoulderStart) ? (((x - shoulderStart) / (((x - shoulderStart) / (peak - shoulderStart)) + 1.f)) + shoulderStart) : x;
+  float ReinhardSimple(float x, float peak = 1.0)
+  {
+    return x / ((x / peak) + 1.0);
+  }
+
+  float3 ReinhardSimple(float3 x, float peak = 1.0)
+  {
+    return x / ((x / peak) + 1.0);
+  }
+  
+  // Compresses the range from "ShoulderStart" to "In_Peak", onto "ShoulderStart" to "Out_Peak".
+  // If "In_Peak" is <= 0, it will then start compressing from "infinite".
+  // 
+  // This is useful to compress back an HDR display mapped image to SDR, or any other color that needs to left intact below a certain threshold, and has a peak value different from ~infinite.
+  // 
+  // Don't pre-offset inputs by the shoulder start.
+  float3 ReinhardRange(float3 Color, float ShoulderStart = MidGray, float In_Peak = -1.0, float Out_Peak = 1.0, bool ClampOutput = false)
+  {
+    const float3 compressableColor = Color - ShoulderStart;
+    const float compressableRange = In_Peak - ShoulderStart;
+    const float compressedRange = Out_Peak - ShoulderStart;
+
+    const float3 compressedColor = ReinhardSimple(compressableColor, compressedRange); // This will be between 0 and "compressedRange"
+    float3 restoreRangeCompressedColor = compressedColor;
+    // Restore the "lost" range from the peak
+    if (In_Peak > 0.0)
+    {
+      const float restoreRangeScale = ReinhardSimple(FLT16_MAX - ShoulderStart, compressedRange) / ReinhardSimple(compressableRange, compressedRange); // Use "FLT16_MAX" instead of "FLT_MAX" as that one gives issue, the difference is ~0 anyway
+      restoreRangeCompressedColor *= restoreRangeScale;
+    }
+
+    float3 possibleOutValue = ShoulderStart + restoreRangeCompressedColor; // This will be between "ShoulderStart" and "Out_Peak" (possibly going beyond it)
+    if (ClampOutput) // Optionally clamp as it could be beyond "Out_Peak" if the input was beyond "In_Peak"
+      possibleOutValue = min(possibleOutValue, Out_Peak);
+    return (Color <= ShoulderStart) ? Color : possibleOutValue;
   }
   
   // This converts a color compressed with Reinhard with a white level to another white level
@@ -30,14 +62,6 @@ namespace Reinhard
       L = saturate(L);
     }
     return L;
-  }
-
-  float ReinhardSimple(float x, float peak = 1.f) {
-    return x / (x / peak + 1.f);
-  }
-
-  float3 ReinhardSimple(float3 x, float peak = 1.f) {
-    return x / (x / peak + 1.f);
   }
 
   float ReinhardExtended(float color, float white_max = 1000.f / ITU_WhiteLevelNits, float peak = 1.f) {
@@ -81,7 +105,6 @@ namespace Reinhard
     float3 extended = ReinhardExtended(x * exposure, white_max * exposure, x_max);
     return min(extended, x_max);
   }
-
 }
 
 struct ReinhardSettings

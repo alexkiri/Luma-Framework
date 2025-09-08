@@ -56,7 +56,6 @@ public:
 	   const bool had_drawn_upscaling = game_device_data.has_drawn_upscaling;
 	   if (!game_device_data.has_drawn_upscaling && device_data.dlss_sr && !device_data.dlss_sr_suppressed && original_shader_hashes.Contains(shader_hashes_TAA))
 	   {	
-		   
 		   game_device_data.has_drawn_upscaling = true;
 		   // 1 depth [3]
 		   // 2 current color source () = [0]
@@ -221,7 +220,9 @@ public:
                            ", Jitter Y: " + std::to_string(projection_jitters.y)).c_str()
                    );
 
-                   bool reset_dlss = false;
+                   bool reset_dlss = device_data.force_reset_dlss_sr || dlss_output_changed;
+                   device_data.force_reset_dlss_sr = false;
+
                    uint32_t render_width_dlss = std::lrintf(device_data.render_resolution.x);
                    uint32_t render_height_dlss = std::lrintf(device_data.render_resolution.y);
                    float dlss_pre_exposure = 0.f;
@@ -296,6 +297,10 @@ public:
    {
        auto& game_device_data = GetGameDeviceData(device_data);
 
+       if (!game_device_data.has_drawn_upscaling)
+       {
+          device_data.force_reset_dlss_sr = true; // If the frame didn't draw the scene, DLSS needs to reset to prevent the old history from blending with the new scene
+       }
        game_device_data.has_drawn_upscaling = false;
    }
 

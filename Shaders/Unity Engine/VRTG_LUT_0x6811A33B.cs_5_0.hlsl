@@ -576,7 +576,7 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
 	untonemapped = oklch_to_linear_srgb(oklch);
 #else
   float restoreBrightness = 1.0; // We get raised blacks without this
-	untonemapped = RestoreHueAndChrominance(untonemapped, saturate(vanillaTM), 0.75, 0.0, restoreBrightness);
+	untonemapped = RestoreHueAndChrominance(untonemapped, saturate(vanillaTM), 0.75, 0.0, 0.0, FLT_MAX, restoreBrightness);
 #endif
 
 #elif TONEMAP_TYPE == 3 || TONEMAP_TYPE == 4
