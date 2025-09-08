@@ -39,10 +39,9 @@ void main(
     float4 r0, r1, r2, r3, r4;
     float4 viewportSize;
     float resolutionScale;
-    if (LumaData.GameData.DrewUpscaling)
-    {
+    if (LumaData.GameData.DrewUpscaling) {
         // viewportSize = LumaData.GameData.OutputResolution;
-        viewportSize = asint(LumaData.GameData.ViewportRect);
+        viewportSize = LumaData.GameData.ViewportRect;
         resolutionScale = LumaData.GameData.ResolutionScale.x;
     }
     else {
@@ -52,18 +51,17 @@ void main(
 
     // // Calculate pixel position
     
-    r0.xy = (int2)(vThreadID.xy * resolutionScale) + asint(viewportSize.xy);
-    r0.zw = float2(0, 0);
+    r0.xy = vThreadID.xy * resolutionScale + viewportSize.xy + 0.5;
+    r0.zw = 0.0;
     
     // Sample velocity and depth
     r1.xy = t0.Load(r0.xyw).xy;
     r2.z = t1.Load(r0.xyz).x;
     
     // Calculate screen UV
-    r0.zw = (uint2)vThreadID.xy;
-    r0.zw = float2(0.5, 0.5) + r0.zw;
+    r0.zw = vThreadID.xy + 0.5;
     r0.zw *= resolutionScale;
-    r1.zw = asint(-viewportSize.xy) + asint(viewportSize.zw);
+    r1.zw = viewportSize.zw - viewportSize.xy;
     r1.zw = (uint2)r1.zw;
     r2.xy = r0.zw / r1.zw;
     

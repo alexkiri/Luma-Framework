@@ -16,7 +16,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[18];
 }
 
-#define cmp -
+#define cmp
 
 // Rec.709 color grading, no ACES, no tonemapping
 [numthreads(4, 4, 4)]
@@ -91,7 +91,7 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     r2.xyz = r2.xyz ? float3(0,0,0) : float3(1,1,1);
     r2.xyz = r2.xyz * r4.xyz;
     r1.xyz = r1.xyz * r3.xyz + r2.xyz;
-    r1.xyz = log2(abs(r1.xyz));
+    r1.xyz = log2(abs(r1.xyz)); // TODO: this isn't mirrored after pow? In other similar shaders too!
     r1.xyz = float3(2.20000005,2.20000005,2.20000005) * r1.xyz;
     r1.xyz = exp2(r1.xyz);
     r2.x = dot(r1.xyz, cb0[4].xyz);
@@ -115,13 +115,8 @@ void main(uint3 vThreadID : SV_DispatchThreadID)
     r2.xyz = cb0[13].xyz * r2.xyz;
     r1.xyz = r2.xyz * r0.www + r1.xyz;
     r1.xyz = r1.xyz * cb0[10].xyz + cb0[8].xyz;
-    r2.xyz = cmp(float3(0,0,0) < r1.xyz);
-    r3.xyz = cmp(r1.xyz < float3(0,0,0));
-    r2.xyz = (int3)-r2.xyz + (int3)r3.xyz;
-    r2.xyz = (int3)r2.xyz;
-    r1.xyz = log2(abs(r1.xyz));
-    r1.xyz = cb0[9].xyz * r1.xyz;
-    r1.xyz = exp2(r1.xyz);
+    r2.xyz = sign(r1.xyz);
+    r1.xyz = pow(abs(r1.xyz), cb0[9].xyz);
     r3.xyz = r2.xyz * r1.xyz;
     r0.w = cmp(r3.y >= r3.z);
     r0.w = r0.w ? 1.000000 : 0;
