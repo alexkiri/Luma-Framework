@@ -69,8 +69,8 @@ jobs:
           # Extract project name by removing prefix 'Luma-' and suffix '.addon'
           $fileName = $addonFile.Name
           # Replace "Luma-_" with "Luma-" in the filename, given that some projects (e.g. template, generic mod etc) might have an underscore in front of them to appear on top in alphabetical order
-          $newFileName = $fileName -replace '^Luma-', '' -replace '^_', ''
-          $projectName = $newFileName -replace '\.addon$', ''
+          $cleanFileName = $fileName -replace '^Luma-_', 'Luma-'
+          $projectName = $cleanFileName -replace '^Luma-', '' -replace '\.addon$', ''
           $zipName = "Luma-$projectName"
           # Add "Test" tag for test builds
           if ("${{ matrix.config }}" -eq "Test-Release") {
@@ -161,7 +161,7 @@ jobs:
           }
 
           # Copy addon file to temp root (and rename it)
-          Copy-Item -Path $addonFile.FullName -Destination (Join-Path $tempDir $newFileName)
+          Copy-Item -Path $addonFile.FullName -Destination (Join-Path $tempDir $cleanFileName)
 
           # Create zip with addon and renamed Shaders folder
           Compress-Archive -Path "$tempDir/*" -DestinationPath "$zipName" -Force
