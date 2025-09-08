@@ -208,11 +208,11 @@ if ((cb0[34].x < v0.x && v0.x < cb0[34].z)
       r4.xyz = log2(r4.xyz);
       r4.xyz = float3(2.20000005,2.20000005,2.20000005) * r4.xyz;
       r4.xyz = exp2(r4.xyz);
-      r4.xyz = PumboAutoHDR(r4.xyz, 10000.f, GameWhiteLevelNits);
+      r4.xyz = PumboAutoHDR(r4.xyz, (LumaSettings.PeakWhiteNits / LumaSettings.GamePaperWhiteNits) * 100.f, LumaSettings.GamePaperWhiteNits);
       r5.x = dot(float3(0.627403915,0.329282999,0.0433131009), r4.xyz);
       r5.y = dot(float3(0.0690973029,0.919540584,0.0113623003), r4.xyz);
       r5.z = dot(float3(0.0163914002,0.0880132988,0.895595312), r4.xyz);
-      r3.yzw = float3(250,250,250) * r5.xyz;
+      r3.yzw = LumaSettings.GamePaperWhiteNits * r5.xyz;
     }
     r3.yzw = r3.yzw + -r2.xyz;
     r2.xyz = r3.xxx * r3.yzw + r2.xyz;
