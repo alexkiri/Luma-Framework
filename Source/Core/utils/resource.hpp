@@ -39,6 +39,13 @@ std::optional<std::string> GetD3DNameW(ID3D11DeviceChild* obj)
 }
 #endif
 
+// Counts the base mip too
+uint32_t GetTextureMaxMipLevels(uint32_t width /*>= 1*/, uint32_t height = 0, uint32_t depth = 0)
+{
+   uint32_t max_dimension = max(max(width, height), depth);
+   return static_cast<uint32_t>(std::floor(std::log2(max_dimension))) + 1;
+}
+
 UINT GetTextureMipSize(UINT base_size, UINT mip_level)
 {
    // Shift down by mip level, clamp to at least 1

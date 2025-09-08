@@ -533,11 +533,7 @@ namespace
    // Ideally only to be called once on boot and cached
    std::filesystem::path GetShadersRootPath()
    {
-      wchar_t file_path[MAX_PATH] = L"";
-      // We don't pass in any module handle, thus this will return the path of the executable that loaded our dll
-      GetModuleFileNameW(nullptr, file_path, ARRAYSIZE(file_path));
-
-      std::filesystem::path shaders_path = file_path;
+      std::filesystem::path shaders_path = System::GetModulePath();
       shaders_path = shaders_path.parent_path();
       std::string name_safe = Globals::MOD_NAME;
       // Remove the common invalid characters
@@ -1088,7 +1084,7 @@ namespace
             const auto min_expected_length = (is_luma_native ? 0 : hash_length) + 1 + sm_length; // The shader model is appended after any name, so we add 1 for a dot (e.g. "0x12345678.ps_5_0")
             
             if (length < min_expected_length) continue;
-            ASSERT_ONCE(length > min_expected_length); // HLSL files are expected to have a name in front of the hash or shader model. They can still be loaded, but they won't be distinguishable from raw cso files
+            ASSERT_ONCE(length > min_expected_length); // HLSL files are expected to have a name in front of the hash or shader model. They can still be loaded, but they won't be distinguishable from raw cso files (and thus fail to have priority?)
             shader_target = filename_no_extension_string.substr(length - sm_length, sm_length);
             if (shader_target[2] != '_') continue;
             if (shader_target[4] != '_') continue;
@@ -1976,6 +1972,8 @@ namespace
       last_attempted_upgraded_resource_creation_format = desc.back_buffer.texture.format;
 #endif
 
+      ASSERT_ONCE(desc.back_buffer.texture.samples == 1); // Neither flip model nor scRGB HDR are supported with MSAA
+
       // sRGB formats don't support flip modes, if we previously upgraded the swapchain, select a flip mode compatible format when the swapchain resizes, as we can't change it anymore after creation
       if (!enable_swapchain_upgrade && swapchain_upgrade_type > 0 && (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb))
       {
@@ -1989,19 +1987,27 @@ namespace
       // TODO: add a flag to disable these for the "GRAPHICS_ANALYZER"? They are still needed for HDR though
       // Generally we want to add these flags in all cases, they seem to work in all games
       {
-         desc.back_buffer_count = max(desc.back_buffer_count, 2); // Needed by flip models, which is mandatory for HDR (for some reason DX11 might still create one buffer). Note that DX10/11 will still only create one buffer, even if their desc says they have two.
+         desc.back_buffer_count = max(desc.back_buffer_count, 2); // Needed by flip models, which is mandatory for HDR. Note that DX10/11 will still only create one buffer, even if their desc says they have two.
          if ((enable_swapchain_upgrade && swapchain_upgrade_type > 0) || (desc.back_buffer.texture.format != reshade::api::format::r8g8b8a8_unorm_srgb && desc.back_buffer.texture.format != reshade::api::format::b8g8r8a8_unorm_srgb)) // sRGB formats don't support flip modes
          {
             desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-         }
-         ASSERT_ONCE((desc.present_flags & (DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO)) == 0); // Uh? // TODO: happens in Hollow Knight: Silksong
-#if DEVELOPMENT && !GRAPHICS_ANALYZER // TODO: investigate "DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT" (add this to other mirrored code if you finalize it), and anyway make it optional as it lowers lag at the cost of not quequing up frames
+#if !GRAPHICS_ANALYZER // TODO: investigate "DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT", and anyway make it optional as it lowers lag at the cost of not quequing up frames
+            // Only works in "DXGI_SWAP_EFFECT_FLIP_DISCARD" mode and non FSE mode (and given we can't change it live when FSE is toggled, we only allow it if FSE is prevented by the game)
+            if (prevent_fullscreen_state)
+            {
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+            }
 #endif
+         }
+         ASSERT_ONCE((desc.present_flags & DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO) == 0); // Uh?
+
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Games will still need to call "Present()" with "DXGI_PRESENT_ALLOW_TEARING" for this to do anything (ReShade will automatically do it if this flag is set)
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
          desc.fullscreen_refresh_rate = 0.f; // This fixes games forcing a specific refresh rate (e.g. Mafia III forces 60Hz for no reason)
+         if (prevent_fullscreen_state)
+         {
          desc.fullscreen_state = false; // Force disable FSE (see "OnSetFullscreenState()")
+         }
          changed = true;
       }
 
@@ -2211,8 +2217,10 @@ namespace
       ASSERT_ONCE(&device_data != nullptr); // Hacky nullptr check (should ever be able to happen)
       SwapchainData& swapchain_data = *swapchain->get_private_data<SwapchainData>();
       {
+         const std::shared_lock lock_swapchain(swapchain_data.mutex);
+
          {
-            const std::unique_lock lock(device_data.mutex);
+            const std::unique_lock lock_device(device_data.mutex);
             device_data.swapchains.erase(swapchain);
             for (const uint64_t handle : swapchain_data.back_buffers)
             {
@@ -2577,32 +2585,12 @@ namespace
                   // Try with native DX11 reflections first, they are much faster than disassembly
                   if (!found_reflections)
                   {
-                     // TODO: move declarations to shader compiler filer, or actually, just use "D3DReflect"?
-                     typedef HRESULT(WINAPI* pD3DReflect)(LPCVOID, SIZE_T, REFIID, void**);
-                     typedef HRESULT(WINAPI* pD3DGetBlobPart)(LPCVOID, SIZE_T, D3D_BLOB_PART, UINT, ID3DBlob**);
-                     static HMODULE d3d_compiler;
-                     static pD3DReflect d3d_reflect;
-                     static pD3DGetBlobPart d3d_get_blob_part;
-                     static std::mutex mutex_shader_compiler;
-                     {
-                        const std::lock_guard<std::mutex> lock(mutex_shader_compiler);
-                        if (d3d_compiler == nullptr)
-                        {
-                           d3d_compiler = LoadLibraryW((System::GetSystemPath() / L"d3dcompiler_47.dll").c_str());
-                        }
-                        if (d3d_compiler != nullptr && d3d_reflect == nullptr)
-                        {
-                           d3d_reflect = pD3DReflect(GetProcAddress(d3d_compiler, "D3DReflect"));
-                           d3d_get_blob_part = pD3DGetBlobPart(GetProcAddress(d3d_compiler, "D3DGetBlobPart"));
-                        }
-                     }
-
                      bool skip_reflections = false;
                      HRESULT hr;
 #if 0
                      // Optional check to avoid failure cases, it seems to be useless/redundant
                      com_ptr<ID3DBlob> reflections_blob;
-                     hr = d3d_get_blob_part(cached_shader->data, cached_shader->size, D3D_BLOB_INPUT_SIGNATURE_BLOB, 0, &reflections_blob);
+                     hr = d3d_getBlobPart(cached_shader->data, cached_shader->size, D3D_BLOB_INPUT_SIGNATURE_BLOB, 0, &reflections_blob);
                      if (FAILED(hr))
                      {
                         skip_reflections = true;
@@ -2610,7 +2598,7 @@ namespace
 #endif
 
                      com_ptr<ID3D11ShaderReflection> shader_reflector;
-                     hr = d3d_reflect(cached_shader->data, cached_shader->size, IID_ID3D11ShaderReflection, (void**)&shader_reflector);
+                     hr = Shader::d3d_reflect(cached_shader->data, cached_shader->size, IID_ID3D11ShaderReflection, (void**)&shader_reflector);
                      if (!skip_reflections && SUCCEEDED(hr))
                      {
                         D3D11_SHADER_DESC shader_desc;
@@ -3184,6 +3172,48 @@ namespace
    {
       constexpr bool force_update = false;
 
+      auto SetConstantBuffer = [&](uint32_t slot, ID3D11Buffer* const buffer)
+         {
+#if DEVELOPMENT
+            bool failed = false;
+            if ((stages & reshade::api::shader_stage::vertex) == reshade::api::shader_stage::vertex)
+            {
+               com_ptr<ID3D11Buffer> cb;
+               native_device_context->VSGetConstantBuffers(slot, 1, &cb);
+               failed |= cb.get() != nullptr && cb.get() != buffer;
+            }
+            if ((stages & reshade::api::shader_stage::geometry) == reshade::api::shader_stage::geometry)
+            {
+               com_ptr<ID3D11Buffer> cb;
+               native_device_context->GSGetConstantBuffers(slot, 1, &cb);
+               failed |= cb.get() != nullptr && cb.get() != buffer;
+            }
+            if ((stages & reshade::api::shader_stage::pixel) == reshade::api::shader_stage::pixel)
+            {
+               com_ptr<ID3D11Buffer> cb;
+               native_device_context->PSGetConstantBuffers(slot, 1, &cb);
+               failed |= cb.get() != nullptr && cb.get() != buffer;
+            }
+            if ((stages & reshade::api::shader_stage::compute) == reshade::api::shader_stage::compute)
+            {
+               com_ptr<ID3D11Buffer> cb;
+               native_device_context->CSGetConstantBuffers(slot, 1, &cb);
+               failed |= cb.get() != nullptr && cb.get() != buffer;
+            }
+            // The game might have used the same cbuffer slot we are using for this very pass, or just left a cbuffer bound even if unused by the current pass (in that case it's likely ok)
+            ASSERT_ONCE_MSG(!failed, "This game might have used the same cbuffer indexes we use for Luma, there's a chance the game will break unless we reset them after we are done with the custom passes that use them");
+#endif
+
+            if ((stages & reshade::api::shader_stage::vertex) == reshade::api::shader_stage::vertex)
+               native_device_context->VSSetConstantBuffers(slot, 1, &buffer);
+            if ((stages & reshade::api::shader_stage::geometry) == reshade::api::shader_stage::geometry)
+               native_device_context->GSSetConstantBuffers(slot, 1, &buffer);
+            if ((stages & reshade::api::shader_stage::pixel) == reshade::api::shader_stage::pixel)
+               native_device_context->PSSetConstantBuffers(slot, 1, &buffer);
+            if ((stages & reshade::api::shader_stage::compute) == reshade::api::shader_stage::compute)
+               native_device_context->CSSetConstantBuffers(slot, 1, &buffer);
+         };
+
       // Most games (e.g. Prey, Dishonored 2) doesn't ever use these buffers, so it's fine to re-apply them once per frame if they didn't change.
       // For other games, it'd be good to re-apply the previously set cbuffer after temporarily changing it, as they might only set them once per frame.
       switch (type)
@@ -3217,14 +3247,7 @@ namespace
          }
 
          ID3D11Buffer* const buffer = device_data.luma_global_settings.get();
-         if ((stages & reshade::api::shader_stage::vertex) == reshade::api::shader_stage::vertex)
-            native_device_context->VSSetConstantBuffers(luma_settings_cbuffer_index, 1, &buffer);
-         if ((stages & reshade::api::shader_stage::geometry) == reshade::api::shader_stage::geometry)
-            native_device_context->GSSetConstantBuffers(luma_settings_cbuffer_index, 1, &buffer);
-         if ((stages & reshade::api::shader_stage::pixel) == reshade::api::shader_stage::pixel)
-            native_device_context->PSSetConstantBuffers(luma_settings_cbuffer_index, 1, &buffer);
-         if ((stages & reshade::api::shader_stage::compute) == reshade::api::shader_stage::compute)
-            native_device_context->CSSetConstantBuffers(luma_settings_cbuffer_index, 1, &buffer);
+         SetConstantBuffer(luma_settings_cbuffer_index, buffer);
          break;
       }
       case LumaConstantBufferType::LumaData:
@@ -3258,14 +3281,7 @@ namespace
          }
 
          ID3D11Buffer* const buffer = device_data.luma_instance_data.get();
-         if ((stages & reshade::api::shader_stage::vertex) == reshade::api::shader_stage::vertex)
-            native_device_context->VSSetConstantBuffers(luma_data_cbuffer_index, 1, &buffer);
-         if ((stages & reshade::api::shader_stage::geometry) == reshade::api::shader_stage::geometry)
-            native_device_context->GSSetConstantBuffers(luma_data_cbuffer_index, 1, &buffer);
-         if ((stages & reshade::api::shader_stage::pixel) == reshade::api::shader_stage::pixel)
-            native_device_context->PSSetConstantBuffers(luma_data_cbuffer_index, 1, &buffer);
-         if ((stages & reshade::api::shader_stage::compute) == reshade::api::shader_stage::compute)
-            native_device_context->CSSetConstantBuffers(luma_data_cbuffer_index, 1, &buffer);
+         SetConstantBuffer(luma_data_cbuffer_index, buffer);
          break;
       }
       case LumaConstantBufferType::LumaUIData:
@@ -3414,7 +3430,7 @@ namespace
       // If this is true, the UI was drawn on a separate buffer and needs to be composed onto the scene (which allows for UI background tonemapping, for increased visibility in HDR)
       bool ui_needs_composition = mod_active && GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) >= 3 && device_data.ui_texture.get();
       bool needs_gamut_mapping = mod_active && GetShaderDefineCompiledNumericalValue(GAMUT_MAPPING_TYPE_HASH) != 0;
-      // TODO: add "TEST_SDR_HDR_SPLIT_VIEW_MODE" and "TEST_2X_ZOOM" as drawing conditions
+      // TODO: add "TEST_SDR_HDR_SPLIT_VIEW_MODE" and "TEST_2X_ZOOM" as drawing conditions etc
 
 #if DEVELOPMENT
       bool needs_debug_draw_texture = device_data.debug_draw_texture.get() != nullptr; // Note that this might look wrong if "output_linear" is false
@@ -3622,17 +3638,18 @@ namespace
             }
 #endif
 
+            bool had_full_mips = false;
+            bool wants_mips = false;
+#if GAME_GENERIC && 0 // use this for AutoHDR deblooming //TODOFT: finish this stuff, the conditions make no sense. Maybe add "doAutoHDR"?
+            wants_mips = !mod_active;
+#endif
             D3D11_TEXTURE2D_DESC proxy_target_desc;
             if (device_data.display_composition_texture.get() != nullptr)
             {
                device_data.display_composition_texture->GetDesc(&proxy_target_desc);
+               had_full_mips = proxy_target_desc.MipLevels == 0 || proxy_target_desc.MipLevels == GetTextureMaxMipLevels(proxy_target_desc.Width, proxy_target_desc.Height);
             }
-            bool had_mips = proxy_target_desc.MipLevels == 0;
-            bool wants_mips = false;
-#if GAME_TEMPLATE // use this for AutoHDR deblooming //TODOFT: finish this stuff
-            wants_mips = !mod_active;
-#endif
-            if (device_data.display_composition_texture.get() == nullptr || proxy_target_desc.Width != target_desc.Width || proxy_target_desc.Height != target_desc.Height || proxy_target_desc.Format != target_desc.Format || had_mips != wants_mips)
+            if (device_data.display_composition_texture.get() == nullptr || proxy_target_desc.Width != target_desc.Width || proxy_target_desc.Height != target_desc.Height || proxy_target_desc.Format != target_desc.Format || had_full_mips != wants_mips)
             {
                proxy_target_desc = target_desc;
                proxy_target_desc.BindFlags |= D3D11_BIND_SHADER_RESOURCE;
@@ -3650,11 +3667,14 @@ namespace
 
                device_data.display_composition_texture = nullptr;
                device_data.display_composition_srv = nullptr;
+               {
+                  const std::unique_lock lock_swapchain(swapchain_data.mutex);
                // Don't change the allocation number
 					for (size_t i = 0; i < swapchain_data.display_composition_rtvs.size(); ++i)
 					{
 						swapchain_data.display_composition_rtvs[i] = nullptr;
 					}
+               }
                HRESULT hr = native_device->CreateTexture2D(&proxy_target_desc, nullptr, &device_data.display_composition_texture);
                assert(SUCCEEDED(hr));
 
@@ -3689,7 +3709,10 @@ namespace
                native_device_context->CopyResource(device_data.display_composition_texture.get(), back_buffer.get());
             }
 
-            com_ptr<ID3D11RenderTargetView> target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
+            com_ptr<ID3D11RenderTargetView> target_resource_texture_view;
+            {
+               const std::unique_lock lock_swapchain(swapchain_data.mutex);
+               target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
             // If we already had a render target view (set by the game), we can assume it was already set to the swapchain,
             // but it's good to make sure of it nonetheless, it might have been changed already.
             if (draw_state_stack.render_target_views[0] != nullptr && draw_state_stack.render_target_views[0] != swapchain_data.display_composition_rtvs[back_buffer_index])
@@ -3708,6 +3731,7 @@ namespace
                HRESULT hr = native_device->CreateRenderTargetView(back_buffer.get(), nullptr, &swapchain_data.display_composition_rtvs[back_buffer_index]);
                ASSERT_ONCE(SUCCEEDED(hr));
                target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
+            }
             }
 
             // Push our settings cbuffer in case where no other custom shader run this frame
@@ -3730,9 +3754,8 @@ namespace
             native_device_context->PSSetShaderResources(1, 1, &ui_texture_srv_const);
 
             // Set the sampler, in case we needed it (limited by "DrawStateStackType::SimpleGraphics")
-#if !DEVELOPMENT // This can be useful to debug draw textures too
-            if (wants_mips)
-#endif // !DEVELOPMENT
+            // This can be useful to debug draw textures too as they have a linear sampling mode
+            if (wants_mips || needs_debug_draw_texture)
             {
                ID3D11SamplerState* const default_sampler_state = device_data.default_sampler_state.get();
                native_device_context->PSSetSamplers(0, 1, &default_sampler_state);
@@ -3786,6 +3809,8 @@ namespace
       {
          device_data.display_composition_texture = nullptr;
          device_data.display_composition_srv = nullptr;
+
+         const std::unique_lock lock_swapchain(swapchain_data.mutex);
          // Don't change the allocation number
          for (size_t i = 0; i < swapchain_data.display_composition_rtvs.size(); ++i)
          {
@@ -8708,6 +8733,12 @@ namespace
                         if (pos != std::string::npos)
                            file_name.erase(pos);
                      }
+                     else
+                     {
+                        size_t pos = file_name.find("."); // After the first "." there would (likely) be the shader model
+                        if (pos != std::string::npos)
+                           file_name.erase(pos);
+                     }
                      if (file_name.ends_with('_'))
                      {
                         file_name.erase(file_name.length() - 1, 1);
@@ -9609,7 +9640,7 @@ namespace
                   {
                      ImGui::SliderInt("Debug Draw: Pixel Shader Resource Index", &debug_draw_view_index, 0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT - 1);
                   }
-                  const int max_mip = int(std::log2(float(D3D11_REQ_TEXTURE1D_U_DIMENSION)) + 0.5f);
+                  const int max_mip = GetTextureMaxMipLevels(D3D11_REQ_TEXTURE1D_U_DIMENSION) - 1;
                   ImGui::SliderInt("Debug Draw: Texture Mip", &debug_draw_mip, 0, max_mip);
                   ImGui::Checkbox("Debug Draw: Allow Drawing Replaced Pass", &debug_draw_replaced_pass);
                   ImGui::SliderInt("Debug Draw: Pipeline Instance", &debug_draw_pipeline_target_instance, -1, 100); // In case the same pipeline was run more than once by the game, we can pick one to print
@@ -9893,7 +9924,7 @@ namespace
                   }
                }
 
-#if !GAME_GENERIC && !GRAPHICS_ANALYZER // Graphics Analyzer doesn't want upgrades. Generic mod has its own menu.
+#if !GAME_GENERIC  // Graphics Analyzer doesn't want upgrades. Generic mod has its own menu.
                ImGui::NewLine();
                // Requires a change in resolution to (~fully) apply (no texture cloning yet)
                if (enable_texture_format_upgrades ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
@@ -9942,7 +9973,7 @@ namespace
                if (ImGui::Button("Attempt Resize Swapchain (DANGEROUS)"))
                {
                   // Note: unsafe!
-                  auto thread_unc = [&]() {
+                  auto ThreadFunc = [&]() {
                      UINT width = UINT(device_data.output_resolution.x + 0.5);
                      UINT height = UINT(device_data.output_resolution.y + 0.5);
 
@@ -9952,9 +9983,13 @@ namespace
 
                      // Replacing the swapchain texture live might crash the game anyway, if it cached ptrs to the swapchain buffers.
                      UINT swap_chain_flags = 0;
-                     // We already set these on swapchain creation, so maintain them. Usually there aren't any other (game original) flags to maintain.
+                     // We already set these on swapchain creation, so maintain them. Usually there aren't any other (game original) flags to maintain. Ideally we'd fish these out of the current swapchain desc
                      swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
                      swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+                     if (prevent_fullscreen_state)
+                     {
+                        swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+                     }
 
                      com_ptr<IDXGISwapChain3> native_swapchain;
 
@@ -9965,6 +10000,8 @@ namespace
 
                         SwapchainData& swapchain_data = *(*device_data.swapchains.begin())->get_private_data<SwapchainData>();
 
+                        {
+                           const std::shared_lock lock_swapchain(swapchain_data.mutex);
                         // Before resizing the swapchain, we need to make sure any of its resources/views are not bound to any state (at least from our side, we can't control the game side here)
                         if (!swapchain_data.display_composition_rtvs.empty())
                         {
@@ -9977,13 +10014,14 @@ namespace
                            bool rts_changed = false;
                            for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
                            {
-                              for (const auto& display_composition_rtv : swapchain_data.display_composition_rtvs)
+                                 for (auto& display_composition_rtv : swapchain_data.display_composition_rtvs)
                               {
                                  if (rtvs[i].get() != nullptr && rtvs[i].get() == display_composition_rtv.get())
                                  {
                                     rtvs[i] = nullptr;
                                     rts_changed = true;
                                  }
+                                    display_composition_rtv = nullptr;
                               }
                            }
                            if (rts_changed)
@@ -9991,6 +10029,7 @@ namespace
                               ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(rtvs[0]);
                               primary_command_list->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
                            }
+                        }
                         }
 
                         native_swapchain->ResizeBuffers(0, new_width, new_height, DXGI_FORMAT_UNKNOWN, swap_chain_flags);
@@ -10000,9 +10039,9 @@ namespace
                      };
 
 
-                  std::thread t(thread_unc);
+                  std::thread thread(ThreadFunc);
                   // Detach it so it runs independently from within the "Present" call
-                  t.detach();
+                  thread.detach();
                }
 
                // TODO: test etc
@@ -10410,6 +10449,7 @@ namespace
 #pragma optimize("", on) // Restore the previous state
 } // namespace
 
+// "async" means that this is not called from the dll loading function ("DLL_PROCESS_ATTACH"), so we can do threading related stuff in the function
 void Init(bool async)
 {
    has_init = true;
@@ -10418,6 +10458,8 @@ void Init(bool async)
    {
       shader_defines_data_index[string_view_crc32(std::string_view(shader_defines_data[i].default_data.GetName()))] = i;
    }
+
+   Shader::InitShaderCompiler();
 
    game->OnInit(async);
 
@@ -10649,7 +10691,7 @@ void Init(bool async)
    }
 }
 
-// This can't be called on "DLL_PROCESS_DETACH" as it needs a multi threaded enviroment
+// This can't be called on "DLL_PROCESS_DETACH" as it needs a multi threaded environment
 void Uninit()
 {
    if (thread_auto_dumping.joinable())
@@ -10670,6 +10712,10 @@ void Uninit()
          }
       }
    }
+
+#if 0 // Unload any dll. For now we keep it loaded forever because we might load a custom version of DX shader compiler DLLs, and sometimes ReShade or ReShade addons load and unload multiple times on boot, so we wouldn't want to add any weight to further loads
+   Shader::UnInitShaderCompiler();
+#endif
 
    has_init = false;
 }
@@ -10696,14 +10742,15 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
    // ReShade loads addons when the game creates a DirectX device, this usually only happens once on boot under normal circumstances (e.g. Prey), but can happen multiple times (e.g. Dishonored 2, Unity games, ...).
    case DLL_PROCESS_ATTACH:
    {
+      // Optimization (we don't need DLL_THREAD_ATTACH)
+      DisableThreadLibraryCalls(h_module);
+
 // Some games like to crash or have input issues if a debugger is present on boot, so make it optional
 #if (DEVELOPMENT || _DEBUG) && !defined(DISABLE_AUTO_DEBUGGER)
       LaunchDebugger(NAME);
 #endif // DEVELOPMENT
 
-      wchar_t file_path_char[MAX_PATH] = L"";
-      GetModuleFileNameW(h_module, file_path_char, ARRAYSIZE(file_path_char));
-      std::filesystem::path file_path = file_path_char;
+      std::filesystem::path file_path = System::GetModulePath(h_module);
       if (file_path.extension() == ".addon" || file_path.extension() == ".addon64")
       {
          asi_loaded = false;
@@ -10723,6 +10770,14 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       const bool reshade_addon_register_succeeded = reshade::register_addon(h_module);
       if (!reshade_addon_register_succeeded) load_failed = true;
 #endif // !DISABLE_RESHADE
+
+      std::filesystem::path shader_compiler_path = file_path.parent_path();
+      shader_compiler_path.append("msvcp140.dll");
+      if (std::filesystem::is_regular_file(shader_compiler_path))
+      {
+         const std::string warn_message = "Your game has a custom version of \"msvcp140.dll\" in its path, please remove it and restart the game or Luma will possibly crash (there are no other side effects)";
+         MessageBoxA(NULL, warn_message.c_str(), NAME, MB_SETFOREGROUND);
+      }
 
       // We give the game code the opportunity to do something before rejecting the dll load
       game->OnLoad(file_path, load_failed);

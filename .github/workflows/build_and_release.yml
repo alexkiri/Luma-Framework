@@ -68,7 +68,9 @@ jobs:
 
           # Extract project name by removing prefix 'Luma-' and suffix '.addon'
           $fileName = $addonFile.Name
-          $projectName = $fileName -replace '^Luma-', '' -replace '\.addon$', ''
+          # Replace "Luma-_" with "Luma-" in the filename, given that some projects (e.g. template, generic mod etc) might have an underscore in front of them to appear on top in alphabetical order
+          $newFileName = $fileName -replace '^Luma-', '' -replace '^_', ''
+          $projectName = $newFileName -replace '\.addon$', ''
           $zipName = "Luma-$projectName"
           # Add "Test" tag for test builds
           if ("${{ matrix.config }}" -eq "Test-Release") {
@@ -148,9 +150,18 @@ jobs:
               Remove-Item $_.FullName -Force
             }
           }
+          
+          # Copy shaders folder contents into Data subfolder
+          # Note: ideally these should be updated once in a while, I got them from "C:\Program Files (x86)\Windows Kits\10\Redist\D3D\...", which seemengly had the latest version for redistribution (the one in System32 doesn't seem to be for that, even if it'd probably work)
+          if ("${{ matrix.platform }}" -eq "Win32") {
+            Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47.dll" -Destination "$tempDir/Luma"
+          }
+          else {
+            Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47_x32.dll" -Destination "$tempDir/Luma"
+          }
 
-          # Copy addon file to temp root
-          Copy-Item -Path $addonFile.FullName -Destination $tempDir
+          # Copy addon file to temp root (and rename it)
+          Copy-Item -Path $addonFile.FullName -Destination (Join-Path $tempDir $newFileName)
 
           # Create zip with addon and renamed Shaders folder
           Compress-Archive -Path "$tempDir/*" -DestinationPath "$zipName" -Force
@@ -191,9 +202,18 @@ jobs:
           name: Release (Build ${{ github.run_number }})
           body: |
             The current version of all Luma mods (based on latest commit).
-            Extract all the files in the same folder where ReShade is installed (the latest version of it, with Addons support, you don't need anything else, no ReShade effects needed etc).
-            "Test" mods are made to be tested and have tools to investigate what's going on, and help the developers gather information.
+            
+            Installation instructions:
+            - Install the latest version of ReShade with Addons support in the path to the game you want to add Luma to (you don't need anything else for it, no ReShade effects etc, just ReShade for DX10/11/12)
+            - Extract all the files directly in the same folder where ReShade is installed
+            - Boot the game
+            - Press home to bring out the ReShade and Luma menus (if they don't appear, ReShade or Luma failed to install or run)
+            - Customize the settings if you'd like, the defaults are already good and pick up on your display calibration
+
+            Note that not all mods here are playable, some are work in progress. Consult the "HDR Den" discord for more information.
             Note that some mods here might not be complete, like "Prey", which misses (optional) data for the rest of the mod.
+            "Test" mods are made to be tested and have tools to investigate what's going on, and help the developers gather information.
+            Linux/Proton should be fully compatible out of the box.
 
             ---
 

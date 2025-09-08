@@ -174,7 +174,7 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
 
 struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 {
-   // Only for "swapchains", "back_buffers" and "upgraded_resources" (and related)
+   // Only for "swapchains", "back_buffers" and "upgraded_resources" (and related). Device object creation etc is usually single threaded anyway, except for the destructor.
    std::shared_mutex mutex;
 
    std::thread thread_auto_loading;
@@ -323,6 +323,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 
 struct __declspec(uuid("c5805458-2c02-4ebf-b139-38b85118d971")) SwapchainData
 {
+   // Probably not particularly useful as the swapchain would be single threaded, if not for its destruction callback
    std::shared_mutex mutex;
 
    std::unordered_set<uint64_t> back_buffers;

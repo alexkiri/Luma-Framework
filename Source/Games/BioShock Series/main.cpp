@@ -376,8 +376,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      DisableThreadLibraryCalls(hModule);
-
       Globals::SetGlobals(PROJECT_NAME, "BioShock Remastered + BioShock 2 Remastered + BioShock Infinite Luma mod");
       Globals::VERSION = 1;
 

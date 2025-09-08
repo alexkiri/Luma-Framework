@@ -264,51 +264,6 @@ public:
          }
       }
 
-#if 0 // This warning isn't needed anymore, as we load the system version of the dll, and the game supposedly doesn't compile shaders live
-      // TODO: move this code to generic Luma code, it applies to (almost) all games (e.g. not LEGO Undercover City?), also do the 46 etc. Or...? Or ship with the latest one (for Linux)?
-
-      // Make sure the user deleted the d3dcompiler_47 dll
-      std::filesystem::path shader_compiler_path = file_path.parent_path();
-      shader_compiler_path.append("d3dcompiler_47.dll");
-      if (std::filesystem::is_regular_file(shader_compiler_path))
-      {
-         bool old_version = true;
-         DWORD verHandle = 0;
-         DWORD verSize = GetFileVersionInfoSize(shader_compiler_path.c_str(), &verHandle);
-         if (verSize != NULL)
-         {
-            LPSTR verData = new char[verSize];
-            if (GetFileVersionInfo(shader_compiler_path.c_str(), verHandle, verSize, verData))
-            {
-               LPBYTE lpBuffer = NULL;
-               UINT size = 0;
-               if (VerQueryValue(verData, L"\\", (VOID FAR * FAR*) & lpBuffer, &size))
-               {
-                  if (size)
-                  {
-                     VS_FIXEDFILEINFO* verInfo = (VS_FIXEDFILEINFO*)lpBuffer;
-                     if (verInfo->dwSignature == 0xfeef04bd)
-                     {
-                        // The version would be v1.v2.v3.v4
-                        const auto v1 = (verInfo->dwFileVersionMS >> 16) & 0xffff;
-                        const auto v2 = (verInfo->dwFileVersionMS >> 0) & 0xffff;
-                        const auto v3 = (verInfo->dwFileVersionLS >> 16) & 0xffff;
-                        const auto v4 = (verInfo->dwFileVersionLS >> 0) & 0xffff;
-                        old_version = v1 <= 6 && v2 <= 3 && v3 <= 9600 && v3 <= 16384;
-                     }
-                  }
-               }
-            }
-            delete[] verData;
-         }
-         if (old_version)
-         {
-            MessageBoxA(game_window, "Please stop the game and remove \"d3dcompiler_47.dll\" from the game executable directory;\nthe game came bundled with an old version that is worse in all aspects.\nIf you are on Proton, manually update it to the latest version.", NAME, MB_SETFOREGROUND);
-            prevent_shader_cache_saving = true;
-         }
-      }
-#endif
-
 #if ENABLE_NATIVE_PLUGIN
       if (!failed)
       {
@@ -2400,8 +2355,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      DisableThreadLibraryCalls(hModule);
-
       Globals::SetGlobals(PROJECT_NAME, "Prey (2017) Luma mod", "https://www.nexusmods.com/prey2017/mods/149");
       Globals::VERSION = 6;
 

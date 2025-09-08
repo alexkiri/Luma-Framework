@@ -107,11 +107,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 {
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
-      DisableThreadLibraryCalls(hModule);
-
-      wchar_t file_path_char[MAX_PATH] = L"";
-      GetModuleFileNameW(hModule, file_path_char, ARRAYSIZE(file_path_char));
-      std::filesystem::path file_path = file_path_char;
+      std::filesystem::path file_path = System::GetModulePath(hModule);
       std::string file_name = file_path.stem().string();
       // Retrieve the dll name and use it as the addon name, so we can re-use this template mod for all games by simply renaming the executable (as long as the mod just involves replacing shaders).
       bool use_custom_game_name = false;
@@ -154,7 +150,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r10g10b10a2_unorm,
             reshade::api::format::r10g10b10a2_typeless,
 
-            //reshade::api::format::r16g16b16a16_unorm,
+            reshade::api::format::r16g16b16a16_unorm,
 
             reshade::api::format::r11g11b10_float,
       };

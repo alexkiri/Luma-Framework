@@ -18,7 +18,7 @@ Luma also acts as a graphics analyzer, having deep debugging capabilities (captu
 - Luma uses the game project for developing and shipping mods. Simply toggle between DEVELOPMENT, TEST and PUBLISHING configurations to enable their respective features. They automatically spread to shaders on the next load/compile. Building in Debug (as opposed to Release), simply adds debug symbols etc, but no additional development features.
 
 # Adding a new game mod
-- Add the template file from the ".\Templates\VisualStudio" folder to (e.g.) "%USERPROFILE%\Documents\Visual Studio 2022\Templates\ProjectTemplates".
+- Add the template file from the ".\Templates\VisualStudio" folder to (e.g.) "%USERPROFILE%\Documents\Visual Studio 2022\Templates\ProjectTemplates\Visual C++".
 - Add a new project to the solution and select the Luma Template project, add it under ".\Source\Games". You can name it with the full game name, including spaces etc. You can manually check out the Template project that is already in the Luma solution for more information.
 - Check the newly created main.cpp file and replace what you need to replace, everything is explained there. Check out other game's mods for further inspiration.
 - Each mod's version is stored in "Globals::VERSION" and can be increased there.

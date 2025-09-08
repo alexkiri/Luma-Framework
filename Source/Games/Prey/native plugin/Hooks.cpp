@@ -704,7 +704,7 @@ namespace Hooks
 	void Hooks::PatchSwapchainDesc(DXGI_SWAP_CHAIN_DESC& a_desc)
 	{
 		// set flags (done by the code that we wrote over). Prey didn't have any of these.
-		a_desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+		a_desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING | DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 				
 		// set LDRPostProcessFormat
 		if (LDRPostProcessFormat == RE::ETEX_Format::eTF_R8G8B8A8) {
