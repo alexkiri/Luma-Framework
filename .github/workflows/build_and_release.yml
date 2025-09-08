@@ -154,10 +154,10 @@ jobs:
           # Copy shaders folder contents into Data subfolder
           # Note: ideally these should be updated once in a while, I got them from "C:\Program Files (x86)\Windows Kits\10\Redist\D3D\...", which seemengly had the latest version for redistribution (the one in System32 doesn't seem to be for that, even if it'd probably work)
           if ("${{ matrix.platform }}" -eq "Win32") {
-            Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47.dll" -Destination "$tempDir/Luma"
+            Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47_x32.dll" -Destination "$tempDir/Luma"
           }
           else {
-            Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47_x32.dll" -Destination "$tempDir/Luma"
+            Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47.dll" -Destination "$tempDir/Luma"
           }
 
           # Copy addon file to temp root (and rename it)
