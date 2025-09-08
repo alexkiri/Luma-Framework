@@ -246,7 +246,6 @@ void main(
   else
   {
     float shoulderStart = LumaData.CustomData1 ? 0.75 : MidGray; // On lava mid grey looks great, in other places 0.75 or so might do.
-    // Restore per channel chrominance on luminance TM, the vanilla SDR tonemapping is fully clipped
     float3 gradedSceneColorLinearLuminanceTM = RestoreLuminance(gradedSceneColorLinear, Reinhard::ReinhardRange(GetLuminance(gradedSceneColorLinear), shoulderStart, -1.0, peakWhite / paperWhite, false).x);
     float3 gradedSceneColorLinearChannelTM = Reinhard::ReinhardRange(gradedSceneColorLinear, shoulderStart, -1.0, peakWhite / paperWhite, false);
 #if 0 // Test: SDR clip
@@ -256,6 +255,7 @@ void main(
 #elif 1 // Looks average on lava
     gradedSceneColorLinear = gradedSceneColorLinearLuminanceTM;
 #else // Looks terrible on lava
+    // Restore per channel chrominance on luminance TM
     gradedSceneColorLinear = RestoreHueAndChrominance(gradedSceneColorLinearLuminanceTM, gradedSceneColorLinearChannelTM, 0.0, 0.8);
 #endif
 

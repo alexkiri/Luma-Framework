@@ -49,6 +49,7 @@ namespace Shader
       // We need to use the product version for this as for some reason the file version has different schemes between System32 and other dlls (apparently the other ones are marked for redistribution, however they have the same exact functionality).
       // As of 2025, the ones in System32 have a 6.x file version scheme, while the other ones 10.x, however the product version is 10.x in both.
       // It's not 100% clear this makes sense, as theoretically the product version would be the version of the package they were delivered with, so be it the DX SDK, Visual Studio, Windows, NV drives etc
+      // Note: in "DEVELOPMENT" builds this might not exist, as we directly check the "Luma" folder, not the "shaders_path" folder.
       std::filesystem::path embedded_dll_path = System::GetModulePath().parent_path();
       embedded_dll_path /= Globals::MOD_NAME;
 #ifdef _WIN64

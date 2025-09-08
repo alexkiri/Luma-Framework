@@ -52,12 +52,16 @@ namespace
    const GameInfo* game_info = nullptr;
    uint32_t game_id = GAME_UNITY_ENGINE_GENERIC;
 
+   ShaderHashesList shader_hashes_CharacterLight;
    ShaderHashesList shader_hashes_UI_VideoDecode;
    ShaderHashesList shader_hashes_UI_Sprite;
    ShaderHashesList shader_hashes_Tonemap;
 
    float fake_hdr_effect = 0.667f;
    float expand_hdr_gamut = 0.1f;
+   float character_light_intensity = 1.f;
+   float character_light_radius = 1.f;
+   float character_light_smoothness = 1.f;
 }
 
 struct GameDeviceDataHollowKnightSilksong final : public GameDeviceData
@@ -150,11 +154,14 @@ public:
          //prevent_fullscreen_state = false; // TODO: FSE crashes whether this is true or not. Not to be used.
          // TODO: this game resizes render targets before the swapchain, so if we upgrade by swapchain aspect ratio, sometimes it fails
 
+         shader_hashes_CharacterLight.pixel_shaders.emplace(std::stoul("C80BBEC9", nullptr, 16));
+
          shader_hashes_UI_VideoDecode.pixel_shaders.emplace(std::stoul("8674BE1F", nullptr, 16));
          shader_hashes_UI_Sprite.pixel_shaders.emplace(std::stoul("2FDE313D", nullptr, 16));
 
          shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("12E5FE2B", nullptr, 16));
          shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("871453FD", nullptr, 16));
+         shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("DD377C05", nullptr, 16));
 
          texture_format_upgrades_2d_aspect_ratio_pixel_threshold = 4; // Needed for videos... somehow they have border scaling
 
@@ -288,6 +295,18 @@ public:
       {
          auto& game_device_data = *static_cast<GameDeviceDataHollowKnightSilksong*>(device_data.game);
 
+         if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_CharacterLight))
+         {
+            uint custom_data_1 = 1; // Flag to tell that we are customizing the data
+            uint custom_data_2 = Math::AsUInt(character_light_smoothness);
+            float custom_data_3 = character_light_intensity;
+            float custom_data_4 = character_light_radius;
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
+            updated_cbuffers = true;
+            return false;
+         }
+
          if (original_shader_hashes.Contains(shader_hashes_UI_VideoDecode))
          {
             com_ptr<ID3D11RenderTargetView> rtv;
@@ -348,6 +367,9 @@ public:
       reshade::api::effect_runtime* runtime = nullptr;
       reshade::get_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
       reshade::get_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
+      reshade::get_config_value(runtime, NAME, "CharacterLightIntensity", character_light_intensity);
+      reshade::get_config_value(runtime, NAME, "CharacterLightRadius", character_light_radius);
+      reshade::get_config_value(runtime, NAME, "CharacterLightSmoothness", character_light_smoothness);
    }
 
    void DrawImGuiSettings(DeviceData& device_data) override
@@ -356,27 +378,66 @@ public:
 
       ImGui::NewLine();
 
-      if (cb_luma_global_settings.DisplayMode == 1)
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
       {
-         if (ImGui::SliderFloat("HDR Boost", &fake_hdr_effect, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+         if (cb_luma_global_settings.DisplayMode == 1)
          {
-            reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
-         }
-         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-         {
-            ImGui::SetTooltip("\"Artificially\" increases the amount of highlights in the game, given that the game's lighting was created for SDR and is fairly flat.\nHigher values are better to be reserved for lower \"Scene Paper White\" values.");
-         }
-         DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
+            if (ImGui::SliderFloat("HDR Boost", &fake_hdr_effect, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+            {
+               reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+               ImGui::SetTooltip("\"Artificially\" increases the amount of highlights in the game, given that the game's lighting was created for SDR and is fairly flat.\nHigher values are better to be reserved for lower \"Scene Paper White\" values.");
+            }
+            DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
 
-         if (ImGui::SliderFloat("Expand Color Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
-         {
-            reshade::set_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
+            if (ImGui::SliderFloat("Expand Color Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+            {
+               reshade::set_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+               ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.\n0 is neutral/vanilla.");
+            }
+            DrawResetButton(expand_hdr_gamut, 0.1f, "ExpandHDRGamut", runtime);
          }
-         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+
+         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+         if (ImGui::TreeNode("Advanced Settings"))
          {
-            ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.\n0 is neutral/vanilla.");
+            if (ImGui::SliderFloat("Character Light Intensity", &character_light_intensity, 0.f, 2.f))
+            {
+               reshade::set_config_value(runtime, NAME, "CharacterLightIntensity", character_light_intensity);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+               ImGui::SetTooltip("Allows you to change the intensity (brightness) of the light around the player character that the game uses to boost visibility for gameplay purposes.\nIt can be a bit jarring in HDR (or SDR too, depending on your taste).");
+            }
+            DrawResetButton(character_light_intensity, 1.f, "CharacterLightIntensity", runtime);
+
+            if (ImGui::SliderFloat("Character Light Radius", &character_light_radius, 0.f, 2.f))
+            {
+               reshade::set_config_value(runtime, NAME, "CharacterLightRadius", character_light_radius);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+               ImGui::SetTooltip("Allows you to change the radius (range) of the light around the player character that the game uses to boost visibility for gameplay purposes.");
+            }
+            DrawResetButton(character_light_radius, 1.f, "CharacterLightRadius", runtime);
+
+            if (ImGui::SliderFloat("Character Light Smoothness", &character_light_smoothness, 0.f, 2.f))
+            {
+               reshade::set_config_value(runtime, NAME, "CharacterLightSmoothness", character_light_smoothness);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+               ImGui::SetTooltip("Allows you to change the smoothness (falloff) of the light around the player character that the game uses to boost visibility for gameplay purposes.");
+            }
+            DrawResetButton(character_light_smoothness, 1.f, "CharacterLightSmoothness", runtime);
+
+            ImGui::TreePop();
          }
-         DrawResetButton(expand_hdr_gamut, 0.1f, "ExpandHDRGamut", runtime);
       }
    }
 
@@ -445,11 +506,17 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
-      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
          system("start https://buymeacoffee.com/realfiloppi");
       }
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str())) //TODOFT5: add to all of my mods!
+      {
+         system("start https://ko-fi.com/realpumbo");
+      }
+
       ImGui::PopStyleColor(3);
 
       ImGui::NewLine();
@@ -457,11 +524,14 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, button_color);
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
-#if 0 //TODOFT: add nexus link here and below and in all other mods
-      static const std::string mod_link = std::string("Nexus Mods Page ") + std::string(ICON_FK_SEARCH);
-      if (ImGui::Button(mod_link.c_str()))
+#if 1 //TODOFT: add nexus link here and below and in all other mods
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
       {
-         system("start https://www.nexusmods.com/prey2017/mods/149");
+         static const std::string mod_link = std::string("Nexus Mods Page ") + std::string(ICON_FK_SEARCH);
+         if (ImGui::Button(mod_link.c_str()))
+         {
+            system("start https://www.nexusmods.com/hollowknightsilksong/mods/23");
+         }
       }
 #endif
       static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);

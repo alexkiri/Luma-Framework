@@ -1,4 +1,7 @@
 #include "../Includes/Common.hlsl"
+#include "../Includes/DICE.hlsl"
+#include "../Includes/Reinhard.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 cbuffer ConstentValue : register(b0)
 {
@@ -90,9 +93,44 @@ void main(
 
   // Gamma adjustments (usually neutral)
 #if ENABLE_LUMA // Luma: scRGB support
-  gradedSceneColor.rgb = pow(abs(gradedSceneColor.rgb), register8.xyz) * sign(gradedSceneColor.rgb);
+  gradedSceneColor.rgb = pow(abs(gradedSceneColor.rgb), register8.xyz * DefaultGamma) * sign(gradedSceneColor.rgb); // Concatenate linearization for tonemapping
 #else
   gradedSceneColor.rgb = pow(gradedSceneColor.rgb, register8.xyz);
 #endif
+
+#if ENABLE_LUMA
+
+// TODO: expose
+#if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
+  float normalizationPoint = 0.025; // 0.025 // Found empyrically
+  float fakeHDRIntensity = 0.2; // 0.2
+  gradedSceneColor.rgb = FakeHDR(gradedSceneColor.rgb, normalizationPoint, fakeHDRIntensity, false);
+#endif
+
+  // TODO: ideally tonemapping would be after this as there's still a couple post process passes that can brighten up the image, that said... whatever...
+  const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
+  const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+  bool allowReinhard = false; // DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE seems to look better in this game
+  if (LumaSettings.DisplayMode == 1 || !allowReinhard)
+  {
+    bool perChannel = LumaSettings.DisplayMode != 1;
+    DICESettings settings = DefaultDICESettings(perChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
+    gradedSceneColor = DICETonemap(gradedSceneColor * paperWhite, peakWhite, settings) / paperWhite;
+  }
+  else
+  {
+    gradedSceneColor = Reinhard::ReinhardRange(gradedSceneColor, MidGray, -1.0, peakWhite / paperWhite, false);
+  }
+
+  // The game used subtractive blends for a few things
+  FixColorGradingLUTNegativeLuminance(gradedSceneColor);
+  
+#if UI_DRAW_TYPE == 2
+  gradedSceneColor *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+#endif // UI_DRAW_TYPE == 2
+  
+  gradedSceneColor = linear_to_gamma(gradedSceneColor, GCT_MIRROR);
+#endif
+
   o0.xyz = gradedSceneColor.rgb;
 }

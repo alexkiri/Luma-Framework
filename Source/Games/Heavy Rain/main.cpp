@@ -7,10 +7,20 @@ class GameTemplate final : public Game // ### Rename this to your game's name ##
 public:
    void OnInit(bool async) override
    {
-      // ### Update these (find the right values) ###
-      // ### See the "GameCBuffers.hlsl" in the shader directory to expand settings ###
-      luma_settings_cbuffer_index = 13;
-      luma_data_cbuffer_index = 12;
+      std::vector<ShaderDefineData> game_shader_defines_data = {
+         {"ENABLE_LUMA", '1', false, false, "Allow disabling the mod's improvements to the game's look"},
+         {"ENABLE_FAKE_HDR", '1', false, false, "Enable a \"Fake\" HDR boosting effect, as the game's dynamic range was fairly limited to begin with"},
+         {"ENABLE_COLOR_GRADING", '1', false, false, "Allows disabling the color grading LUT (some other color filters might still get applied)"},
+         {"ENABLE_POST_PROCESS_EFFECTS", '1', false, false, ""}, // TODO: temporary
+      };
+      shader_defines_data.append_range(game_shader_defines_data);
+
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1'); // Gamma 2.2 in and out
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
+
+      GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1'); // The game just clipped, so HDR is an extension of SDR (except for some shaders that we adjust)
    }
 
    void PrintImGuiAbout() override

@@ -17,7 +17,7 @@ SamplerState s0_s : register(s0);
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : COLOR0,
-  float4 v2 : TEXCOORD0,
+  float2 v2 : TEXCOORD0,
   float4 v3 : TEXCOORD1,
   out float4 o0 : SV_Target0)
 {
@@ -40,7 +40,13 @@ void main(
   r2.xyz = r0.yzw * 2.0 + r2.xyz;
   r2.xyz -= 1.0;
   o0.w = r0.x;
-#if 0 // Luma: character light intensity (1 is vanilla)
+#if 1 // Luma: character light intensity (1 is vanilla)
+  float smoothnessParam = asfloat(LumaData.CustomData2);
+  float intensityParam = LumaData.CustomData3;
+
+  if (o0.w > 0.0)
+    o0.w = pow(o0.w / v1.w, smoothnessParam >= 1.0 ? remap(smoothnessParam, 1.0, 2.0, 1.0, 2.0) : remap(smoothnessParam, 0.0, 1.0, 0.667, 1.0)) * v1.w; // Normalize it before scaling, so we avoid doing a pow around the (e.g.) 0-0.5 range, which changes the intensity of the peak as well
+  
   o0.w *= LumaData.CustomData3;
 #endif
 #if !ENABLE_CHARACTER_LIGHT

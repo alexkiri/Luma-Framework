@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+#include "../Includes/Reinhard.hlsl"
 cbuffer ConstantValue : register(b0)
 {
   float3 register0 : packoffset(c0);
@@ -27,14 +29,31 @@ void main(
 {
   float4 r0,r1;
   r0.xyz = texture1.Sample(sampler1_s, v1.zw).xyz;
+#if !ENABLE_LUMA
+  r0.xyz = saturate(r0.xyz);
+#endif
   r0.xyz = register1.xyz * r0.xyz;
   r1.xyz = texture0.Sample(sampler0_s, v1.xy).xyz;
+#if !ENABLE_LUMA
+  r1.xyz = saturate(r1.xyz);
+#endif
   r0.xyz = r1.xyz * register0.xyz + r0.xyz;
   r1.xyz = texture2.Sample(sampler2_s, v2.xy).xyz;
+#if !ENABLE_LUMA
+  r1.xyz = saturate(r1.xyz);
+#endif
   r0.xyz = r1.xyz * register2.xyz + r0.xyz;
   r1.xyz = texture3.Sample(sampler3_s, v2.zw).xyz;
+#if !ENABLE_LUMA
+  r1.xyz = saturate(r1.xyz);
+#endif
   o0.xyz = r1.xyz * register3.xyz + r0.xyz;
   o0.w = 1;
+  
+#if ENABLE_LUMA && 0 // TODO: pre-tonemap bloom to avoid it going too crazy?
+  o0.xyz = Reinhard::ReinhardRange(o0.xyz, 0.5, -1.0, 1.0, false); // Tonemap to 1 in gamma space
+#endif
+
 #if !ENABLE_POST_PROCESS_EFFECTS
   o0.rgb = 0;
 #endif
