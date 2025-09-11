@@ -2,7 +2,7 @@
 
 namespace Shader
 {
-   constexpr uint8_t meta_version = 1;
+   constexpr uint8_t meta_version = 2;
 
    struct CachedPipeline
    {
@@ -114,10 +114,12 @@ namespace Shader
 #endif
 
 #if DEVELOPMENT
-      // Reflections data:
+      // Reflections data (update "meta_version" if you change these):
       bool found_reflections = false;
       // Constant Buffers
       bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
+      // Samplers
+      bool samplers[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
       // Render Target Views
       bool rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
       // Shader Resource Views

@@ -36,6 +36,7 @@ namespace NativePlugin
         return trampoline;
     }
 
+	// Note: when porting DKUtil to other projects, check the libraries we added (Additional Dependencies), it seems to silently fail without them
 	void Init(const char* name, uint32_t version)
 	{
 #ifndef NDEBUG

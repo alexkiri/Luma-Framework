@@ -1,3 +1,5 @@
+#include "Includes/Common.hlsl"
+
 cbuffer ConstentValue : register(b0)
 {
   float4 register0 : packoffset(c0);
@@ -12,10 +14,6 @@ cbuffer ConstentValue : register(b0)
 
 SamplerState sampler0_s : register(s0);
 Texture2D<float4> texture0 : register(t0);
-
-#ifndef ENABLE_POST_PROCESS_EFFECTS
-#define ENABLE_POST_PROCESS_EFFECTS 1
-#endif
 
 void main(
   float4 v0 : SV_POSITION0,
@@ -46,7 +44,4 @@ void main(
   r0.xyzw = r1.xyzw * register6.xyzw + r0.xyzw;
   r1.xyzw = texture0.Sample(sampler0_s, w4.xy).xyzw;
   o0.xyzw = r1.xyzw * register7.xyzw + r0.xyzw;
-#if !ENABLE_POST_PROCESS_EFFECTS
-  o0.rgb = 0; // Alpha is probably not needed
-#endif
 }

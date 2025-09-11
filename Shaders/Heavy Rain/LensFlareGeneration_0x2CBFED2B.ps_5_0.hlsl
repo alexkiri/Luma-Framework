@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/Reinhard.hlsl"
 
 cbuffer _Params : register(b0)
@@ -38,10 +38,6 @@ void main(
   r1.xyz = saturate(r1.xyz);
 #endif
   r0.xyz = r1.xyz + r0.xyz;
-
-#if ENABLE_LUMA && 0 // TODO: pre-tonemap lens flare to avoid it going too crazy?
-  r0.xyz = Reinhard::ReinhardRange(r0.xyz, 0.5, -1.0, 1.0, false); // Tonemap to 1 in gamma space
-#endif
 
   o0.xyz = register0.x * r0.xyz;
   o0.w = 0;

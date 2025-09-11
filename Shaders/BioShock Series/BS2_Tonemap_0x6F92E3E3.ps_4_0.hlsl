@@ -29,9 +29,9 @@ cbuffer _Globals : register(b0)
   float2 DownsizeTextureDimensions : packoffset(c17.z);
 }
 
-SamplerState s_framebuffer_s : register(s0);
-SamplerState s_bloom_s : register(s1);
-SamplerState s_toneMapTable_s : register(s2);
+SamplerState s_framebuffer_s : register(s0); // Point sampler
+SamplerState s_bloom_s : register(s1); // Linear sampler
+SamplerState s_toneMapTable_s : register(s2); // Linear sampler
 Texture2D<float4> s_framebuffer : register(t0);
 Texture2D<float4> s_bloom : register(t1);
 Texture3D<float4> s_toneMapTable : register(t2); // LUT

@@ -170,7 +170,7 @@ void main(
 #endif // _12E5FE2B
 #endif // ENABLE_LUMA
 
-#endif
+#endif // _DD377C05
 
 #if _DD377C05
   float3 gradedSceneColor = sceneColor.rgb;
@@ -246,7 +246,7 @@ void main(
   else
   {
     float shoulderStart = LumaData.CustomData1 ? 0.75 : MidGray; // On lava mid grey looks great, in other places 0.75 or so might do.
-    float3 gradedSceneColorLinearLuminanceTM = RestoreLuminance(gradedSceneColorLinear, Reinhard::ReinhardRange(GetLuminance(gradedSceneColorLinear), shoulderStart, -1.0, peakWhite / paperWhite, false).x);
+    float3 gradedSceneColorLinearLuminanceTM = RestoreLuminance(gradedSceneColorLinear, Reinhard::ReinhardRange(GetLuminance(gradedSceneColorLinear), shoulderStart, -1.0, peakWhite / paperWhite, false).x, true);
     float3 gradedSceneColorLinearChannelTM = Reinhard::ReinhardRange(gradedSceneColorLinear, shoulderStart, -1.0, peakWhite / paperWhite, false);
 #if 0 // Test: SDR clip
     gradedSceneColorLinear = saturate(gradedSceneColorLinear);

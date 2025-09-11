@@ -1,3 +1,6 @@
+#include "Includes/Common.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
+
 cbuffer ConstantValue : register(b0)
 {
   float4 register0 : packoffset(c0);
@@ -18,6 +21,9 @@ void main(
   r0.a = saturate(r0.a);
   r1.xyz = max(r0.rgb * r0.a - register0.w, min(r0.rgb * r0.a, 0.0)); // Preserve negative colors, but don't generate additional ones
   r0.xyz = max(r0.xyz - register0.y, min(r0.xyz, 0.0));
+
+  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz;
+  r1.xyz = IsNaN_Strict(r1.xyz) ? 0.0 : r1.xyz;
 #else
   r0 = saturate(r0); // Clamp to UNORM
   r1.xyz = saturate(r0.rgb * r0.a - register0.w);
@@ -25,5 +31,8 @@ void main(
 #endif
   r1.xyz = register0.z * r1.xyz;
   o0.xyz = r0.xyz * register0.x + r1.xyz;
+  
+  FixColorGradingLUTNegativeLuminance(o0.xyz);
+
   o0.w = 1;
 }

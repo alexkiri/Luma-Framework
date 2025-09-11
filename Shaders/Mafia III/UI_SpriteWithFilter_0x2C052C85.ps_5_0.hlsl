@@ -1,4 +1,5 @@
 #include "Includes/Common.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 Texture2D<float4> t0 : register(t0);
 
