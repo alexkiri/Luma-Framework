@@ -345,8 +345,8 @@ public:
       if (game_device_data.drew_tonemap && !game_device_data.drew_aa && !sent_aa_assert)
       {
          sent_aa_assert = true;
-         // TODO: this might have issues if the game is booted in FSE, maybe we shouldn't pass the window handle in that case?
-         MessageBoxA(game_window, "Luma detected that Anti-Aliasing (FXAA) is disabled in the game's settings, please re-enable it for tonemapping and UI brightness scaling to work properly.\nUse \"ALLOW_AA\" in Advanced Settings to force AA off.", NAME, MB_SETFOREGROUND);
+         // NOTE: this crashes in FSE if we pass in the game window handle
+         MessageBoxA(NULL, "Luma detected that Anti-Aliasing (FXAA) is disabled in the game's settings, please re-enable it for tonemapping and UI brightness scaling to work properly.\nUse \"ALLOW_AA\" in Advanced Settings to force AA off.", NAME, MB_SETFOREGROUND);
       }
 
       game_device_data.drew_tonemap = false;

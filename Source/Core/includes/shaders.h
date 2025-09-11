@@ -261,6 +261,27 @@ namespace Shader
                ;
          }
       }
+      void Clear()
+      {
+         if constexpr (SingleShaderHashes)
+         {
+            pixel_shaders[0] = UINT64_MAX;
+            vertex_shaders[0] = UINT64_MAX;
+#if GEOMETRY_SHADER_SUPPORT
+            geometry_shaders[0] = UINT64_MAX;
+#endif
+            compute_shaders[0] = UINT64_MAX;
+         }
+         else
+         {
+            pixel_shaders.clear();
+            vertex_shaders.clear();
+#if GEOMETRY_SHADER_SUPPORT
+            geometry_shaders.clear();
+#endif
+            compute_shaders.clear();
+         }
+      }
    };
 
    uint32_t BinToHash(const uint8_t* bin, size_t size)

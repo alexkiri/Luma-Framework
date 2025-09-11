@@ -3340,8 +3340,8 @@ namespace
       cmd_list_data.pipeline_state_original_vertex_shader = reshade::api::pipeline(0);
       cmd_list_data.pipeline_state_original_pixel_shader = reshade::api::pipeline(0);
 
-      cmd_list_data.pipeline_state_original_graphics_shader_hashes;
-      cmd_list_data.pipeline_state_original_compute_shader_hashes;
+      cmd_list_data.pipeline_state_original_graphics_shader_hashes.Clear();
+      cmd_list_data.pipeline_state_original_compute_shader_hashes.Clear();
       cmd_list_data.pipeline_state_has_custom_vertex_shader = false;
       cmd_list_data.pipeline_state_has_custom_pixel_shader = false;
       cmd_list_data.pipeline_state_has_custom_graphics_shader = false;
