@@ -110,7 +110,8 @@ float3 PumboAutoHDR(float3 SDRColor, float MaxPeakWhiteNits, float _PaperWhiteNi
 	return SDRColor * safeDivision(AutoHDRTotalRatio, SDRRatio, 1);
 }
 
-// Takes an SDR/HDR linear color (that doesn't have that much dynamic range) and expands the high midtones and highlights
+// Takes an SDR/HDR linear color (that doesn't have that much dynamic range) and expands the high midtones and highlights.
+// Note: this allows "FakeHDRIntensity" to be < 0 in case you wanted to undo the effect (approximately).
 float3 FakeHDR(float3 Color, float NormalizationPoint = 1.0, float FakeHDRIntensity = 0.5, bool BoostSaturation = true, uint colorSpace = CS_DEFAULT)
 {
   float mixedSceneColorLuminance = GetLuminance(Color, colorSpace) / NormalizationPoint;

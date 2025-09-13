@@ -1,5 +1,6 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/Reinhard.hlsl"
+
 cbuffer ConstantValue : register(b0)
 {
   float3 register0 : packoffset(c0);
@@ -16,10 +17,6 @@ Texture2D<float4> texture0 : register(t0);
 Texture2D<float4> texture1 : register(t1);
 Texture2D<float4> texture2 : register(t2);
 Texture2D<float4> texture3 : register(t3);
-
-#ifndef ENABLE_POST_PROCESS_EFFECTS
-#define ENABLE_POST_PROCESS_EFFECTS 1
-#endif
 
 void main(
   float4 v0 : SV_POSITION0,
@@ -49,12 +46,4 @@ void main(
 #endif
   o0.xyz = r1.xyz * register3.xyz + r0.xyz;
   o0.w = 1;
-  
-#if ENABLE_LUMA && 0 // TODO: pre-tonemap bloom to avoid it going too crazy?
-  o0.xyz = Reinhard::ReinhardRange(o0.xyz, 0.5, -1.0, 1.0, false); // Tonemap to 1 in gamma space
-#endif
-
-#if !ENABLE_POST_PROCESS_EFFECTS
-  o0.rgb = 0;
-#endif
 }

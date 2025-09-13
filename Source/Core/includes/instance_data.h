@@ -29,6 +29,8 @@ struct TraceDrawCallData
    TraceDrawCallData()
    {
       thread_id = std::this_thread::get_id();
+
+      std::fill_n(samplers_filter, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, static_cast<D3D11_FILTER>(-1)); // Default to no sampler
    }
 
    enum class TraceDrawCallType
@@ -94,6 +96,14 @@ struct TraceDrawCallData
    // Already includes all the render targets
    D3D11_BLEND_DESC blend_desc = {};
 
+   bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
+   std::string cb_hash[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {}; // Ptr hash (not content hash)
+
+   D3D11_FILTER samplers_filter[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
+   D3D11_TEXTURE_ADDRESS_MODE samplers_address_u[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
+   D3D11_TEXTURE_ADDRESS_MODE samplers_address_v[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
+   D3D11_TEXTURE_ADDRESS_MODE samplers_address_w[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT] = {};
+
    // Render Target (Resource+Views)
    const ID3D11RenderTargetView* rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // TODO.. find a better way, this is very hacky (though safe, as long as we read/compare it)
    DXGI_FORMAT rt_format[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // The format of the resource
@@ -103,7 +113,7 @@ struct TraceDrawCallData
    UINT rtv_mip[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    std::string rt_type_name[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    std::string rt_hash[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // Ptr hash (not content hash)
-   std::string rt_debug_name[D3D11_1_UAV_SLOT_COUNT] = {}; // Debug name of the texture or the view
+   std::string rt_debug_name[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {}; // Debug name of the texture or the view
    bool rt_is_swapchain[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
    // Shader Resource (Resource+Views)
    const ID3D11ShaderResourceView* srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
@@ -118,7 +128,7 @@ struct TraceDrawCallData
    bool sr_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    bool sr_is_ua[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
    // Unordered Access (Resource+Views)
-   const ID3D11UnorderedAccessView* uavs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+   const ID3D11UnorderedAccessView* uavs[D3D11_1_UAV_SLOT_COUNT] = {};
    DXGI_FORMAT ua_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the resource
    DXGI_FORMAT uav_format[D3D11_1_UAV_SLOT_COUNT] = {}; // The format of the view
    uint4 ua_size[D3D11_1_UAV_SLOT_COUNT] = {}; // 3th and 4th channels are Array, MS and Mips
@@ -127,7 +137,7 @@ struct TraceDrawCallData
    std::string ua_type_name[D3D11_1_UAV_SLOT_COUNT] = {};
    std::string ua_hash[D3D11_1_UAV_SLOT_COUNT] = {}; // Ptr hash (not content hash)
    std::string ua_debug_name[D3D11_1_UAV_SLOT_COUNT] = {}; // Debug name of the texture or the view
-   bool ua_is_rt[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
+   bool ua_is_rt[D3D11_1_UAV_SLOT_COUNT] = {};
    // Depth Stencil (Resource+View)
    DXGI_FORMAT ds_format = {}; // The format of the resource
    DXGI_FORMAT dsv_format = {}; // The format of the view

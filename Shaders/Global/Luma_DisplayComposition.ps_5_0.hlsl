@@ -531,6 +531,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
     			const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
   				color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, peakWhite, 1.0, true); // Acknowledge the previous peak tonemapping to better compress from the HDR display to the SDR range
 #endif
+				color.rgb = gamma_to_linear(round(linear_to_gamma(color.rgb) * 255.0) / 255.0); // Quantize to 8 bit
 			}
 		}
 

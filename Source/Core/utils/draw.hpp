@@ -300,6 +300,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
       // Expose if needed
       constexpr bool show_unused_bound_resources = false; // If a resource is bound but not read/written to by the shader (this often happens with SRVs and UAVs, rarely with RTVs, given they almost 1:1 match with the shader)
       constexpr bool show_used_unbound_resources = true; // If a resource is not bound (null) but it is read/written to by the shader (which will result in black on read, and nothing on writes)
+      // Note that in DX11, some resources might be inherited by the main device context when merging an async device context to the main one, and we couldn't see them yet. Most games don't seem to rely on that.
 
       const auto pipeline = pipeline_pair->second;
       const CachedShader* cached_shader = (!pipeline->shader_hashes.empty() && shader_cache.contains(pipeline->shader_hashes[0])) ? shader_cache[pipeline->shader_hashes[0]] : nullptr; // DX10/11 exclusive behaviour
@@ -477,6 +478,33 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
                trace_draw_call_data.srv_size[i] = GetTextureMipSize(base_size, trace_draw_call_data.srv_mip[i]);
             }
          }
+
+         com_ptr<ID3D11Buffer> cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
+         native_device_context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &cbs[0]);
+         for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
+         {
+            if ((cbs[i] != nullptr || (show_used_unbound_resources && cached_shader->cbs[i])) && (show_unused_bound_resources || cached_shader->cbs[i]))
+            {
+               trace_draw_call_data.cbs[i] = true;
+               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs->get()));
+            }
+         }
+
+         com_ptr<ID3D11SamplerState> sampler_states[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
+         native_device_context->PSGetSamplers(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, &sampler_states[0]);
+         for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
+         {
+            if ((sampler_states[i] != nullptr || (show_used_unbound_resources && cached_shader->samplers[i])) && (show_unused_bound_resources || cached_shader->samplers[i]))
+            {
+               D3D11_SAMPLER_DESC desc = {};
+               desc.Filter = D3D11_FILTER(-1);
+               if (sampler_states[i]) sampler_states[i]->GetDesc(&desc);
+               trace_draw_call_data.samplers_filter[i] = desc.Filter;
+               trace_draw_call_data.samplers_address_u[i] = desc.AddressU;
+               trace_draw_call_data.samplers_address_v[i] = desc.AddressV;
+               trace_draw_call_data.samplers_address_w[i] = desc.AddressW;
+            }
+         }
       }
       else if (pipeline->HasVertexShader())
       {
@@ -525,6 +553,33 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          }
 
          native_device_context->IAGetPrimitiveTopology(&trace_draw_call_data.primitive_topology);
+
+         com_ptr<ID3D11Buffer> cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
+         native_device_context->VSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &cbs[0]);
+         for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
+         {
+            if ((cbs[i] != nullptr || (show_used_unbound_resources && cached_shader->cbs[i])) && (show_unused_bound_resources || cached_shader->cbs[i]))
+            {
+               trace_draw_call_data.cbs[i] = true;
+               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs->get()));
+            }
+         }
+
+         com_ptr<ID3D11SamplerState> sampler_states[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
+         native_device_context->VSGetSamplers(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, &sampler_states[0]);
+         for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
+         {
+            if ((sampler_states[i] != nullptr || (show_used_unbound_resources && cached_shader->samplers[i])) && (show_unused_bound_resources || cached_shader->samplers[i]))
+            {
+               D3D11_SAMPLER_DESC desc = {};
+               desc.Filter = D3D11_FILTER(-1);
+               if (sampler_states[i]) sampler_states[i]->GetDesc(&desc);
+               trace_draw_call_data.samplers_filter[i] = desc.Filter;
+               trace_draw_call_data.samplers_address_u[i] = desc.AddressU;
+               trace_draw_call_data.samplers_address_v[i] = desc.AddressV;
+               trace_draw_call_data.samplers_address_w[i] = desc.AddressW;
+            }
+         }
       }
       else if (pipeline->HasComputeShader())
       {
@@ -571,6 +626,33 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          }
 
          trace_draw_call_data.draw_dispatch_data = draw_dispatch_data;
+
+         com_ptr<ID3D11Buffer> cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT];
+         native_device_context->CSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &cbs[0]);
+         for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
+         {
+            if ((cbs[i] != nullptr || (show_used_unbound_resources && cached_shader->cbs[i])) && (show_unused_bound_resources || cached_shader->cbs[i]))
+            {
+               trace_draw_call_data.cbs[i] = true;
+               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs->get()));
+            }
+         }
+
+         com_ptr<ID3D11SamplerState> sampler_states[D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT];
+         native_device_context->CSGetSamplers(0, D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT, &sampler_states[0]);
+         for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
+         {
+            if ((sampler_states[i] != nullptr || (show_used_unbound_resources && cached_shader->samplers[i])) && (show_unused_bound_resources || cached_shader->samplers[i]))
+            {
+               D3D11_SAMPLER_DESC desc = {};
+               desc.Filter = D3D11_FILTER(-1);
+               if (sampler_states[i]) sampler_states[i]->GetDesc(&desc);
+               trace_draw_call_data.samplers_filter[i] = desc.Filter;
+               trace_draw_call_data.samplers_address_u[i] = desc.AddressU;
+               trace_draw_call_data.samplers_address_v[i] = desc.AddressV;
+               trace_draw_call_data.samplers_address_w[i] = desc.AddressW;
+            }
+         }
       }
    }
 

@@ -135,4 +135,90 @@ namespace System
       std::system(command.c_str());
 #endif
    }
+
+   // Returns all matches
+   std::vector<std::byte*> ScanMemoryForPattern(std::byte* base, size_t size, const std::vector<std::byte>& pattern)
+   {
+      std::vector<std::byte*> matches;
+      for (size_t i = 0; i <= size - pattern.size(); ++i) {
+         if (std::memcmp(base + i, pattern.data(), pattern.size()) == 0) {
+            matches.push_back(base + i);
+         }
+      }
+      return matches;
+   }
+
+
+
+   // Allocate within +/-2GB to make it reachable by 32 bit offsets
+   void* VirtualAllocNear(void* target, size_t size, DWORD protect = PAGE_EXECUTE_READWRITE)
+   {
+      // Avoid messes with ReShade redefining min/max
+      auto localMin = [](auto a, auto b) { return (a < b) ? a : b; };
+      auto localMax = [](auto a, auto b) { return (a > b) ? a : b; };
+
+      SYSTEM_INFO sys_info;
+      GetSystemInfo(&sys_info);
+
+      constexpr uintptr_t two_gb = 0x80000000ull;
+
+      uintptr_t start_addr = reinterpret_cast<uintptr_t>(target);
+      uintptr_t min_addr = localMax(reinterpret_cast<uintptr_t>(sys_info.lpMinimumApplicationAddress), (start_addr > two_gb) ? (start_addr - two_gb) : 0); // The start of valid address, including this one
+      uintptr_t max_addr = localMin(reinterpret_cast<uintptr_t>(sys_info.lpMaximumApplicationAddress), start_addr + two_gb); // This address is not allocatable, the last valid one is the one before
+      // If memory is executable, remove the allocated size from the max searchable range, because all the memory we allocation should be within 2GB of the starting point (e.g. so we can jump pack to the original point).
+      // This should be optional but whatever.
+      constexpr DWORD execute_mask = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+      if ((protect & execute_mask) != 0)
+         max_addr -= size - 1;
+
+      MEMORY_BASIC_INFORMATION mbi{};
+      uintptr_t addr = min_addr;
+
+      while (addr < max_addr)
+      {
+         if (VirtualQuery(reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) != sizeof(mbi))
+            break;
+
+         uintptr_t block_start = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
+         uintptr_t block_end = block_start + mbi.RegionSize;
+
+         if (mbi.State == MEM_FREE)
+         {
+            // Even if the whole memory region is available, simply allocate at the start of it (or anyway the first valid point that is valid)
+            addr = localMax(block_start, min_addr);
+            do
+            {
+               if (addr + size <= localMin(block_end, max_addr))
+               {
+                  // Try to allocate at this region's base address. This can fail for any reason.
+                  // It also doesn't exactly allocate where we say so it needs to be tested.
+                  void* ptr = VirtualAlloc(reinterpret_cast<LPVOID>(addr), size, MEM_RESERVE | MEM_COMMIT, protect);
+                  if (ptr)
+                  {
+                     if (reinterpret_cast<uintptr_t>(ptr) >= min_addr && reinterpret_cast<uintptr_t>(ptr) < max_addr)
+                     {
+                        // Theoretically this test can't fail, but we do it anyway for extra safety
+                        int64_t offset_test = reinterpret_cast<uintptr_t>(ptr) - start_addr;
+                        if (offset_test >= INT32_MIN && offset_test <= INT32_MAX) // TODO: I'm not 100% these tests match with the "two_gb" limits, but I guess so
+                           return ptr; // good
+                     }
+                     addr = reinterpret_cast<uintptr_t>(ptr);
+                     VirtualFree(ptr, 0, MEM_RELEASE); // bad
+                     break; // This could cause infinite loops given that VirtualAlloc() rounds down
+                  }
+                  addr += 1; // Slow but best chances of finding a match (I think)
+               }
+               else
+               {
+                  break;
+               }
+            } while (true);
+         }
+
+         // Move to the next region
+         addr = block_end;
+      }
+
+      return nullptr; // No suitable block found
+   }
 }

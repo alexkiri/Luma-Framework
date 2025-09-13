@@ -180,15 +180,79 @@ public:
       }
 
       // The entire game rendering pipeline was SDR
+      // It goes like this:
+      // -Render some kind of low res depth map
+      // -Render normal maps
+      //  Render some other kind of low res depth map
+      // -Render lighting (R10G10B10A2) (flipped, 1 is full shadow, without manual clamping shadow can go beyond 1 if render targets are float)
+      // -Render color scene (material albedo * lighting, pretty much)
+      // -Render additive lights
+      // -Draw motion vectors for dynamic objects (rest is calculated from the camera I think)
+      // -TAA
+      // -Bloom and emissive color
+      // -Tonemap
+      // -Swapchain output (possibly draws black bars)
       if (game_id == GAME_INSIDE)
       {
          texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_typeless);
          texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_unorm);
 
 #if DEVELOPMENT // INSIDE
+         forced_shader_names.emplace(Shader::Hash_StrToNum("B8090FB7"), "Clear");
+
+         // Not inclusive list
+         forced_shader_names.emplace(Shader::Hash_StrToNum("82528FBE"), "Depth Prepass Stripe (Test and Write)");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("82528FBE"), "Depth Prepass Stripe (Test Only)");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("21047A13"), "Depth Prepass Stripe (Test Only)");
+
          forced_shader_names.emplace(Shader::Hash_StrToNum("0AAF0B02"), "Draw Motion Vectors");
          forced_shader_names.emplace(Shader::Hash_StrToNum("A6B71745"), "Downscale 1/2");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("2C49DEA4"), "Generate Bloom and Screen Space Light");
          forced_shader_names.emplace(Shader::Hash_StrToNum("E34B6A4A"), "Downscale Bloom");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("45D205FB"), "Downscale Screen Space Light");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("C41ACF9B"), "Downscale Screen Space Light");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("4EEFB466"), "Upscale Screen Space Light");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("10F78033"), "Mix Bloom and Screen Space Light");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("7980933D"), "Generate Shadow Map (depth)");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("6C37B1D6"), "Generate Shadow Map (depth)");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("B2662B89"), "Linearize and Downscale Depth");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("A77CBE7A"), "Linearize Depth");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("BBC7E546"), "Generate Light Shafts Mask");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("907C01ED"), "Generate Light Shafts");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("7BA896D6"), "Compose Light Shafts");
+
+         // Not inclusive list
+         forced_shader_names.emplace(Shader::Hash_StrToNum("00667169"), "Draw Lighting Buffer");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("D25D922C"), "Draw Lighting Buffer");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("A2D0F112"), "Draw Lighting Buffer");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("1D132483"), "Draw Lighting Buffer");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("FAD79F26"), "Draw Lighting Buffer");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("8CF70F59"), "Draw Lighting Buffer with Shadow Map");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("3E3BC12E"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("B6762984"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("8DE93667"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("51D367BC"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("CE21BEA0"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("F31113C3"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("25DB2618"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("DD83BF95"), "Draw Lighting Buffer Phase 2");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("6B79C71C"), "Draw Lighting Buffer Phase 2");
+
+         // Materials color draws (albedo * lighting)
+         forced_shader_names.emplace(Shader::Hash_StrToNum("0C957010"), "Geometry Emissive");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("CF09813F"), "Screen Space Light?");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("31DECB17"), "Generate DoF Phase 1");
+         forced_shader_names.emplace(Shader::Hash_StrToNum("AD7B753B"), "Generate DoF Phase 2");
+
+         forced_shader_names.emplace(Shader::Hash_StrToNum("8674BE1F"), "Swapchain Copy");
+
+         // TODO: set render resolution and upgrade AR
 #endif
       }
 
@@ -572,7 +636,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
       Globals::SetGlobals(PROJECT_NAME, "Unity Engine Luma mod");
-      Globals::VERSION = 1;
+      Globals::VERSION = 2;
 
       // Unity apparently never uses these
       luma_settings_cbuffer_index = 13;
@@ -589,6 +653,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r8g8b8a8_typeless,
             reshade::api::format::r11g11b10_float,
       };
+
+      redirected_shader_hashes["INSD_Tonemap"] = { "2FE2C060", "BEC46939", "90337E76", "8DEE69CB", "BA96FA20", "2D6B78F6", "A5777313", "0AE21975", "519DF6E7", "C5DABDD4", "9D414A70", "BFAB5215", "C4065BE1", "F0503978" };
+
+#if !DEVELOPMENT
+      old_shader_file_names.emplace("INSD_TAA_0xA141EA3E.ps_4_0.hlsl");
+      old_shader_file_names.emplace("INSD_Tonemap_0x2FE2C060_0xBEC46939_0x90337E76_0x8DEE69CB_0xBA96FA20_0x2D6B78F6_0xA5777313_0x0AE21975_0x519DF6E7_0xC5DABDD4_0x9D414A70_0xBFAB5215_0xC4065BE1 _0xF0503978.ps_4_0.hlsl");
+      old_shader_file_names.emplace("INSD_Tonemap_0x2FE2C060_0xBEC46939_0x90337E76_0x8DEE69CB_0xBA96FA20_0x2D6B78F6_0xA5777313_0x0AE21975_0x519DF6E7_0xC5DABDD4_0x9D414A70_0xBFAB5215_0xC4065BE1_0xF0503978.ps_4_0.hlsl");
+#endif
 
 #if DEVELOPMENT // Unity flips Y coordinates on all textures until the final swapchain draws
       debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::FlipY;

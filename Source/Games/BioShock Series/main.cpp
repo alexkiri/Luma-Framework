@@ -185,7 +185,8 @@ public:
 
    void PrintImGuiAbout() override
    {
-      ImGui::Text("Luma for \"BioShock Remastered\", \"BioShock 2 Remastered\" and \"BioShock Infinite\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.", "");
+      ImGui::Text("Luma for \"BioShock Remastered\", \"BioShock 2 Remastered\" and \"BioShock Infinite\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.\n"
+         "The \2BioShock 2 Remastered\" mod comes bundled with the Crash Fix mod by gir489, which fixes multiple crashes with the game.", "");
 
       const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
       const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
@@ -260,7 +261,6 @@ public:
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
-      auto game_device_data_prev = game_device_data;
 
       // Copy the scene and feed it to the additive fog shader, so we can pre-blend with the background in the customized shader, without raising blacks etc
       // TODO: skip this if fog correction is at 0%, and branch in the shader to not read the background.
@@ -345,7 +345,8 @@ public:
       if (game_device_data.drew_tonemap && !game_device_data.drew_aa && !sent_aa_assert)
       {
          sent_aa_assert = true;
-         MessageBoxA(game_window, "Luma detected that Anti-Aliasing (FXAA) is disabled in the game's settings, please re-enable it for tonemapping and UI brightness scaling to work properly.Use \"ALLOW_AA\" in Advanced Settings to force AA off.", NAME, MB_SETFOREGROUND);
+         // NOTE: this crashes in FSE if we pass in the game window handle
+         MessageBoxA(NULL, "Luma detected that Anti-Aliasing (FXAA) is disabled in the game's settings, please re-enable it for tonemapping and UI brightness scaling to work properly.\nUse \"ALLOW_AA\" in Advanced Settings to force AA off.", NAME, MB_SETFOREGROUND);
       }
 
       game_device_data.drew_tonemap = false;

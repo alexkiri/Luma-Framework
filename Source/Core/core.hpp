@@ -236,9 +236,15 @@ namespace
    namespace
    {
       bool enable_swapchain_upgrade = false;
-      // 0 None (keep the original one, SDR or whatnot)
-      // 1 scRGB HDR
-      uint32_t swapchain_upgrade_type = 0;
+      enum class SwapchainUpgradeType : uint8_t
+      {
+         // keep the original one, SDR or whatnot
+         None,
+         // 1 scRGB HDR
+         scRGB,
+         HDR10
+      };
+      uint8_t swapchain_upgrade_type = uint8_t(SwapchainUpgradeType::scRGB); // TODO: convert to "SwapchainUpgradeType", and also finish implementing HDR10 output (as input it'd be harder but it might be possible as a "POST_PROCESS_SPACE_TYPE")
 
       // For now, by default, we prevent fullscreen on boot and later, given that it's pointless.
       // If there were issues, we could exclusively do it when the swapchain resolution matched the monitor resolution.
@@ -321,6 +327,11 @@ namespace
    const char* sub_game_shader_define = nullptr;
    // Optionally define an appended name for our current game, it might apply to shader names and dump folders etc
    std::string sub_game_shaders_appendix;
+
+   // In case a single hlsl file needed multiple hashes (e.g. many tonemapper permutations in some games),
+   // we can add "0x########" to their name as one of its hashes, and it will then take the actual hashes from this list,
+   // that can be filled from any game's code.
+   std::unordered_map<std::string, std::unordered_set<std::string>> redirected_shader_hashes;
 
 #if DEVELOPMENT
    // Allows games to hardcode in some shader names by hash, to easily identify them across reboots (we could just store this in the user ini, but that info wouldn't be persistent)
@@ -692,7 +703,7 @@ namespace
          const auto filename_no_extension_string = entry_path.stem().string();
 
 #if 1 // Optionally leave any "raw" cso that was likely copied from the dumped shaders folder (these were not compiled from a custom hlsl shader by the same hash)
-         if (filename_no_extension_string.length() >= strlen("0x12345678") && filename_no_extension_string[0] == '0' && filename_no_extension_string[1] == 'x')
+         if (filename_no_extension_string.length() >= (HASH_CHARACTERS_LENGTH + 2) && filename_no_extension_string[0] == '0' && filename_no_extension_string[1] == 'x') // Matches "strlen("0x12345678")"
          {
             continue;
          }
@@ -1098,11 +1109,32 @@ namespace
             }
             else
             {
-               size_t next_hash_pos = filename_no_extension_string.find("0x");
+               size_t first_hash_pos = filename_no_extension_string.find("0x");
+               size_t next_hash_pos = first_hash_pos;
                if (next_hash_pos == std::string::npos) continue;
                do
                {
-                  hash_strings.push_back(filename_no_extension_string.substr(next_hash_pos + 2 /*0x*/, HASH_CHARACTERS_LENGTH));
+                  std::string current_hash = filename_no_extension_string.substr(next_hash_pos + 2 /*0x*/, HASH_CHARACTERS_LENGTH);
+                  // Special identifier (0x########) to redirect the hash list to be defined in c++, by shader name.
+                  // It should only be specified once per file!
+                  // Other specific hashes can still be added too.
+                  if (current_hash == "########")
+                  {
+                     std::string file_name = filename_no_extension_string.substr(0, first_hash_pos);
+                     if (file_name.ends_with('_'))
+                     {
+                        file_name.erase(file_name.length() - 1, 1);
+                     }
+                     const auto this_redirected_shader_hashes = redirected_shader_hashes.find(file_name);
+                     if (this_redirected_shader_hashes != redirected_shader_hashes.end())
+                     {
+                        hash_strings.append_range(this_redirected_shader_hashes->second);
+                     }
+                  }
+                  else
+                  {
+                     hash_strings.push_back(current_hash);
+                  }
                   next_hash_pos = filename_no_extension_string.find("0x", next_hash_pos + 1);
                } while (next_hash_pos != std::string::npos);
             }
@@ -1111,7 +1143,7 @@ namespace
          else if (is_cso && !is_global)
          {
             // As long as cso starts from "0x12345678", it's good, they don't need the shader type specified
-            if (filename_no_extension_string.size() < 10)
+            if (filename_no_extension_string.size() < (HASH_CHARACTERS_LENGTH + 2))
             {
                std::stringstream s;
                s << "LoadCustomShaders(Invalid cso file format: ";
@@ -1229,7 +1261,7 @@ namespace
                   // we then replace the first hash with our target one
                   size_t prev_hash_pos = first_hash_pos;
                   size_t next_hash_pos = file_path_cso.find(L"0x", prev_hash_pos + 1);
-                  while (next_hash_pos != std::string::npos && (file_path_cso.length() - next_hash_pos) >= 10)
+                  while (next_hash_pos != std::string::npos && (file_path_cso.length() - next_hash_pos) >= 10) // HASH_CHARACTERS_LENGTH+2
                   {
                      file_path_cso = file_path_cso.substr(0, prev_hash_pos + 10) + file_path_cso.substr(next_hash_pos + 10);
                      prev_hash_pos = first_hash_pos;
@@ -1995,7 +2027,7 @@ namespace
             // Only works in "DXGI_SWAP_EFFECT_FLIP_DISCARD" mode and non FSE mode (and given we can't change it live when FSE is toggled, we only allow it if FSE is prevented by the game)
             if (prevent_fullscreen_state)
             {
-         desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+               desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
             }
 #endif
          }
@@ -2006,7 +2038,7 @@ namespace
          desc.fullscreen_refresh_rate = 0.f; // This fixes games forcing a specific refresh rate (e.g. Mafia III forces 60Hz for no reason)
          if (prevent_fullscreen_state)
          {
-         desc.fullscreen_state = false; // Force disable FSE (see "OnSetFullscreenState()")
+            desc.fullscreen_state = false; // Force disable FSE (see "OnSetFullscreenState()")
          }
          changed = true;
       }
@@ -2016,9 +2048,9 @@ namespace
 
       if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
       {
-         ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r10g10b10a2_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float); // Just a bounch of formats we encountered and we are sure we can upgrade (or that have already been upgraded)
+         ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r10g10b10a2_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float); // Just a bunch of formats we encountered and we are sure we can upgrade (or that have already been upgraded)
          // DXGI_FORMAT_R16G16B16A16_FLOAT will automatically pick DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 on first creation
-         desc.back_buffer.texture.format = reshade::api::format::r16g16b16a16_float;
+         desc.back_buffer.texture.format = swapchain_upgrade_type == 1 ? reshade::api::format::r16g16b16a16_float : reshade::api::format::r10g10b10a2_unorm;
          changed = true;
       }
 
@@ -2178,7 +2210,7 @@ namespace
 #if 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
 
             UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-            DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            DXGI_FORMAT format = swapchain_upgrade_type == 1 ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A2_UNORM;
             hr = native_swapchain3->ResizeBuffers(0, 0, 0, format, flags); // Pass in zero to not change any values if not the format
             ASSERT_ONCE(SUCCEEDED(hr));
 #endif
@@ -2186,8 +2218,18 @@ namespace
 
 #if !GAME_PREY && DEVELOPMENT
          DXGI_COLOR_SPACE_TYPE colorSpace;
-			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? Add HDR10 support... For now we only do this in development as that's the only case where you can change the swapchain upgrades type live
-         colorSpace = (enable_swapchain_upgrade && swapchain_upgrade_type > 0) ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? For now we only do this in development as that's the only case where you can change the swapchain upgrades type live
+         if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
+         {
+            if (swapchain_upgrade_type == 1)
+               colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+            else         
+               colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+         }
+         else
+         {
+            colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+         }
          hr = native_swapchain3->SetColorSpace1(colorSpace);
          ASSERT_ONCE(SUCCEEDED(hr));
 #endif
@@ -2567,6 +2609,7 @@ namespace
                                  }
                               };
                            ReadBoolArray(cached_shader->cbs, std::size(cached_shader->cbs));
+                           ReadBoolArray(cached_shader->samplers, std::size(cached_shader->samplers));
                            ReadBoolArray(cached_shader->srvs, std::size(cached_shader->srvs));
                            ReadBoolArray(cached_shader->rtvs, std::size(cached_shader->rtvs));
                            ReadBoolArray(cached_shader->uavs, std::size(cached_shader->uavs));
@@ -2654,7 +2697,7 @@ namespace
                            }
                         }
 
-                        // SRVs and UAVs (it works for compute shaders too)
+                        // SRVs and UAVs and samplers (it works for compute shaders too)
                         for (UINT i = 0; i < shader_desc.BoundResources; ++i)
                         {
                            D3D11_SHADER_INPUT_BIND_DESC bind_desc;
@@ -2677,6 +2720,11 @@ namespace
                                  else if (bind_desc.Type == D3D_SIT_CBUFFER)
                                  {
                                     ASSERT_ONCE(cached_shader->cbs[bind_desc.BindPoint + j]);
+                                 }
+                                 // These are always valid, even when the other ones aren't, so don't set "found_any_other_bindings" to true
+                                 else if (bind_desc.Type == D3D_SIT_SAMPLER)
+                                 {
+                                    cached_shader->samplers[bind_desc.BindPoint + j] = true;
                                  }
                               }
                            }
@@ -2783,6 +2831,7 @@ namespace
                         // Regex explanation:
                         // Capture 1 to 3 digits after the specified digit (e.g. t/u/o etc) at the end
                         const std::regex pattern_cbs(R"(dcl_constantbuffer.*[cC][bB]([0-9]{1,2}))");
+                        const std::regex pattern_samplers(R"(dcl_sampler.*[sS]([0-9]{1,2}))");
                         const std::regex pattern_srv(R"(.*dcl_resource_texture.*[tT]([0-9]{1,3})$)");
                         const std::regex pattern_uav(R"(.*dcl_uav_.*[uU]([0-9]{1,2})$)"); // TODO: verify that all the UAV binding types have incremental numbers, or whether they grow in parallel
                         const std::regex pattern_rtv(R"(dcl_output.*[oO]([0-9]{1,1}))"); // Match up to 9 even if theoretically "D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT" is up to 7
@@ -2802,11 +2851,18 @@ namespace
 
                            bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
                            std::smatch match;
-                           // Use search for CBs and RTVs because they have additional text after we found the number we are looking for
+                           // Use search for CBs and RTVs etc because they have additional text after we found the number we are looking for
                            if (std::regex_search(line, match, pattern_cbs) && match.size() >= 2) {
                               int num = std::stoi(match[1].str());
                               if (num >= 0 && num < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT) {
                                  cached_shader->cbs[num] = true;
+                                 matching_line = true;
+                              }
+                           }
+                           if (std::regex_search(line, match, pattern_samplers) && match.size() >= 2) {
+                              int num = std::stoi(match[1].str());
+                              if (num >= 0 && num < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT) {
+                                 cached_shader->samplers[num] = true;
                                  matching_line = true;
                               }
                            }
@@ -2848,6 +2904,7 @@ namespace
                   if (!found_reflections)
                   {
                      for (bool& b : cached_shader->cbs) b = true;
+                     for (bool& b : cached_shader->samplers) b = true;
                      for (bool& b : cached_shader->srvs) b = true;
                      for (bool& b : cached_shader->rtvs) b = true;
                      for (bool& b : cached_shader->uavs) b = true;
@@ -2947,45 +3004,45 @@ namespace
          const std::unique_lock lock_loading(s_mutex_loading);
          device_data.pipelines_to_reload.erase(pipeline.handle);
 
-      const std::unique_lock lock(s_mutex_generic);
-      if (auto pipeline_cache_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle); pipeline_cache_pair != device_data.pipeline_cache_by_pipeline_handle.end())
-      {
-         auto& cached_pipeline = pipeline_cache_pair->second;
-
-         if (cached_pipeline != nullptr)
+         const std::unique_lock lock(s_mutex_generic);
+         if (auto pipeline_cache_pair = device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle); pipeline_cache_pair != device_data.pipeline_cache_by_pipeline_handle.end())
          {
-            // Clean other references to the pipeline
-            for (auto& pipelines_cache_pair : device_data.pipeline_caches_by_shader_hash)
-            {
-               auto& cached_pipelines = pipelines_cache_pair.second;
-               cached_pipelines.erase(cached_pipeline);
-            }
+            auto& cached_pipeline = pipeline_cache_pair->second;
 
-            // Destroy our cloned subojects
-            DestroyPipelineSubojects(cached_pipeline->subobjects_cache, cached_pipeline->subobject_count);
-            cached_pipeline->subobjects_cache = nullptr;
+            if (cached_pipeline != nullptr)
+            {
+               // Clean other references to the pipeline
+               for (auto& pipelines_cache_pair : device_data.pipeline_caches_by_shader_hash)
+               {
+                  auto& cached_pipelines = pipelines_cache_pair.second;
+                  cached_pipelines.erase(cached_pipeline);
+               }
+
+               // Destroy our cloned subojects
+               DestroyPipelineSubojects(cached_pipeline->subobjects_cache, cached_pipeline->subobject_count);
+               cached_pipeline->subobjects_cache = nullptr;
 #if DX12 && 0 // Redundant
-            cached_pipeline->subobject_count = 0;
+               cached_pipeline->subobject_count = 0;
 #endif
 
-            // Destroy our cloned version of the pipeline (and leave the original intact, because the life time is not handled by us)
-            if (cached_pipeline->cloned)
-            {
-               cached_pipeline->cloned = false;
-               cached_pipeline->device->destroy_pipeline(cached_pipeline->pipeline_clone);
-               device_data.pipeline_cache_by_pipeline_clone_handle.erase(cached_pipeline->pipeline_clone.handle);
+               // Destroy our cloned version of the pipeline (and leave the original intact, because the life time is not handled by us)
+               if (cached_pipeline->cloned)
+               {
+                  cached_pipeline->cloned = false;
+                  cached_pipeline->device->destroy_pipeline(cached_pipeline->pipeline_clone);
+                  device_data.pipeline_cache_by_pipeline_clone_handle.erase(cached_pipeline->pipeline_clone.handle);
 #if 0 // Redundant
-               cached_pipeline->pipeline_clone.handled = 0;
+                  cached_pipeline->pipeline_clone.handled = 0;
 #endif
-               device_data.cloned_pipeline_count--;
-               device_data.cloned_pipelines_changed = true;
+                  device_data.cloned_pipeline_count--;
+                  device_data.cloned_pipelines_changed = true;
+               }
+               delete cached_pipeline;
+               cached_pipeline = nullptr;
             }
-            delete cached_pipeline;
-            cached_pipeline = nullptr;
-         }
 
-         device_data.pipeline_cache_by_pipeline_handle.erase(pipeline.handle);
-      }
+            device_data.pipeline_cache_by_pipeline_handle.erase(pipeline.handle);
+         }
       }
 
 #if DEVELOPMENT
@@ -3035,6 +3092,17 @@ namespace
 #endif
             ASSERT_ONCE(cached_pipeline != nullptr); // Why can't we find the shader?
          }
+      }
+
+      // Matches "reshade::addon_event::reset_command_list" (sometimes this is called instead of that)
+      if (stages == reshade::api::pipeline_stage::all && pipeline.handle == 0)
+      {
+#if DEVELOPMENT
+         //CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+         //ASSERT_ONCE(cmd_list_data.is_primary || cmd_list_data.trace_draw_calls_data.empty()); // This should already be the case (no, sometimes it triggers with acceptable cases, no need to check for this until proven otherwise)
+         cmd_list_data.any_draw_done = false;
+         cmd_list_data.any_dispatch_done = false;
+#endif
       }
 
       if ((stages & reshade::api::pipeline_stage::compute_shader) != 0)
@@ -3299,8 +3367,8 @@ namespace
       cmd_list_data.pipeline_state_original_vertex_shader = reshade::api::pipeline(0);
       cmd_list_data.pipeline_state_original_pixel_shader = reshade::api::pipeline(0);
 
-      cmd_list_data.pipeline_state_original_graphics_shader_hashes;
-      cmd_list_data.pipeline_state_original_compute_shader_hashes;
+      cmd_list_data.pipeline_state_original_graphics_shader_hashes.Clear();
+      cmd_list_data.pipeline_state_original_compute_shader_hashes.Clear();
       cmd_list_data.pipeline_state_has_custom_vertex_shader = false;
       cmd_list_data.pipeline_state_has_custom_pixel_shader = false;
       cmd_list_data.pipeline_state_has_custom_graphics_shader = false;
@@ -3403,7 +3471,8 @@ namespace
       // we can assume that we either missed replacing some shaders, or that we have unloaded all of our shaders.
       bool mod_active = device_data.cloned_pipeline_count != 0;
       // Theoretically we should simply check the current swapchain buffer format, but this also works
-      const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type >= 1) || swapchain_data.vanilla_was_linear_space;
+      const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type == 1) || swapchain_data.vanilla_was_linear_space;
+      const bool output_pq_bt2020 = enable_swapchain_upgrade && swapchain_upgrade_type == 2;
       bool input_linear = swapchain_data.vanilla_was_linear_space;
 #if GAME_PREY // Prey's native code hooks already make the swapchain linear, but don't change the shaders
       input_linear = false;
@@ -3416,7 +3485,7 @@ namespace
          input_linear = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1;
       }
       // Note that not all these combinations might be handled by the shader
-      bool needs_reencoding = output_linear != input_linear;
+      bool needs_reencoding = (output_linear != input_linear) || output_pq_bt2020;
       bool early_display_encoding = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1 && GetShaderDefineCompiledNumericalValue(EARLY_DISPLAY_ENCODING_HASH) >= 1;
       bool needs_scaling = mod_active ? !early_display_encoding : (cb_luma_global_settings.DisplayMode >= 1);
       bool early_gamma_correction = early_display_encoding && GetShaderDefineCompiledNumericalValue(GAMMA_CORRECTION_TYPE_HASH) < 2;
@@ -3459,8 +3528,8 @@ namespace
             D3D11_TEXTURE2D_DESC target_desc;
             back_buffer->GetDesc(&target_desc);
             ASSERT_ONCE((target_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0);
-            // For now we only support this format, nothing else wouldn't really make sense
-            ASSERT_ONCE(target_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT);
+            // For now we only support these formats, nothing else wouldn't really make sense
+            ASSERT_ONCE(target_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || target_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM);
 
             uint32_t custom_const_buffer_data_1 = 0;
             uint32_t custom_const_buffer_data_2 = 0;
@@ -3669,11 +3738,11 @@ namespace
                device_data.display_composition_srv = nullptr;
                {
                   const std::unique_lock lock_swapchain(swapchain_data.mutex);
-               // Don't change the allocation number
-					for (size_t i = 0; i < swapchain_data.display_composition_rtvs.size(); ++i)
-					{
-						swapchain_data.display_composition_rtvs[i] = nullptr;
-					}
+                  // Don't change the allocation number
+                  for (size_t i = 0; i < swapchain_data.display_composition_rtvs.size(); ++i)
+                  {
+                     swapchain_data.display_composition_rtvs[i] = nullptr;
+                  }
                }
                HRESULT hr = native_device->CreateTexture2D(&proxy_target_desc, nullptr, &device_data.display_composition_texture);
                assert(SUCCEEDED(hr));
@@ -3713,25 +3782,25 @@ namespace
             {
                const std::unique_lock lock_swapchain(swapchain_data.mutex);
                target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
-            // If we already had a render target view (set by the game), we can assume it was already set to the swapchain,
-            // but it's good to make sure of it nonetheless, it might have been changed already.
-            if (draw_state_stack.render_target_views[0] != nullptr && draw_state_stack.render_target_views[0] != swapchain_data.display_composition_rtvs[back_buffer_index])
-            {
-               com_ptr<ID3D11Resource> render_target_resource;
-               draw_state_stack.render_target_views[0]->GetResource(&render_target_resource);
-               if (render_target_resource.get() == back_buffer.get())
+               // If we already had a render target view (set by the game), we can assume it was already set to the swapchain,
+               // but it's good to make sure of it nonetheless, it might have been changed already.
+               if (draw_state_stack.render_target_views[0] != nullptr && draw_state_stack.render_target_views[0] != swapchain_data.display_composition_rtvs[back_buffer_index])
                {
-                  target_resource_texture_view = draw_state_stack.render_target_views[0];
-                  swapchain_data.display_composition_rtvs[back_buffer_index] = nullptr;
+                  com_ptr<ID3D11Resource> render_target_resource;
+                  draw_state_stack.render_target_views[0]->GetResource(&render_target_resource);
+                  if (render_target_resource.get() == back_buffer.get())
+                  {
+                     target_resource_texture_view = draw_state_stack.render_target_views[0];
+                     swapchain_data.display_composition_rtvs[back_buffer_index] = nullptr;
+                  }
                }
-            }
-            if (!target_resource_texture_view)
-            {
-               swapchain_data.display_composition_rtvs[back_buffer_index] = nullptr;
-               HRESULT hr = native_device->CreateRenderTargetView(back_buffer.get(), nullptr, &swapchain_data.display_composition_rtvs[back_buffer_index]);
-               ASSERT_ONCE(SUCCEEDED(hr));
-               target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
-            }
+               if (!target_resource_texture_view)
+               {
+                  swapchain_data.display_composition_rtvs[back_buffer_index] = nullptr;
+                  HRESULT hr = native_device->CreateRenderTargetView(back_buffer.get(), nullptr, &swapchain_data.display_composition_rtvs[back_buffer_index]);
+                  ASSERT_ONCE(SUCCEEDED(hr));
+                  target_resource_texture_view = swapchain_data.display_composition_rtvs[back_buffer_index];
+               }
             }
 
             // Push our settings cbuffer in case where no other custom shader run this frame
@@ -5368,7 +5437,7 @@ namespace
                formats_compatible |= bgra8_1 && bgra8_2;
                // No need to force replace the view format if formats are compatible
                if (!formats_compatible)
-                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16F if "enable_swapchain_upgrade" is on (depending on "swapchain_upgrade_type")
+                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16_FLOAT or R10G10B10A2_UNORM if "enable_swapchain_upgrade" is on (depending on "swapchain_upgrade_type")
                break;
             }
             }
@@ -6495,6 +6564,7 @@ namespace
                ofs.write(cached_shader->type_and_version.data(), type_and_version_size);
 
             WriteBoolArray(cached_shader->cbs, std::size(cached_shader->cbs));
+            WriteBoolArray(cached_shader->samplers, std::size(cached_shader->samplers));
             WriteBoolArray(cached_shader->srvs, std::size(cached_shader->srvs));
             WriteBoolArray(cached_shader->rtvs, std::size(cached_shader->rtvs));
             WriteBoolArray(cached_shader->uavs, std::size(cached_shader->uavs));
@@ -7105,7 +7175,7 @@ namespace
                               if (custom_shader != nullptr && custom_shader->is_hlsl && !custom_shader->file_path.empty())
                               {
                                  auto filename_string = custom_shader->file_path.filename().string();
-                                 if (const auto hash_begin_index = filename_string.find("0x"); hash_begin_index != std::string::npos)
+                                 if (const auto hash_begin_index = filename_string.find("0x"); hash_begin_index != std::string::npos) // TODO: this doesn't work with hashless shader files
                                  {
                                     filename_string.erase(hash_begin_index); // Start deleting from where the shader hash(es) begin (e.g. "0x12345678.xx_x_x.hlsl")
                                  }
@@ -8099,172 +8169,197 @@ namespace
                                           }
                                           ImGui::Text("R Swapchain: %s", draw_call_data.rt_is_swapchain[i] ? "True" : "False"); // TODO: add this for computer shaders / UAVs toos
 
-                                          // See "ui_data.blend_mode" for details on usage
-                                          if (blend_desc.RenderTarget[i].BlendEnable)
+                                          // Blend mode
                                           {
-                                             bool has_drawn_blend_rgb_text = false;
+                                             const D3D11_RENDER_TARGET_BLEND_DESC& render_target_blend_desc = blend_desc.IndependentBlendEnable ? blend_desc.RenderTarget[i] : blend_desc.RenderTarget[0];
+                                             // See "ui_data.blend_mode" for details on usage
+                                             if (render_target_blend_desc.BlendEnable)
+                                             {
+                                                bool has_drawn_blend_rgb_text = false;
 
-                                             if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR || blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR
-                                                || blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR || blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR)
-                                             {
-                                                ImGui::Text("Blend RGB Mode: Blend Factor (Any)");
-                                                has_drawn_blend_rgb_text = true;
-                                             }
-                                             else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ZERO && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
-                                             {
-                                                ImGui::Text("Blend RGB Mode: Zero (Override Color with Zero)");
-                                                has_drawn_blend_rgb_text = true;
-                                             }
+                                                if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR || render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR
+                                                   || render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR || render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR)
+                                                {
+                                                   ImGui::Text("Blend RGB Mode: Blend Factor (Any)");
+                                                   has_drawn_blend_rgb_text = true;
+                                                }
+                                                else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ZERO && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                                {
+                                                   ImGui::Text("Blend RGB Mode: Zero (Override Color with Zero)");
+                                                   has_drawn_blend_rgb_text = true;
+                                                }
 
-                                             if (!has_drawn_blend_rgb_text && blend_desc.RenderTarget[i].BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
-                                             {
-                                                if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                if (!has_drawn_blend_rgb_text && render_target_blend_desc.BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Additive Color");
+                                                   if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Additive Color");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Additive Alpha");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Additive Alpha (Saturated)");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Premultiplied Alpha");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Straight Alpha");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Straight Alpha (Saturated)");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   // Often used for lighting, glow, or compositing effects where the destination alpha controls how much of the source contributes
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_DEST_ALPHA && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Reverse Premultiplied Alpha");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_DEST_COLOR && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Multiplicative Color"); // TODO: this is wrongly name? It's not multiplying anything? Same for alpha
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   // It's enabled but it's as if it was disabled
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Disabled");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                }
+                                                else if (!has_drawn_blend_rgb_text && render_target_blend_desc.BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_REV_SUBTRACT)
+                                                {
+                                                   if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Subctractive Color");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Subctractive Alpha");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Subctractive Alpha (Saturated)");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ZERO && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Disabled");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                   else
+                                                   {
+                                                      ImGui::Text("Blend RGB Mode: Subtractive (Any)");
+                                                      has_drawn_blend_rgb_text = true;
+                                                   }
+                                                }
+
+                                                if (!has_drawn_blend_rgb_text)
+                                                {
+                                                   ImGui::Text("Blend RGB Mode: Unknown");
                                                    has_drawn_blend_rgb_text = true;
                                                 }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Additive Alpha");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Additive Alpha (Saturated)");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Premultiplied Alpha");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Straight Alpha");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Straight Alpha (Saturated)");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
-                                                // Often used for lighting, glow, or compositing effects where the destination alpha controls how much of the source contributes
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_DEST_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Reverse Premultiplied Alpha");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_DEST_COLOR && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
-                                                {
-                                                   ImGui::Text("Blend RGB Mode: Multiplicative Color");
-                                                   has_drawn_blend_rgb_text = true;
-                                                }
+
+                                                // TODO: add "BlendFactor", "SampleMask" etc (stencil too, but that goes with depth)
+                                                ImGui::Text("Blend RGB Mode Details: Src %s - Op %s - Dest %s", GetBlendName(render_target_blend_desc.SrcBlend), GetBlendOpName(render_target_blend_desc.BlendOp), GetBlendName(render_target_blend_desc.DestBlend));
+
+                                                bool has_drawn_blend_a_text = false;
+
                                                 // It's enabled but it's as if it was disabled
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                                if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR || render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR
+                                                   || render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR || render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR)
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Disabled");
-                                                   has_drawn_blend_rgb_text = true;
+                                                   ImGui::Text("Blend A Mode: Blend Factor (Any)");
+                                                   has_drawn_blend_a_text = true;
                                                 }
-                                             }
-                                             else if (!has_drawn_blend_rgb_text && blend_desc.RenderTarget[i].BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_REV_SUBTRACT)
-                                             {
-                                                if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Subctractive Color");
-                                                   has_drawn_blend_rgb_text = true;
+                                                   ImGui::Text("Blend A Mode: Zero (Overwrite Alpha with Zero)");
+                                                   has_drawn_blend_a_text = true;
                                                 }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+
+                                                if (!has_drawn_blend_a_text && render_target_blend_desc.BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Subctractive Alpha");
-                                                   has_drawn_blend_rgb_text = true;
+                                                   if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
+                                                   {
+                                                      ImGui::Text("Blend A Mode: Standard Transparency");
+                                                      has_drawn_blend_a_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
+                                                   {
+                                                      ImGui::Text("Blend A Mode: Standard Transparency (Saturated)");
+                                                      has_drawn_blend_a_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_DEST_ALPHA && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                                   {
+                                                      ImGui::Text("Blend A Mode: Multiplicative");
+                                                      has_drawn_blend_a_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend A Mode: Additive");
+                                                      has_drawn_blend_a_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
+                                                   {
+                                                      ImGui::Text("Blend A Mode: Source Alpha (Overwrite Alpha, Blending Disabled)");
+                                                      has_drawn_blend_a_text = true;
+                                                   }
+                                                   else if (render_target_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO && render_target_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                   {
+                                                      ImGui::Text("Blend A Mode: Destination Alpha (Preserve Alpha)");
+                                                      has_drawn_blend_a_text = true;
+                                                   }
                                                 }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+                                                else if (!has_drawn_blend_a_text && render_target_blend_desc.BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_REV_SUBTRACT)
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Subctractive Alpha (Saturated)");
-                                                   has_drawn_blend_rgb_text = true;
+                                                   ImGui::Text("Blend A Mode: Subtractive (Any)");
+                                                   has_drawn_blend_a_text = true;
                                                 }
-                                                else if (blend_desc.RenderTarget[i].SrcBlend == D3D11_BLEND::D3D11_BLEND_ZERO && blend_desc.RenderTarget[i].DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+
+                                                if (!has_drawn_blend_a_text)
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Disabled");
-                                                   has_drawn_blend_rgb_text = true;
+                                                   ImGui::Text("Blend A Mode: Unknown");
+                                                   has_drawn_blend_a_text = true;
+                                                }
+
+                                                ImGui::Text("Blend A Mode Details: Src %s - Op %s - Dest %s", GetBlendName(render_target_blend_desc.SrcBlendAlpha), GetBlendOpName(render_target_blend_desc.BlendOpAlpha), GetBlendName(render_target_blend_desc.DestBlendAlpha));
+
+                                                if ((render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_ALL) == D3D11_COLOR_WRITE_ENABLE_ALL)
+                                                {
+                                                   ImGui::Text("Write Mask: All");
+                                                }
+                                                else if (render_target_blend_desc.RenderTargetWriteMask == 0)
+                                                {
+                                                   ImGui::Text("Write Mask: None");
                                                 }
                                                 else
                                                 {
-                                                   ImGui::Text("Blend RGB Mode: Subtractive (Any)");
-                                                   has_drawn_blend_rgb_text = true;
+                                                   ImGui::Text("Write Mask:");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_RED)   ImGui::SameLine(), ImGui::Text(" R");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_GREEN) ImGui::SameLine(), ImGui::Text(" G");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_BLUE)  ImGui::SameLine(), ImGui::Text(" B");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_ALPHA) ImGui::SameLine(), ImGui::Text(" A");
                                                 }
                                              }
-
-                                             if (!has_drawn_blend_rgb_text)
+                                             else
                                              {
-                                                ImGui::Text("Blend RGB Mode: Unknown");
-                                                has_drawn_blend_rgb_text = true;
+                                                ImGui::Text("Blend Mode: Disabled");
                                              }
-
-                                             bool has_drawn_blend_a_text = false;
-
-                                             // It's enabled but it's as if it was disabled
-                                             if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR || blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_BLEND_FACTOR
-                                                || blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR || blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_BLEND_FACTOR)
-                                             {
-                                                ImGui::Text("Blend A Mode: Blend Factor (Any)");
-                                                has_drawn_blend_a_text = true;
-                                             }
-                                             if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
-                                             {
-                                                ImGui::Text("Blend A Mode: Zero (Overwrite Alpha with Zero)");
-                                                has_drawn_blend_a_text = true;
-                                             }
-
-                                             if (!has_drawn_blend_a_text && blend_desc.RenderTarget[i].BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
-                                             {
-                                                if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
-                                                {
-                                                   ImGui::Text("Blend A Mode: Standard Transparency");
-                                                   has_drawn_blend_a_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_SRC_ALPHA_SAT && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_INV_SRC_ALPHA)
-                                                {
-                                                   ImGui::Text("Blend A Mode: Standard Transparency (Saturated)");
-                                                   has_drawn_blend_a_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_DEST_ALPHA && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
-                                                {
-                                                   ImGui::Text("Blend A Mode: Multiplicative");
-                                                   has_drawn_blend_a_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
-                                                {
-                                                   ImGui::Text("Blend A Mode: Additive");
-                                                   has_drawn_blend_a_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
-                                                {
-                                                   ImGui::Text("Blend A Mode: Source Alpha (Overwrite Alpha, Blending Disabled)");
-                                                   has_drawn_blend_a_text = true;
-                                                }
-                                                else if (blend_desc.RenderTarget[i].SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO && blend_desc.RenderTarget[i].DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
-                                                {
-                                                   ImGui::Text("Blend A Mode: Destination Alpha (Preserve Alpha)");
-                                                   has_drawn_blend_a_text = true;
-                                                }
-                                             }
-                                             else if (!has_drawn_blend_a_text && blend_desc.RenderTarget[i].BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_REV_SUBTRACT)
-                                             {
-                                                ImGui::Text("Blend A Mode: Subtractive (Any)");
-                                                has_drawn_blend_a_text = true;
-                                             }
-
-                                             // TODO: add more of these! All... and blend factor and other stuff
-                                             if (!has_drawn_blend_a_text)
-                                             {
-                                                ImGui::Text("Blend A Mode: Unknown");
-                                                has_drawn_blend_a_text = true;
-                                             }
-                                          }
-                                          else
-                                          {
-                                             ImGui::Text("Blend Mode: Disabled");
                                           }
 
                                           const bool is_highlighted_resource = highlighted_resource == rt_hash;
@@ -8315,6 +8410,14 @@ namespace
                                           }
 
                                           ImGui::PopID();
+                                       }
+
+                                       // Only print this when enabled given it's rare (it's MSAA transparency dithering basically)
+                                       if (blend_desc.AlphaToCoverageEnable)
+                                       {
+                                          if (!is_first_draw) { ImGui::Text(""); };
+                                          // Don't set "is_first_draw" to true to let depth printing have a space too
+                                          ImGui::Text("Alpha to Coverage Enable: %s", blend_desc.AlphaToCoverageEnable ? "True" : "False");
                                        }
 
                                        if (!is_first_draw) { ImGui::Text(""); }; // No views drew before, skip space
@@ -8379,6 +8482,41 @@ namespace
                                           std::to_string(draw_call_data.viewport_0.y).c_str(),
                                           std::to_string(draw_call_data.viewport_0.z).c_str(),
                                           std::to_string(draw_call_data.viewport_0.w).c_str());
+                                    }
+
+                                    if (pipeline_pair->second->HasVertexShader() || pipeline_pair->second->HasPixelShader() || pipeline_pair->second->HasComputeShader())
+                                    {
+                                       for (UINT i = 0; i < D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT; i++)
+                                       {
+                                          if (int(draw_call_data.samplers_filter[i]) >= 0)
+                                          {
+                                             ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT + D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT); // Offset by the max amount of previous iterations from above
+                                             ImGui::Text("");
+                                             ImGui::Text("Sampler Index: %u", i);
+                                             ImGui::Text("Sampler Filter: %s", GetFilterName(draw_call_data.samplers_filter[i]));
+                                             ImGui::Text("Sampler Address U: %s", GetTextureAddressModeName(draw_call_data.samplers_address_u[i]));
+                                             ImGui::Text("Sampler Address V: %s", GetTextureAddressModeName(draw_call_data.samplers_address_v[i]));
+                                             ImGui::Text("Sampler Address W: %s", GetTextureAddressModeName(draw_call_data.samplers_address_w[i]));
+                                             ImGui::PopID();
+                                          }
+                                       }
+
+                                       for (UINT i = 0; i < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT; i++)
+                                       {
+                                          if (draw_call_data.cbs[i])
+                                          {
+                                             ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT + D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT + D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT); // Offset by the max amount of previous iterations from above
+                                             ImGui::Text("");
+                                             ImGui::Text("CB Index: %u", i);
+                                             ImGui::Text("CB Hash: %s", draw_call_data.cb_hash[i].c_str());
+                                             const bool is_highlighted_resource = highlighted_resource == draw_call_data.cb_hash[i];
+                                             if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                                             {
+                                                highlighted_resource = is_highlighted_resource ? "" : draw_call_data.cb_hash[i];
+                                             }
+                                             ImGui::PopID();
+                                          }
+                                       }
                                     }
                                  }
                                  ImGui::EndChild(); // StateAnalysisScroll
@@ -10002,34 +10140,34 @@ namespace
 
                         {
                            const std::shared_lock lock_swapchain(swapchain_data.mutex);
-                        // Before resizing the swapchain, we need to make sure any of its resources/views are not bound to any state (at least from our side, we can't control the game side here)
-                        if (!swapchain_data.display_composition_rtvs.empty())
-                        {
-                           ID3D11Device* native_device = (ID3D11Device*)(runtime->get_device()->get_native());
-                           com_ptr<ID3D11DeviceContext> primary_command_list;
-                           native_device->GetImmediateContext(&primary_command_list);
-                           com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
-                           com_ptr<ID3D11DepthStencilView> depth_stencil_view;
-                           primary_command_list->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &depth_stencil_view);
-                           bool rts_changed = false;
-                           for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+                           // Before resizing the swapchain, we need to make sure any of its resources/views are not bound to any state (at least from our side, we can't control the game side here)
+                           if (!swapchain_data.display_composition_rtvs.empty())
                            {
-                                 for (auto& display_composition_rtv : swapchain_data.display_composition_rtvs)
+                              ID3D11Device* native_device = (ID3D11Device*)(runtime->get_device()->get_native());
+                              com_ptr<ID3D11DeviceContext> primary_command_list;
+                              native_device->GetImmediateContext(&primary_command_list);
+                              com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
+                              com_ptr<ID3D11DepthStencilView> depth_stencil_view;
+                              primary_command_list->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], &depth_stencil_view);
+                              bool rts_changed = false;
+                              for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
                               {
-                                 if (rtvs[i].get() != nullptr && rtvs[i].get() == display_composition_rtv.get())
+                                 for (auto& display_composition_rtv : swapchain_data.display_composition_rtvs)
                                  {
-                                    rtvs[i] = nullptr;
-                                    rts_changed = true;
-                                 }
+                                    if (rtvs[i].get() != nullptr && rtvs[i].get() == display_composition_rtv.get())
+                                    {
+                                       rtvs[i] = nullptr;
+                                       rts_changed = true;
+                                    }
                                     display_composition_rtv = nullptr;
+                                 }
+                              }
+                              if (rts_changed)
+                              {
+                                 ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(rtvs[0]);
+                                 primary_command_list->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
                               }
                            }
-                           if (rts_changed)
-                           {
-                              ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(rtvs[0]);
-                              primary_command_list->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
-                           }
-                        }
                         }
 
                         native_swapchain->ResizeBuffers(0, new_width, new_height, DXGI_FORMAT_UNKNOWN, swap_chain_flags);
@@ -10775,8 +10913,12 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       shader_compiler_path.append("msvcp140.dll");
       if (std::filesystem::is_regular_file(shader_compiler_path))
       {
-         const std::string warn_message = "Your game has a custom version of \"msvcp140.dll\" in its path, please remove it and restart the game or Luma will possibly crash (there are no other side effects)";
-         MessageBoxA(NULL, warn_message.c_str(), NAME, MB_SETFOREGROUND);
+         const std::string warn_message = "Your game has a custom version of \"msvcp140.dll\" in its path, please remove it and restart the game or Luma will possibly crash (there are no other side effects).\nWould you like to close the game now?";
+         auto ret = MessageBoxA(NULL, warn_message.c_str(), NAME, MB_SETFOREGROUND | MB_YESNO);
+         if (ret == IDYES)
+         {
+            exit(0);
+         }
       }
 
       // We give the game code the opportunity to do something before rejecting the dll load
