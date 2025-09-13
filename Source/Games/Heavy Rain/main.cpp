@@ -55,6 +55,12 @@ public:
 
    void OnLoad(std::filesystem::path& file_path, bool failed) override
    {
+      if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) == NULL) {
+         if (MessageBoxA(NULL, "This mod only works on the Steam and GOG versions of the game.\nUltrawide fixes will also work on the Epic Store version, but custom shaders might not all load, as that's an older version of the game.", "Incompatible Game Version", MB_OK | MB_SETFOREGROUND) == IDOK) {
+            // Just continue for now
+         }
+      }
+
       if (!failed)
       {
          Patches::Init(NAME, Globals::VERSION);
@@ -310,7 +316,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
 #if DEVELOPMENT
       forced_shader_names.emplace(std::stoul("E891B1C7", nullptr, 16), "Generate Menu Water Ripples");
-      forced_shader_names.emplace(std::stoul("B8164665", nullptr, 16), "UI Sprite");
+      forced_shader_names.emplace(std::stoul("B8164665", nullptr, 16), "UI 3D Sprite"); // It's also the tonemapper (or well, part of it)
       forced_shader_names.emplace(std::stoul("FCCA9228", nullptr, 16), "UI Rectangle");
       forced_shader_names.emplace(std::stoul("51EC238A", nullptr, 16), "Depth of Field Composition");
       forced_shader_names.emplace(std::stoul("DA234666", nullptr, 16), "Depth of Field Composition 2 (?)");
@@ -324,7 +330,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity = 1.f;
       cb_luma_global_settings.GameSettings.HDRBoostAmount = 0.5f;
 
-      // TODO: project is set to have debug symbols in dev release mode (that said... isn't that ok for all projects?). Also changed Dynamic Debug and Debug Information Format
+      // TODO: project is set to have debug symbols in dev release mode (that said... isn't that ok for all projects?). Also changed Dynamic Debug and Debug Information Format. Also try Edit and Continue!
 
       game = new HeavyRain();
    }

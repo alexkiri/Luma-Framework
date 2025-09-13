@@ -46,7 +46,7 @@ void main(
 #else // This is how the game would have originally appeared, independently of the video's actual aspect ratio, though we hope it's always 16:9, or if not, that it's not expected to be stretched anyway
   float sourceAspectRatio = 16.0 / 9.0;
 #endif
-  float targetAspectRatio = g_MiscGroupPS.fs_screenSize.x / g_MiscGroupPS.fs_screenSize.y;
+  float targetAspectRatio = g_MiscGroupPS.fs_screenSize.x / g_MiscGroupPS.fs_screenSize.y; // Inv Size
 
   float2 scale = 1.0;
 

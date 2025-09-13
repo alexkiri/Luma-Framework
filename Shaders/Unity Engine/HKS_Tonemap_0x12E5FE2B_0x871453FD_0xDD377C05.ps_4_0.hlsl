@@ -28,11 +28,19 @@ void main(
 
 #if _DD377C05 // This branch of the tonemapper was empty, a texture copy
 
-  const float4 sceneColor = t0.SampleLevel(s0_s, w1.xy, 0);
+  float4 sceneColor = t0.SampleLevel(s0_s, w1.xy, 0);
+  
+  sceneColor.rgb = gamma_to_linear(sceneColor.rgb, GCT_MIRROR);
+  FixColorGradingLUTNegativeLuminance(sceneColor.rgb);
+  sceneColor.rgb = linear_to_gamma(sceneColor.rgb, GCT_MIRROR);
 
 #else
 
-  const float4 sceneColor = t0.SampleLevel(s1_s, w1.xy, 0);
+  float4 sceneColor = t0.SampleLevel(s1_s, w1.xy, 0);
+
+  sceneColor.rgb = gamma_to_linear(sceneColor.rgb, GCT_MIRROR);
+  FixColorGradingLUTNegativeLuminance(sceneColor.rgb); // Fix up any possible invalid luminance that might have made it here, before we pass through LUT etc
+  sceneColor.rgb = linear_to_gamma(sceneColor.rgb, GCT_MIRROR);
 
   float saturation = cb0[2].z;
   float brightness = cb0[2].x;
@@ -93,6 +101,7 @@ void main(
     float3 gradedMidGreyColorLinear = gamma_to_linear(float3(redMidGreyLUT.r, greenMidGreyLUT.g, blueMidGreyLUT.b));
 
     gradedSceneColorLinear = gamma_to_linear(gradedSceneColor, GCT_MIRROR);
+    FixColorGradingLUTNegativeLuminance(gradedSceneColorLinear.rgb); // Fix up invalid LUT extrapolation colors (it has no concept of luminance given that it works by channel)
 
     // Fix potentially raised LUT floor
     float3 blackFloorFixColorLinear = gradedSceneColorLinear - (gradedBlackColorLinear * (1.0 - saturate(gradedSceneColorLinear * 10.0)));

@@ -19,7 +19,7 @@ void main(
   float width, height;
   texture0.GetDimensions(width, height);
   float sourceAspectRatio = width / height;
-  float targetAspectRatio = LumaSettings.GameSettings.InvRenderRes.y / LumaSettings.GameSettings.InvRenderRes.x;
+  float targetAspectRatio = LumaSettings.GameSettings.InvRenderRes.x / LumaSettings.GameSettings.InvRenderRes.y;
 
   float2 scale = 1.0;
 

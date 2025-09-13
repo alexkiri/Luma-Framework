@@ -236,9 +236,15 @@ namespace
    namespace
    {
       bool enable_swapchain_upgrade = false;
-      // 0 None (keep the original one, SDR or whatnot)
-      // 1 scRGB HDR
-      uint32_t swapchain_upgrade_type = 0;
+      enum class SwapchainUpgradeType : uint8_t
+      {
+         // keep the original one, SDR or whatnot
+         None,
+         // 1 scRGB HDR
+         scRGB,
+         HDR10
+      };
+      uint8_t swapchain_upgrade_type = uint8_t(SwapchainUpgradeType::scRGB); // TODO: convert to "SwapchainUpgradeType", and also finish implementing HDR10 output (as input it'd be harder but it might be possible as a "POST_PROCESS_SPACE_TYPE")
 
       // For now, by default, we prevent fullscreen on boot and later, given that it's pointless.
       // If there were issues, we could exclusively do it when the swapchain resolution matched the monitor resolution.
@@ -2042,9 +2048,9 @@ namespace
 
       if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
       {
-         ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r10g10b10a2_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float); // Just a bounch of formats we encountered and we are sure we can upgrade (or that have already been upgraded)
+         ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r10g10b10a2_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float); // Just a bunch of formats we encountered and we are sure we can upgrade (or that have already been upgraded)
          // DXGI_FORMAT_R16G16B16A16_FLOAT will automatically pick DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 on first creation
-         desc.back_buffer.texture.format = reshade::api::format::r16g16b16a16_float;
+         desc.back_buffer.texture.format = swapchain_upgrade_type == 1 ? reshade::api::format::r16g16b16a16_float : reshade::api::format::r10g10b10a2_unorm;
          changed = true;
       }
 
@@ -2204,7 +2210,7 @@ namespace
 #if 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
 
             UINT flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH | DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-            DXGI_FORMAT format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            DXGI_FORMAT format = swapchain_upgrade_type == 1 ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_R8G8B8A2_UNORM;
             hr = native_swapchain3->ResizeBuffers(0, 0, 0, format, flags); // Pass in zero to not change any values if not the format
             ASSERT_ONCE(SUCCEEDED(hr));
 #endif
@@ -2212,8 +2218,18 @@ namespace
 
 #if !GAME_PREY && DEVELOPMENT
          DXGI_COLOR_SPACE_TYPE colorSpace;
-			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? Add HDR10 support... For now we only do this in development as that's the only case where you can change the swapchain upgrades type live
-         colorSpace = (enable_swapchain_upgrade && swapchain_upgrade_type > 0) ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? For now we only do this in development as that's the only case where you can change the swapchain upgrades type live
+         if (enable_swapchain_upgrade && swapchain_upgrade_type > 0)
+         {
+            if (swapchain_upgrade_type == 1)
+               colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+            else         
+               colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+         }
+         else
+         {
+            colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+         }
          hr = native_swapchain3->SetColorSpace1(colorSpace);
          ASSERT_ONCE(SUCCEEDED(hr));
 #endif
@@ -3078,6 +3094,17 @@ namespace
          }
       }
 
+      // Matches "reshade::addon_event::reset_command_list" (sometimes this is called instead of that)
+      if (stages == reshade::api::pipeline_stage::all && pipeline.handle == 0)
+      {
+#if DEVELOPMENT
+         //CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+         //ASSERT_ONCE(cmd_list_data.is_primary || cmd_list_data.trace_draw_calls_data.empty()); // This should already be the case (no, sometimes it triggers with acceptable cases, no need to check for this until proven otherwise)
+         cmd_list_data.any_draw_done = false;
+         cmd_list_data.any_dispatch_done = false;
+#endif
+      }
+
       if ((stages & reshade::api::pipeline_stage::compute_shader) != 0)
       {
          ASSERT_ONCE(stages == reshade::api::pipeline_stage::compute_shader || stages == reshade::api::pipeline_stage::all); // Make sure only one stage happens at a time (it does in DX11)
@@ -3444,7 +3471,8 @@ namespace
       // we can assume that we either missed replacing some shaders, or that we have unloaded all of our shaders.
       bool mod_active = device_data.cloned_pipeline_count != 0;
       // Theoretically we should simply check the current swapchain buffer format, but this also works
-      const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type >= 1) || swapchain_data.vanilla_was_linear_space;
+      const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type == 1) || swapchain_data.vanilla_was_linear_space;
+      const bool output_pq_bt2020 = enable_swapchain_upgrade && swapchain_upgrade_type == 2;
       bool input_linear = swapchain_data.vanilla_was_linear_space;
 #if GAME_PREY // Prey's native code hooks already make the swapchain linear, but don't change the shaders
       input_linear = false;
@@ -3457,7 +3485,7 @@ namespace
          input_linear = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1;
       }
       // Note that not all these combinations might be handled by the shader
-      bool needs_reencoding = output_linear != input_linear;
+      bool needs_reencoding = (output_linear != input_linear) || output_pq_bt2020;
       bool early_display_encoding = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1 && GetShaderDefineCompiledNumericalValue(EARLY_DISPLAY_ENCODING_HASH) >= 1;
       bool needs_scaling = mod_active ? !early_display_encoding : (cb_luma_global_settings.DisplayMode >= 1);
       bool early_gamma_correction = early_display_encoding && GetShaderDefineCompiledNumericalValue(GAMMA_CORRECTION_TYPE_HASH) < 2;
@@ -3500,8 +3528,8 @@ namespace
             D3D11_TEXTURE2D_DESC target_desc;
             back_buffer->GetDesc(&target_desc);
             ASSERT_ONCE((target_desc.BindFlags & D3D11_BIND_RENDER_TARGET) != 0);
-            // For now we only support this format, nothing else wouldn't really make sense
-            ASSERT_ONCE(target_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT);
+            // For now we only support these formats, nothing else wouldn't really make sense
+            ASSERT_ONCE(target_desc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT || target_desc.Format == DXGI_FORMAT_R10G10B10A2_UNORM);
 
             uint32_t custom_const_buffer_data_1 = 0;
             uint32_t custom_const_buffer_data_2 = 0;
@@ -5409,7 +5437,7 @@ namespace
                formats_compatible |= bgra8_1 && bgra8_2;
                // No need to force replace the view format if formats are compatible
                if (!formats_compatible)
-                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16F if "enable_swapchain_upgrade" is on (depending on "swapchain_upgrade_type")
+                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16_FLOAT or R10G10B10A2_UNORM if "enable_swapchain_upgrade" is on (depending on "swapchain_upgrade_type")
                break;
             }
             }
@@ -8141,19 +8169,9 @@ namespace
                                           }
                                           ImGui::Text("R Swapchain: %s", draw_call_data.rt_is_swapchain[i] ? "True" : "False"); // TODO: add this for computer shaders / UAVs toos
 
-                                          for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT;i++)
+                                          // Blend mode
                                           {
-                                             // Skip if there's no matching RTV as the information would be irrelevant (or even stale)
-                                             if (draw_call_data.rtv_format[i] == DXGI_FORMAT_UNKNOWN)
-                                             {
-                                                continue;
-                                             }
-
-                                             ImGui::PushID(i);
-                                             ImGui::NewLine();
-                                             ImGui::Text("Blend Mode: %i", i);
-
-                                             const D3D11_RENDER_TARGET_BLEND_DESC& render_target_blend_desc = blend_desc.RenderTarget[i];
+                                             const D3D11_RENDER_TARGET_BLEND_DESC& render_target_blend_desc = blend_desc.IndependentBlendEnable ? blend_desc.RenderTarget[i] : blend_desc.RenderTarget[0];
                                              // See "ui_data.blend_mode" for details on usage
                                              if (render_target_blend_desc.BlendEnable)
                                              {
@@ -8211,7 +8229,7 @@ namespace
                                                    }
                                                    else if (render_target_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_DEST_COLOR && render_target_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
                                                    {
-                                                      ImGui::Text("Blend RGB Mode: Multiplicative Color");
+                                                      ImGui::Text("Blend RGB Mode: Multiplicative Color"); // TODO: this is wrongly name? It's not multiplying anything? Same for alpha
                                                       has_drawn_blend_rgb_text = true;
                                                    }
                                                    // It's enabled but it's as if it was disabled
@@ -8256,12 +8274,8 @@ namespace
                                                    has_drawn_blend_rgb_text = true;
                                                 }
 
-                                                if (render_target_blend_desc.RenderTargetWriteMask)
-                                                {
-
-                                                }
-                                                // TODO: add "RenderTargetWriteMask", "BlendFactor", "SampleMask", "AlphaToCoverageEnable", "IndependentBlendEnable" etc (stencil too, but that goes with depth)
-                                                ImGui::Text("Blend RGB Mode Details: Src %s - Dest %s - Op %s", GetBlendName(render_target_blend_desc.SrcBlend), GetBlendName(render_target_blend_desc.DestBlend), GetBlendOpName(render_target_blend_desc.BlendOp));
+                                                // TODO: add "BlendFactor", "SampleMask" etc (stencil too, but that goes with depth)
+                                                ImGui::Text("Blend RGB Mode Details: Src %s - Op %s - Dest %s", GetBlendName(render_target_blend_desc.SrcBlend), GetBlendOpName(render_target_blend_desc.BlendOp), GetBlendName(render_target_blend_desc.DestBlend));
 
                                                 bool has_drawn_blend_a_text = false;
 
@@ -8323,14 +8337,29 @@ namespace
                                                    has_drawn_blend_a_text = true;
                                                 }
 
-                                                ImGui::Text("Blend A Mode Details: Src %s - Dest %s - Op %s", GetBlendName(render_target_blend_desc.SrcBlendAlpha), GetBlendName(render_target_blend_desc.DestBlendAlpha), GetBlendOpName(render_target_blend_desc.BlendOpAlpha));
+                                                ImGui::Text("Blend A Mode Details: Src %s - Op %s - Dest %s", GetBlendName(render_target_blend_desc.SrcBlendAlpha), GetBlendOpName(render_target_blend_desc.BlendOpAlpha), GetBlendName(render_target_blend_desc.DestBlendAlpha));
+
+                                                if ((render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_ALL) == D3D11_COLOR_WRITE_ENABLE_ALL)
+                                                {
+                                                   ImGui::Text("Write Mask: All");
+                                                }
+                                                else if (render_target_blend_desc.RenderTargetWriteMask == 0)
+                                                {
+                                                   ImGui::Text("Write Mask: None");
+                                                }
+                                                else
+                                                {
+                                                   ImGui::Text("Write Mask:");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_RED)   ImGui::SameLine(), ImGui::Text(" R");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_GREEN) ImGui::SameLine(), ImGui::Text(" G");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_BLUE)  ImGui::SameLine(), ImGui::Text(" B");
+                                                   if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_ALPHA) ImGui::SameLine(), ImGui::Text(" A");
+                                                }
                                              }
                                              else
                                              {
                                                 ImGui::Text("Blend Mode: Disabled");
                                              }
-
-                                             ImGui::PopID();
                                           }
 
                                           const bool is_highlighted_resource = highlighted_resource == rt_hash;
@@ -8381,6 +8410,14 @@ namespace
                                           }
 
                                           ImGui::PopID();
+                                       }
+
+                                       // Only print this when enabled given it's rare (it's MSAA transparency dithering basically)
+                                       if (blend_desc.AlphaToCoverageEnable)
+                                       {
+                                          if (!is_first_draw) { ImGui::Text(""); };
+                                          // Don't set "is_first_draw" to true to let depth printing have a space too
+                                          ImGui::Text("Alpha to Coverage Enable: %s", blend_desc.AlphaToCoverageEnable ? "True" : "False");
                                        }
 
                                        if (!is_first_draw) { ImGui::Text(""); }; // No views drew before, skip space
@@ -8470,8 +8507,13 @@ namespace
                                           {
                                              ImGui::PushID(i + D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT + D3D11_1_UAV_SLOT_COUNT + D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT + D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT); // Offset by the max amount of previous iterations from above
                                              ImGui::Text("");
-                                             ImGui::Text("CB Index: %u", i); // TODO: make it this is selectable from resource highlights, it's very useful in finding cbuffers for DLSS etc
-                                             ImGui::Text("CB Hash: %s", draw_call_data.cb_hash->c_str());
+                                             ImGui::Text("CB Index: %u", i);
+                                             ImGui::Text("CB Hash: %s", draw_call_data.cb_hash[i].c_str());
+                                             const bool is_highlighted_resource = highlighted_resource == draw_call_data.cb_hash[i];
+                                             if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
+                                             {
+                                                highlighted_resource = is_highlighted_resource ? "" : draw_call_data.cb_hash[i];
+                                             }
                                              ImGui::PopID();
                                           }
                                        }

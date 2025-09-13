@@ -9,7 +9,7 @@ Texture2D<float4> t3 : register(t3); // Previous TAA output (from this very shad
 Texture2D<float4> t2 : register(t2); // Scene
 Texture2D<float4> t1 : register(t1); // Motion Vectors in UV space
 Texture2D<float4> t0 : register(t0); // Depth
-//TODOFT: add permutations for low resolutions!?
+//TODOFT: add permutations for low resolutions!? 0xDEBF1AC4
 
 SamplerState s4_s : register(s4);
 SamplerState s3_s : register(s3);
@@ -219,6 +219,13 @@ void main(
   r0.xw = cb0[12].xy * r0.xw;
   float4 noise = t4.SampleLevel(s3_s, r0.xw, 0).xyzw; // Defaults to white? Likely dithering
 
+  int interations = 7;
+#if _A141EA3E
+  interations = 7;
+#elif _DEBF1AC4
+  interations = 5;
+#endif
+
   r0.xw = cb0[20].z * r1.xy;
   r1.xy = r0.xw / cb0[11].xy;
   r1.x = length(r1.xy); // MVs length
@@ -227,19 +234,19 @@ void main(
   r1.x = min(13.0, r1.x);
   r1.x = -r1.x * 0.0769230798 + 1.0;
   r1.y = -0.5 + noise.x;
-  r0.xw = 0.166666672 * r0.xw;
+  r0.xw *= 1.0 / float(interations - 1);
   r0.yz = r0.xw * r1.y + r0.yz;
 
   float4 blurredColor = 0.0;
   // Motion blur
-  int i = -3;
+  int i = -interations / 2;
   while (true) {
-    if (i > 3) break; // 7 iterations
+    if (i > (interations / 2)) break;
     float2 uv = float(i) * r0.xw + r0.yz;
     blurredColor += SafeSceneSample(uv).xyzw;
     i++;
   }
-  blurredColor /= 7.0;
+  blurredColor /= float(interations);
 #if 0 // Test: ~passthrough
   o0.xyzw = blurredColor * 1;
   o1.xyzw = blurredColor * 1;
