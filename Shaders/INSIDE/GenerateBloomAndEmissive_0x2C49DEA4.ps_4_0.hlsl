@@ -38,6 +38,9 @@ void main(
 
   r0.xyzw = t0.Sample(s1_s, v1.xy).xyzw;
   r1.xyzw = t1.Sample(s0_s, v1.xy).xyzw;
+#if !ENABLE_LUMA
+  r1.xyzw = saturate(r1.xyzw);
+#endif
   r0.y = 0.629960537 + r1.w;
   r0.y = r0.y * r0.y;
   r0.y = r0.y * r0.y + 0.842509866;
@@ -96,7 +99,7 @@ void main(
   o0.xyz = Reinhard::ReinhardRange(o0.xyz, 0.333, 2.0, 1.0);
   // Emissive was usually small already, and looks ugly when too bright, so compress it more.
   o1.xyz = Reinhard::ReinhardSimple(o1.xyz, 0.75); // This cannot be beyond >=1 or it will break in the emissige generation dithering blue noise code
-#else
+#else // TODO: bloom seems stronger even if we set "ENABLE_LUMA" to false? Maybe we need to clamp it in more places?
   o0.xyz = saturate(o0.xyz);
   o1.xyz = saturate(o1.xyz);
 #endif
