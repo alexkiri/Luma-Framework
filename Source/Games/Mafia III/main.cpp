@@ -1757,12 +1757,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       shader_hashes_ShadowMapProjections.vertex_shaders.emplace(std::stoul("AC56CA1A", nullptr, 16));
 
-      shader_hashes_PreTAAFogNearMask.vertex_shaders.emplace(std::stoul("1B8BCBA8", nullptr, 16));
-      shader_hashes_PreTAAFogNearMask.pixel_shaders.emplace(std::stoul("FD1D320F", nullptr, 16));
-
-      shader_hashes_PreTAACopy.vertex_shaders.emplace(std::stoul("6FDEE99B", nullptr, 16));
-      shader_hashes_PreTAACopy.pixel_shaders.emplace(std::stoul("4671BB12", nullptr, 16));
-
       shader_hashes_TAA.pixel_shaders = { std::stoul("2200CBD7", nullptr, 16), std::stoul("E781A41B", nullptr, 16), std::stoul("A8D4D208", nullptr, 16) };
 
       shader_hashes_MotionBlur.pixel_shaders.emplace(std::stoul("E3CE19B0", nullptr, 16));
