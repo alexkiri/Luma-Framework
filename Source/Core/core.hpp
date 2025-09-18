@@ -664,7 +664,9 @@ namespace
 #if DEVELOPMENT || TEST
          custom_shader->second->compilation_error = false;
          custom_shader->second->preprocessed_code.clear();
+#if DEVELOPMENT
          custom_shader->second->definition = {};
+#endif
 #endif
       }
    }
