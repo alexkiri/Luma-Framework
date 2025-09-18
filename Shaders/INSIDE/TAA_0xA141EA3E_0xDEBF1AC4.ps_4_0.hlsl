@@ -7,9 +7,8 @@
 Texture2D<float4> t4 : register(t4); // Noise/Dither
 Texture2D<float4> t3 : register(t3); // Previous TAA output (from this very shader)
 Texture2D<float4> t2 : register(t2); // Scene
-Texture2D<float4> t1 : register(t1); // Motion Vectors in UV space
+Texture2D<float2> t1 : register(t1); // Motion Vectors in UV space (32 bit float)
 Texture2D<float4> t0 : register(t0); // Depth
-//TODOFT: add permutations for low resolutions!? 0xDEBF1AC4
 
 SamplerState s4_s : register(s4);
 SamplerState s3_s : register(s3);
@@ -35,6 +34,7 @@ float4 SafeSceneSample(float2 uv)
     color.z = 0.0;
   if (IsNaN_Strict(color.w))
     color.w = 0.0;
+  // Note: we could fix invalid luminance here too but we already do it in the tonemapper
   return color;
 }
 
@@ -95,7 +95,7 @@ void main(
   r0.y = cmp(r10.x < r1.z);
   r0.yz = r0.yy ? float2(1,1) : r1.xy;
   r0.yz = cb0[10].xy * r0.yz + v1.xy;
-  r1.xyzw = t1.Sample(s2_s, r0.yz).xyzw; // TODO: make float2 texture? also upgrade the format if it's bad?
+  r1.xy = t1.Sample(s2_s, r0.yz).xy;
   r0.yz = -cb0[15].xy * cb0[11].xy + v1.xy; // Camera Jitters in CB0[15] * inv resolution CB0[11].xy (zw are direct resolution)
   r3.xyzw = SafeSceneSample(r0.yz).xyzw; // Dejittered sample!?
   r1.zw = v1.xy - r1.xy; // Subtract MVs to get the previous frame UV
@@ -189,7 +189,16 @@ void main(
   r2.xyzw = r5.xyzw / max(r0.x, FLT_EPSILON); // Luma: protected
   r2.xyzw = r6.xyzw + r2.xyzw;
   r2.xyzw = r0.w ? r2.xyzw : r4.xyzw;
+#if 1
+  r4.xyz = cb0[3].xyz * r3.xyz;
+#else // Attempted Luma fix that seems to be detrimental. It occasionally causes red bright dots, and possibly NaNs
   r4.xyz = cb0[3].xyz * clamp(r3.xyz, -FLT16_MAX, FLT16_MAX);
+#endif
+#if 0 // Test: ~passthrough
+  o0.xyzw = r2.xyzw;
+  o1.xyzw = r2.xyzw;
+  return;
+#endif
 
   r0.xw = r4.x + r4.yz;
   r0.x += r3.z * cb0[3].z;
@@ -253,12 +262,16 @@ void main(
   return;
 #endif
 
+  // TODO: why does NaN happen? There's no unsafe division nor pow/sqrt/log/exp in here
+  r2 = IsNaN_Strict(r2) ? 0.0 : r2; // Luma: protect against NaNs on output too
+
   r0 = lerp(blurredColor, r2, r1.x); // Blur percentage (flipped)
   noise = (noise * 2.0) - 1.0; // From 0|1 to -1|1
   noise /= 255.0; // Turn to 8 bit dithering, the game's rendering was all SDR and mostly 8 bit (with some 10 bit passes) so it'd band a lot
 #if !ENABLE_FILM_GRAIN // This isn't film grain but it's not far from it either
-  noise = 0.0; //TODOFT: add a toggle for dithering!
+  noise = 0.0; //TODOFT: add a toggle for dithering! However, it's baked in almost every single shader of the game so we couldn't actually remove it without changing all shaders
 #endif
+
   // Output two similar colors, index 0 is the history (only read again the next frame, by this very shader) (hence it's not blurred at the end), index 1 is the actual output that continues to be used for this frame's post processing
   o0.xyzw = (r2.xyzw + noise); // Luma: removed saturate
   o1.xyzw = (r0.xyzw + noise); // Luma: removed saturate

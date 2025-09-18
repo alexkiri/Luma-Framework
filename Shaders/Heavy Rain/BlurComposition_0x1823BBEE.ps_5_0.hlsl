@@ -36,8 +36,10 @@ void main(
   r1.xyz = r0.yzw - 0.2;
 #if !ENABLE_LUMA
   r1.xyz = max(float3(0,0,0), r1.xyz);
-#else // This cam generate some nice extra gamut
-  FixColorGradingLUTNegativeLuminance(r1.xyz);
+#else // This can generate some nice extra gamut
+  r1.rgb = gamma_to_linear(r1.rgb, GCT_MIRROR);
+  FixColorGradingLUTNegativeLuminance(r1.rgb);
+  r1.rgb = linear_to_gamma(r1.rgb, GCT_MIRROR);
 #endif
   r1.xyz *= 1.8;
   r0.yzw = r0.yzw * float3(1, 1, 1.1) + r1.xyz;

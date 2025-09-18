@@ -316,8 +316,8 @@ public:
       if (is_custom_pass && !game_device_data.drew_tonemap && original_shader_hashes.Contains(pixel_shader_hashes_Bloom) && fix_bloom_samplers)
       {
          // Bloom used a nearest neighbor sampler, which made no sense and made it pixelated
-         ID3D11SamplerState* const linear_sampler_state = device_data.default_sampler_state.get();
-         native_device_context->PSSetSamplers(0, 1, &linear_sampler_state);
+         ID3D11SamplerState* const sampler_state_linear = device_data.sampler_state_linear.get();
+         native_device_context->PSSetSamplers(0, 1, &sampler_state_linear);
 
          return false;
       }
@@ -435,7 +435,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_data_cbuffer_index = 12;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // TODO: check if BSI need R11G11B10F to R16G16B16A16F upgrades. BS(1) needs 8bit etc?. Mix the mods in BFI? UseLowPrecisionColorBuffer=False FloatingPointRenderTargets=True
       texture_upgrade_formats = {

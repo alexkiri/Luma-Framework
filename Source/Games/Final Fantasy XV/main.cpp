@@ -308,12 +308,6 @@ public:
    {
       ImGui::Text("FFXV Luma mod - about and credits section", ""); // ### Rename this ###
    }
-
-   void CreateShaderObjects(DeviceData& device_data, const std::optional<std::set<std::string>>& shader_names_filter) override
-   {
-       auto& game_device_data = GetGameDeviceData(device_data);
-       //CreateShaderObject(device_data.native_device, shader_hash_mvec_pixel, game_device_data.motion_vectors_ps, shader_hashes_filter);
-   }
 };
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -331,7 +325,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       shader_hashes_TAA.pixel_shaders.emplace(std::stoul("0DF0A97D", nullptr, 16));
 
       enable_swapchain_upgrade = true; // We don't need swapchain upgrade for this game
-      swapchain_upgrade_type = 1;  // 1 = scrgb
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;  // 1 = scrgb
       
       enable_texture_format_upgrades = true;
 

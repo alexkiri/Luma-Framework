@@ -204,7 +204,7 @@ public:
          game_device_data.drew_tonemap = true;
 
          // If we upgrade all R10G10B10A2 textures, there's no need to do this live texture format swap
-         if (enable_swapchain_upgrade && swapchain_upgrade_type == 1 && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r10g10b10a2_unorm)))
+         if (enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::scRGB && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r10g10b10a2_unorm)))
          {
             // We manually upgrade the R10G10B10A2 texture that is used as tonemapper output and sharpening input (after which the game uses the swapchain as RT).
             // If we upgrade all R10G10B10A2 the game can crash.
@@ -369,7 +369,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // DLSS wouldn't have done that gamma correction (it misses it, so it outputs gamma 2.0). It also probably misses the "HDR" flag and thus would interpret colors as sRGB gamma space, which is not what LUMA does.
       // That said, if DLSS ever was upgraded to support negative scRGB colors without clipping them, we could use "DLSSTweaks" to force the HDR flag on and run it in HDR (we could even force DLAA).
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
 
       cb_luma_global_settings.GameSettings.HDRHighlights = default_hdr_highlights;
       cb_luma_global_settings.GameSettings.HDRDesaturation = default_hdr_desaturation;

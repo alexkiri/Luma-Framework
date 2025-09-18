@@ -13,7 +13,6 @@
 namespace
 {
 	float2 projection_jitters = { 0, 0 };
-	const std::string shader_name_mvec_pixel = "Luma_MotionVec_UE4_Decode";
 	std::unique_ptr<float4[]> downsample_buffer_data;
 	std::unique_ptr<float4[]> upsample_buffer_data;
 	ShaderHashesList shader_hashes_TAA;
@@ -45,10 +44,6 @@ struct GameDeviceDataFF7Remake final : public GameDeviceData
 	std::atomic<bool> drs_active = false;
 	std::atomic<uint32_t> jitterless_frames_count = 0;
 	std::atomic<bool> is_in_menu = true; // Start in menu
-	com_ptr<ID3D11PixelShader> motion_vectors_ps;
-	com_ptr<ID3D11PixelShader> bloom_ps;
-	com_ptr<ID3D11VertexShader> bloom_vs;
-	com_ptr<ID3D11VertexShader> menu_slowdown_vs;
 	float2 upscaled_render_resolution = { 1, 1 };
 	float resolution_scale = 1.0f;
 	uint4 viewport_rect = { 0, 0, 1, 1 };
@@ -80,6 +75,8 @@ public:
 		GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
 		GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
 		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+
+		native_shaders_definitions.emplace(CompileTimeStringHash("Decode MVs"), ShaderDefinition{ "Luma_MotionVec_UE4_Decode", reshade::api::pipeline_subobject_type::pixel_shader });
 
 		luma_settings_cbuffer_index = 13;
 		luma_data_cbuffer_index = 12;
@@ -203,7 +200,7 @@ public:
 #if ENABLE_NGX
 		if (is_taa && device_data.dlss_sr && !device_data.dlss_sr_suppressed)
 		{
-			if (game_device_data.motion_vectors_ps.get() == nullptr) {
+			if (device_data.native_pixel_shaders[CompileTimeStringHash("Decode MVs")].get() == nullptr) {
 				device_data.force_reset_dlss_sr = true;
 				return false;
 			}
@@ -357,8 +354,8 @@ public:
 						native_device_context->OMSetRenderTargets(1, &dlss_motion_vectors_rtv_const, nullptr);
 
 						// We only need to swap the pixel/vertex shaders, depth and blend were already in the right state
-						native_device_context->VSSetShader(device_data.copy_vertex_shader.get(), nullptr, 0);
-						native_device_context->PSSetShader(game_device_data.motion_vectors_ps.get(), nullptr, 0);
+						native_device_context->VSSetShader(device_data.native_vertex_shaders[CompileTimeStringHash("Copy VS")].get(), nullptr, 0);
+						native_device_context->PSSetShader(device_data.native_pixel_shaders[CompileTimeStringHash("Decode MVs")].get(), nullptr, 0);
 
 						// We could probably keep the original vertex shader too, but whatever
 						native_device_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -499,12 +496,6 @@ public:
 	void PrintImGuiAbout() override
 	{
 		ImGui::Text("Final Fantasy VII Remake Luma mod - by Izueh and Pumbo", ""); // TODO
-	}
-
-	void CreateShaderObjects(DeviceData& device_data, const std::optional<std::set<std::string>>& shader_names_filter) override
-	{
-		auto& game_device_data = GetGameDeviceData(device_data);
-		CreateShaderObject(device_data.native_device, shader_name_mvec_pixel, game_device_data.motion_vectors_ps, shader_names_filter);
 	}
 
 	void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override
@@ -686,7 +677,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 #endif
 
 		enable_swapchain_upgrade = true;
-		swapchain_upgrade_type = 1;
+		swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
 		enable_texture_format_upgrades = true;
 		// Texture upgrades (8 bit unorm and 11 bit float etc to 16 bit float)
 		texture_upgrade_formats = {

@@ -242,7 +242,6 @@ namespace
    float3 camera_mode_rotation = {};
    float camera_mode_fov_scale = 1.0;
 
-   const std::string shader_name_draw_sky_motion_vectors = "Luma_DrawSkyMotionVectors";
 
 #if DEVELOPMENT //TODOFT5: delete
    std::map<ID3D11Buffer*, void*> res_map;
@@ -277,8 +276,6 @@ struct GameDeviceDataMafiaIII final : public GameDeviceData
    com_ptr<ID3D11Texture3D> corrected_lut_texture_3d;
    com_ptr<ID3D11ShaderResourceView> corrected_lut_srv;
    com_ptr<ID3D11UnorderedAccessView> corrected_lut_uav;
-
-   com_ptr<ID3D11PixelShader> draw_sky_motion_vectors_pixel_shader;
 
    // The post tonemapping resource, being ping ponged between SRVs and RTVs
    com_ptr<ID3D11Resource> post_processed_scene;
@@ -340,6 +337,8 @@ public:
 
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
 
+      native_shaders_definitions.emplace(CompileTimeStringHash("Draw Sky Motion Vectors"), ShaderDefinition{ "Luma_DrawSkyMotionVectors", reshade::api::pipeline_subobject_type::pixel_shader });
+
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
    }
@@ -375,13 +374,7 @@ public:
    {
       // The vanilla swapchain was last written by the game's AA with an sRGB view, so in linear.
       // The UI would be written to the swapchain with non sRGB views, so with texture upgrades, the UI is broken, but the game should be linear nonetheless.
-      return enable_swapchain_upgrade && swapchain_upgrade_type == 1;
-   }
-
-   void CreateShaderObjects(DeviceData& device_data, const std::optional<std::set<std::string>>& shader_names_filter) override
-   {
-      auto& game_device_data = GetGameDeviceData(device_data);
-      CreateShaderObject(device_data.native_device, shader_name_draw_sky_motion_vectors, game_device_data.draw_sky_motion_vectors_pixel_shader, shader_names_filter);
+      return enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::scRGB;
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
@@ -807,10 +800,10 @@ public:
                      ID3D11UnorderedAccessView* const corrected_lut_uav = game_device_data.corrected_lut_uav.get();
                      native_device_context->CSSetUnorderedAccessViews(0, 1, &corrected_lut_uav, nullptr);
 
-                     native_device_context->CSSetShader(device_data.normalize_lut_3d_compute_shader.get(), nullptr, 0);
+                     native_device_context->CSSetShader(device_data.native_compute_shaders[CompileTimeStringHash("Normalize LUT 3D")].get(), nullptr, 0);
 
-                     ID3D11SamplerState* const default_sampler_state = device_data.default_sampler_state.get();
-                     native_device_context->CSSetSamplers(0, 1, &default_sampler_state);
+                     ID3D11SamplerState* const sampler_state_linear = device_data.sampler_state_linear.get();
+                     native_device_context->CSSetSamplers(0, 1, &sampler_state_linear);
 
                      native_device_context->Dispatch(8, 8, 8);
 
@@ -1706,7 +1699,7 @@ public:
                   device_data.primary_command_list->GSSetShader(nullptr, nullptr, 0);
 
                   SetLumaConstantBuffers(device_data.primary_command_list.get(), cmd_list_data, device_data, reshade::api::shader_stage::pixel, LumaConstantBufferType::LumaData);
-                  DrawCustomPixelShader(device_data.primary_command_list.get(), nullptr, nullptr, device_data.copy_vertex_shader.get(), game_device_data.draw_sky_motion_vectors_pixel_shader.get(), nullptr, game_device_data.last_motion_vectors_rtv.get(), device_data.render_resolution.x, device_data.render_resolution.y, false);
+                  DrawCustomPixelShader(device_data.primary_command_list.get(), nullptr, nullptr, device_data.sampler_state_linear.get(), device_data.native_vertex_shaders[CompileTimeStringHash("Copy VS")].get(), device_data.native_pixel_shaders[CompileTimeStringHash("Draw Sky Motion Vectors")].get(), nullptr, game_device_data.last_motion_vectors_rtv.get(), device_data.render_resolution.x, device_data.render_resolution.y, false);
 
                   device_data.primary_command_list->GSSetShader(gs.get(), nullptr, 0);
 
@@ -1763,6 +1756,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       shader_hashes_LinearizeDepth.pixel_shaders.emplace(std::stoul("E4A815CF", nullptr, 16));
 
       shader_hashes_ShadowMapProjections.vertex_shaders.emplace(std::stoul("AC56CA1A", nullptr, 16));
+
+      shader_hashes_PreTAAFogNearMask.vertex_shaders.emplace(std::stoul("1B8BCBA8", nullptr, 16));
+      shader_hashes_PreTAAFogNearMask.pixel_shaders.emplace(std::stoul("FD1D320F", nullptr, 16));
+
+      shader_hashes_PreTAACopy.vertex_shaders.emplace(std::stoul("6FDEE99B", nullptr, 16));
+      shader_hashes_PreTAACopy.pixel_shaders.emplace(std::stoul("4671BB12", nullptr, 16));
 
       shader_hashes_TAA.pixel_shaders = { std::stoul("2200CBD7", nullptr, 16), std::stoul("E781A41B", nullptr, 16), std::stoul("A8D4D208", nullptr, 16) };
 
@@ -1915,7 +1914,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Test debug layer for errors.
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // Note that this game has an optional rear view mirror HUD, which has its own rendering, by default it renders to r8g8b8a8_typeless with an sRGB view. It seemengly follows the main rendering aspect ratio, or is ~32:9 anyway (low res)
       texture_upgrade_formats = {

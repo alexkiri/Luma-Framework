@@ -54,10 +54,12 @@ void main(
   r2.xyz = -0.24 + r1.xyz;
 #if !ENABLE_LUMA
   r2.xyz = max(float3(0,0,0), r2.xyz);
-#else // This cam generate some nice extra gamut
-  FixColorGradingLUTNegativeLuminance(r2.xyz);
+#else // This can generate some nice extra gamut
+  r2.rgb = gamma_to_linear(r2.rgb, GCT_MIRROR);
+  FixColorGradingLUTNegativeLuminance(r2.rgb);
+  r2.rgb = linear_to_gamma(r2.rgb, GCT_MIRROR);
 #endif
-  r2.xyz = 1.2 * r2.xyz;
+  r2.xyz *= 1.2;
   r1.xyz = r1.xyz * float3(0.8,0.88,1) + r2.xyz;
   r1.xyz = r1.xyz - r0.xyz;
   r0.w = texture1.Sample(BlurMapSampler_s, v1.zw).x;

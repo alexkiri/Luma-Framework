@@ -98,10 +98,6 @@ struct GameDeviceDataPrey final : public GameDeviceData
       lens_distortion_texture_format = DXGI_FORMAT_UNKNOWN;
    }
 
-   // Custom Shaders
-   com_ptr<ID3D11PixelShader> draw_exposure_pixel_shader; // DLSS (doesn't need "ENABLE_NGX)
-   com_ptr<ID3D11PixelShader> lens_distortion_pixel_shader;
-
    // Tells if the scene is still being rendered
    std::atomic<bool> has_drawn_composed_gbuffers = false;
    std::atomic<bool> has_drawn_upscaling = false;
@@ -186,9 +182,6 @@ namespace
    constexpr uint32_t SSAO_TYPE_HASH = char_ptr_crc32("SSAO_TYPE");
    constexpr uint32_t DLSS_RELATIVE_PRE_EXPOSURE_HASH = char_ptr_crc32("DLSS_RELATIVE_PRE_EXPOSURE"); // "DEVELOPMENT" only
    constexpr uint32_t FORCE_MOTION_VECTORS_JITTERED_HASH = char_ptr_crc32("FORCE_MOTION_VECTORS_JITTERED"); // "DEVELOPMENT" only
-
-   const std::string shader_name_draw_exposure = "Luma_DrawFinalExposure";
-   const std::string shader_name_lens_distortion_pixel = "Luma_PerfectPerspective";
 
 #if DEVELOPMENT
    std::thread::id global_cbuffer_thread_id;
@@ -289,6 +282,9 @@ public:
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('1'); // Gamma correction happens within LUT sampling in Prey, turning this setting off will have unexpected results (it's not meant to be changed, the off mode is not implemented)
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('1');
+
+      native_shaders_definitions.emplace(CompileTimeStringHash("Draw Final Exposure"), ShaderDefinition{ "Luma_DrawFinalExposure", reshade::api::pipeline_subobject_type::pixel_shader }); // DLSS (doesn't need "ENABLE_NGX)
+      native_shaders_definitions.emplace(CompileTimeStringHash("Perfect Perspective"), ShaderDefinition{ "Luma_PerfectPerspective", reshade::api::pipeline_subobject_type::pixel_shader });
    }
 
    // Prey seems to create new devices when resetting the game settings (either manually from the menu, or on boot in case the config had invalid ones), but then the new devices might not actually be used?
@@ -485,7 +481,7 @@ public:
          // For this particular case, we don't use the native DLSS exposure texture, but we rely on pre-exposure itself, as it has a different temporal behaviour,
          // if we changed the DLSS exposure texture every frame to follow the scene exposure, DLSS would act weird (mostly likely just ignore it, as it uses that as a hint of the exposure the tonemapper would use after TAA),
          // while with pre-exposure it works as expected (except it kinda lags behind a bit, because it doesn't store a pre-exposure value attached to every frame, and simply uses the last provided one).
-         if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0 && game_device_data.draw_exposure_pixel_shader)
+         if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0 && device_data.native_pixel_shaders[CompileTimeStringHash("Draw Final Exposure")])
          {
             bool texture_recreated = false;
             // Create pre-exposure buffers once
@@ -564,7 +560,7 @@ public:
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, has_sunshafts);
 
             // Draw the exposure
-            native_device_context->PSSetShader(game_device_data.draw_exposure_pixel_shader.get(), nullptr, 0);
+            native_device_context->PSSetShader(device_data.native_pixel_shaders[CompileTimeStringHash("Draw Final Exposure")].get(), nullptr, 0);
             ID3D11RenderTargetView* render_target_view_const = game_device_data.exposure_buffer_rtv.get();
             native_device_context->OMSetRenderTargets(1, &render_target_view_const, nullptr);
             native_device_context->Draw(3, 0);
@@ -771,7 +767,7 @@ public:
          uint32_t custom_data = 0;
 
          // Do lens distortion just before the post AA composition, which draws film grain and other screen space effects
-         if (is_custom_pass && cb_luma_global_settings.GameSettings.LensDistortion && game_device_data.lens_distortion_pixel_shader.get())
+         if (is_custom_pass && cb_luma_global_settings.GameSettings.LensDistortion && device_data.native_pixel_shaders[CompileTimeStringHash("Perfect Perspective")].get())
          {
             com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
             com_ptr<ID3D11DepthStencilView> dsv;
@@ -978,7 +974,7 @@ public:
             ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(rtvs[0]);
             native_device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, dsv.get());
 
-            native_device_context->PSSetShader(game_device_data.lens_distortion_pixel_shader.get(), nullptr, 0);
+            native_device_context->PSSetShader(device_data.native_pixel_shaders[CompileTimeStringHash("Perfect Perspective")].get(), nullptr, 0);
 
             // Add sampler in an unused slot (we don't need to clear this one)
             ID3D11SamplerState* const lens_distortion_sampler_state = game_device_data.lens_distortion_sampler_state.get();
@@ -1057,7 +1053,7 @@ public:
 
       // Native TAA
       // This pass always runs before our lens distortion, so mark the lens distortion RTV as found here to avoid having to find it again later
-      if (game_device_data.has_drawn_composed_gbuffers && cb_luma_global_settings.GameSettings.LensDistortion && original_shader_hashes.Contains(shader_hashes_PostAA) && device_data.cloned_pipeline_count != 0 && game_device_data.lens_distortion_pixel_shader.get())
+      if (game_device_data.has_drawn_composed_gbuffers && cb_luma_global_settings.GameSettings.LensDistortion && original_shader_hashes.Contains(shader_hashes_PostAA) && device_data.cloned_pipeline_count != 0 && device_data.native_pixel_shaders[CompileTimeStringHash("Perfect Perspective")].get())
       {
          com_ptr<ID3D11RenderTargetView> rtv;
          native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
@@ -2337,13 +2333,6 @@ public:
       game_device_data.exposure_buffer_rtv = nullptr;
    }
 
-   void CreateShaderObjects(DeviceData& device_data, const std::optional<std::set<std::string>>& shader_names_filter) override
-   {
-      auto& game_device_data = GetGameDeviceData(device_data);
-      CreateShaderObject(device_data.native_device, shader_name_draw_exposure, game_device_data.draw_exposure_pixel_shader, shader_names_filter);
-      CreateShaderObject(device_data.native_device, shader_name_lens_distortion_pixel, game_device_data.lens_distortion_pixel_shader, shader_names_filter);
-   }
-
    float GetTonemapUIBackgroundAmount(const DeviceData& device_data) const override { return tonemap_ui_background ? tonemap_ui_background_amount : 0.f; }
 };
 
@@ -2459,7 +2448,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 #if !ENABLE_NATIVE_PLUGIN && DEVELOPMENT
       // Test path to upgrade textures directly through classic Luma code, though this has major issues yet (later in rendering, some stuff is too dark and things flicker)
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,

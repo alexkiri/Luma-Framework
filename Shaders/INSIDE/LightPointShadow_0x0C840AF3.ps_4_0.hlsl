@@ -6,8 +6,9 @@ cbuffer cb0 : register(b0)
   float4 cb0[8];
 }
 
-#define cmp -
+#define cmp
 
+// Seemengly purely a shadow
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : TEXCOORD0,
@@ -55,6 +56,8 @@ void main(
   o0.xyz = r0.yzw * -0.1 + r0.x;
   o0.w = 1;
 
-  // TODO: test if this looks the same as in the Vanilla game, otherwise turn it into a compute shader, or make a copy of the background and feed it here so we can pre-compute the final value, or sanitize the render target after blending
-  o0 = max(o0, 0); // Luma: prevents weird lighting around characters etc
+  // Luma: prevents broken lighting given that UNORM RT blending pre-clamped to 0-1 before blending.
+  // RGB here was ignored in the blend formula (zeroed), so it shouldn't matter but we clamp it for extra safety,
+  // while A was used as a background darkening factor, hence we wouldn't want it to go beyond 0-1.
+  o0 = max(o0, 0.0);
 }

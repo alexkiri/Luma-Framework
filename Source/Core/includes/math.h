@@ -156,6 +156,18 @@ namespace Math
       return crc ^ 0xffffffff;
    }
 
+   // "fnv1a_32" consteval hash (always evaluated at compile time for literals)
+   consteval uint32_t CompileTimeStringHash(std::string_view s)
+   {
+      uint32_t hash = 0x811c9dc5;
+      for (char c : s)
+      {
+         hash ^= static_cast<uint8_t>(c);
+         hash *= 0x01000193;
+      }
+      return hash;
+   }
+
    uint32_t FindNextUniqueNumberInRange(uint32_t value, uint32_t min_value, uint32_t max_value, std::unordered_set<uint32_t> excluded_values)
    {
       assert(value >= min_value && value <= max_value);

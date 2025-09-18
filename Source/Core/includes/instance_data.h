@@ -3,6 +3,24 @@
 // Forward declarations
 struct GameDeviceData;
 
+enum class ShaderReplaceDrawType
+{
+   None,
+   // Skips the pixel or compute shader (this might draw black or leave the previous target textures value persisting, occasionally it can crash if the engine does weird things)
+   Skip,
+   // Tries to draw purple (magenta) instead. Doesn't always work (it will probably skip the shader if it doesn't, and send some warnings due to pixel and vertex shader signatures not matching)
+   Purple,
+   // Needs to be last (see "allow_replace_draw_nans")
+   NaN,
+   // TODO: Add a way to draw on a black render target to see the raw difference? Add a way to only draw 1 on alpha or RGB? Not very needed.
+};
+enum class ShaderCustomDepthStencilType
+{
+   None,
+   IgnoreTestWriteDepth_IgnoreStencil,
+   IgnoreTestDepth_IgnoreStencil,
+};
+
 struct DrawDispatchData
 {
    // Vertex Shader
@@ -179,6 +197,8 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
 
    bool any_draw_done = false;
    bool any_dispatch_done = false;
+
+   ShaderCustomDepthStencilType temp_custom_depth_stencil = ShaderCustomDepthStencilType::None;
 #endif
 };
 
@@ -246,18 +266,20 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    float dlss_exposure_texture_value = 1.f;
 #endif // ENABLE_NGX
 
-   // Custom Shaders
-   bool created_custom_shaders = false;
+   // Native Shaders (from "native_shaders_definitions")
+   bool created_native_shaders = false;
+   std::unordered_map<uint32_t, com_ptr<ID3D11VertexShader>> native_vertex_shaders;
+#if GEOMETRY_SHADER_SUPPORT
+   std::unordered_map<uint32_t, com_ptr<ID3D11GeometryShader>> native_geometry_shaders;
+#endif
+   std::unordered_map<uint32_t, com_ptr<ID3D11PixelShader>> native_pixel_shaders;
+   std::unordered_map<uint32_t, com_ptr<ID3D11ComputeShader>> native_compute_shaders;
+
+   // Native Shaders Resources
    com_ptr<ID3D11Texture2D> temp_copy_source_texture;
    com_ptr<ID3D11Texture2D> temp_copy_target_texture;
    com_ptr<ID3D11Texture2D> display_composition_texture;
    com_ptr<ID3D11ShaderResourceView> display_composition_srv;
-   com_ptr<ID3D11VertexShader> copy_vertex_shader;
-   com_ptr<ID3D11PixelShader> copy_pixel_shader;
-   com_ptr<ID3D11PixelShader> display_composition_pixel_shader;
-   com_ptr<ID3D11PixelShader> draw_purple_pixel_shader;
-   com_ptr<ID3D11ComputeShader> draw_purple_compute_shader;
-   com_ptr<ID3D11ComputeShader> normalize_lut_3d_compute_shader;
 
    // CBuffers
    com_ptr<ID3D11Buffer> luma_global_settings;
@@ -272,9 +294,13 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11ShaderResourceView> ui_texture_srv;
 
    // Misc
-   com_ptr<ID3D11SamplerState> default_sampler_state; // Linear
+   com_ptr<ID3D11SamplerState> sampler_state_linear;
+   com_ptr<ID3D11SamplerState> sampler_state_point;
    com_ptr<ID3D11BlendState> default_blend_state; // No blend
    com_ptr<ID3D11DepthStencilState> default_depth_stencil_state; // Depth/Stencil disabled
+#if DEVELOPMENT
+   com_ptr<ID3D11DepthStencilState> depth_test_false_write_true_stencil_false_state;
+#endif
 
    // Pointer to the current DX buffer for the "global per view" cbuffer.
    com_ptr<ID3D11Buffer> cb_per_view_global_buffer;
@@ -310,6 +336,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    std::atomic<float> dlss_render_resolution_scale = 1.f;
    std::atomic<bool> dlss_sr_suppressed = false;
 
+   // TODO: make changes thread safe
    float2 render_resolution = { 1, 1 };
    float2 previous_render_resolution = { 1, 1 };
    // Note: this is the "display"/swapchain res

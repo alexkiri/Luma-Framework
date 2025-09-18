@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 Texture2D<float4> t3 : register(t3);
 Texture2D<float4> t2 : register(t2);
 Texture2D<float4> t1 : register(t1);
@@ -23,7 +25,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[27];
 }
 
-// Shader to draw the boy
+// Shader to draw the boy (almost always renders first)
 void main(
   float4 v0 : SV_POSITION0,
   float2 v1 : TEXCOORD0,
@@ -35,7 +37,7 @@ void main(
   float4 v5 : TEXCOORD5,
   out float4 o0 : SV_Target0)
 {
-  //TODOFT: this decomp is broken, it looks off
+  //TODOFT: this decomp is broken, it looks off, however the asm produces exactly the same code.
   float4 r0,r1,r2,r3,r4,r5;
   r0.xy = v2.xy / v2.w;
   r1.xyzw = t1.Sample(s1_s, r0.xy).xyzw;
@@ -93,8 +95,7 @@ void main(
   r2.xyzw = v1.xyxy < float4(0.75,0.5,0.5,0.5);
   int4 r2i = asint(r2) & 1;
   r3.xyzw = float4(0.5,0.25,0.25,0.25) < v1.xyxy;
-  int4 r3i = asint(r3) & 1;
-  r2i *= r3i;
+  r2i *= asint(r3) & 1;
   r2i = (r2i != 0) ? 1 : 0;
   r1.zw = asfloat(r2i.yw & r2i.xz);
   r0.w = r1.z ? cb0[15].y : cb0[15].x;
@@ -119,7 +120,7 @@ void main(
   r0.z = r0.w * r0.z;
   r0.zw = cb0[24].zw * r0.zz;
   r0.z = max(r1.x, r0.z);
-  r0.z = 1 + -r0.z;
+  r0.z = 1 - r0.z;
   r0.z = r1.w ? 1 : r0.z;
   r1.xzw = r1.z ? float3(4,4,1) : float3(8,12,2);
   r4.xyzw = t0.Sample(s0_s, v1.xy).xyzw;
@@ -133,7 +134,7 @@ void main(
   r0.z = max(r0.z, r1.y);
   r1.y = 3.33333325 * r1.y;
   r0.w = max(r1.y, r0.w);
-  r0.w = 1 + -r0.w;
+  r0.w = 1 - r0.w;
   r1.x = pow(v5.x, r1.x); // Luma: fixed NaNs
   r0.z = r1.x * r0.z;
   r4.xyz = cb0[16].xyz * r0.zzz;

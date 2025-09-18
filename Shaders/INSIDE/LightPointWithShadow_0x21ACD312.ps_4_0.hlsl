@@ -16,10 +16,11 @@ cbuffer cb0 : register(b0)
   float4 cb0[13];
 }
 
+// Seemengly draws both an additive light and a background darkening shadow
 void main(
   float4 v0 : SV_POSITION0,
-  float4 v1 : TEXCOORD0,
-  nointerpolation float4 v2 : TEXCOORD1,
+  float3 v1 : TEXCOORD0,
+  nointerpolation float3 v2 : TEXCOORD1,
   nointerpolation float2 v3 : TEXCOORD2,
   out float4 o0 : SV_Target0)
 {
@@ -59,13 +60,13 @@ void main(
   r0.x = r0.w * r0.x;
   r0.w = dot(r0.xx, cb0[12].xx);
   r0.xyz = r2.xyz * r0.w; // Pre-multiply alpha
-  r1.xy = v0.xy * cb1[6].zw + v0.zz;
+  r1.xy = v0.xy * cb1[6].zw + v0.z;
   r1.xy = cb1[1].xx + r1.xy;
   r1.xy = float2(5.39870024,5.44210005) * r1.xy;
   r1.xy = frac(r1.xy);
   r1.zw = float2(21.5351009,14.3136997) + r1.xy;
   r1.z = dot(r1.yx, r1.zw);
-  r1.xy = r1.xy + r1.zz;
+  r1.xy = r1.xy + r1.z;
   r1.x = r1.x * r1.y;
   r2.xyzw = float4(95.4307022,97.5901031,93.8368988,91.6931) * r1.x;
   r1.xyzw = float4(75.0490875,75.0495682,75.0496063,75.0496674) * r1.x;
@@ -74,6 +75,9 @@ void main(
   r1.xyzw = r2.xyzw + r1.xyzw;
   o0.xyzw = r0.xyzw - r1.xyzw * float4(0.00392156886,0.00392156886,0.00392156886,0.0666666701);
   
-  o0.a = max(o0.a, 0); // Luma: prevents weird lighting around characters etc (additive lighting with negative alpha? Tested the change with the original UNORM textures and it looks the same)
-  o0.rgb = max(o0.rgb, 0); //TODOFT
+  // Luma: prevents broken lighting given that UNORM RT blending pre-clamped to 0-1 before blending.
+  // RGB here was drawing additive lighting, hence we clamp it to >= 0,
+  // while A was used as a background darkening factor, hence we wouldn't want it to go beyond 0-1.
+  o0.a = saturate(o0.a);
+  o0.rgb = max(o0.rgb, 0.0);
 }

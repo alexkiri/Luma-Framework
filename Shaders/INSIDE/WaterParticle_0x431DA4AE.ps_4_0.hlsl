@@ -41,6 +41,7 @@ void main(
   r0.xyz = r0.w * r0.xyz;
   o0.xyz = cb0[12].xyz * r0.xyz;
   o0.w = 1;
-  // TODO: test if rain drops (in factory, where you have to jump on top of the pig) look the same
-  o0.xyz = max(o0.xyz, 0.0); // Luma: clamp to make it compatible with scRGB
+
+  // Luma: typical UNORM like clamping
+  o0.xyz = max(o0.xyz, 0.0);
 }

@@ -1,0 +1,736 @@
+#define GAME_INSIDE 1
+
+#include "..\..\Core\core.hpp"
+
+namespace
+{
+   ShaderHashesList shader_hashes_LightingBuffer;
+   ShaderHashesList shader_hashes_LightingBufferEnd; // First shader that always runs after
+   ShaderHashesList shader_hashes_Materials;
+   ShaderHashesList shader_hashes_MaterialsEnd;
+   ShaderHashesList shader_hashes_TAA; // Always runs if the scene rendered
+   ShaderHashesList shader_hashes_SwapchainCopy;
+
+   std::vector<std::byte*> aspect_ratio_pattern_addresses;
+   constexpr float default_aspect_ratio = 16.f / 9.f;
+   float max_aspect_ratio = -1.f;
+
+   void PatchAspectRatio(float target_aspect_ratio = default_aspect_ratio)
+   {
+      if (target_aspect_ratio <= 0.0) target_aspect_ratio = default_aspect_ratio;
+
+      for (std::byte* pattern_address : aspect_ratio_pattern_addresses)
+      {
+         DWORD old_protect;
+         BOOL success = VirtualProtect(pattern_address, 1, PAGE_EXECUTE_READWRITE, &old_protect);
+         if (success)
+         {
+            std::memcpy(pattern_address, &target_aspect_ratio, sizeof(float));
+            DWORD temp_protect;
+            VirtualProtect(pattern_address, 1, old_protect, &temp_protect);
+         }
+      }
+
+      // Add information on the aspect ratios to upgrade immediately, to avoid waiting for the swapchain to be resized
+      const std::unique_lock lock_texture_upgrades(s_mutex_texture_upgrades);
+      texture_format_upgrades_2d_custom_aspect_ratios = { 16.f / 9.f, target_aspect_ratio };
+   }
+}
+
+struct GameDeviceDataINSIDE final : public GameDeviceData
+{
+   com_ptr<ID3D11RenderTargetView> lighting_buffer_rtv; // Taken from the game
+   com_ptr<ID3D11Texture2D> lighting_buffer_texture; // Luma clone
+   com_ptr<ID3D11ShaderResourceView> lighting_buffer_srv; // Luma created
+   UINT lighting_buffer_width = 0;
+   UINT lighting_buffer_height = 0;
+
+   com_ptr<ID3D11RenderTargetView> scene_color_rtv;
+
+   SanitizeNaNsData sanitize_nans_data;
+
+#if 0
+   com_ptr<ID3D11BlendState> custom_blend_state;
+#endif
+
+   bool is_drawing_materials = false;
+};
+
+class INSIDE final : public Game
+{
+public:
+   static const GameDeviceDataINSIDE& GetGameDeviceData(const DeviceData& device_data)
+   {
+      return *static_cast<const GameDeviceDataINSIDE*>(device_data.game);
+   }
+   static GameDeviceDataINSIDE& GetGameDeviceData(DeviceData& device_data)
+   {
+      return *static_cast<GameDeviceDataINSIDE*>(device_data.game);
+   }
+
+   void OnInit(bool async) override
+   {
+      // The entire game rendering pipeline was SDR
+      // It goes like this:
+      // -Render flipped world reflections with simple geometry (when there's a water body in view eg)
+      // -Render normal maps
+      //  Render some kind of low res depth map
+      // -Render lighting (R10G10B10A2) (flipped, 1 is full shadow, without manual clamping shadow can go beyond 1 if render targets are float)
+      // -Render color scene (material albedo * lighting, pretty much)
+      // -Render additive lights
+      // -Draw motion vectors for dynamic objects (rest is calculated from the camera I think)
+      // -TAA
+      // -Bloom and emissive color
+      // -Tonemap
+      // -Swapchain output (possibly draws black bars)
+      texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_typeless);
+      texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_unorm);
+
+      shader_hashes_TAA.pixel_shaders.emplace(Shader::Hash_StrToNum("A141EA3E"));
+      shader_hashes_TAA.pixel_shaders.emplace(Shader::Hash_StrToNum("DEBF1AC4"));
+
+      shader_hashes_SwapchainCopy.pixel_shaders.emplace(Shader::Hash_StrToNum("8674BE1F"));
+
+      shader_hashes_LightingBuffer.pixel_shaders =
+      { std::stoul("00667169", nullptr, 16),
+         std::stoul("D25D922C", nullptr, 16),
+         std::stoul("A2D0F112", nullptr, 16),
+         std::stoul("1D132483", nullptr, 16),
+         std::stoul("FAD79F26", nullptr, 16),
+         std::stoul("8CF70F59", nullptr, 16),
+         std::stoul("3E3BC12E", nullptr, 16),
+         //std::stoul("B6762984", nullptr, 16), // Ambiguous as it's also used for other purposes
+         std::stoul("8DE93667", nullptr, 16),
+         std::stoul("51D367BC", nullptr, 16),
+         std::stoul("CE21BEA0", nullptr, 16),
+         std::stoul("F31113C3", nullptr, 16),
+         std::stoul("25DB2618", nullptr, 16),
+         std::stoul("DD83BF95", nullptr, 16),
+         std::stoul("6B79C71C", nullptr, 16),
+         std::stoul("3072F024", nullptr, 16) };
+      shader_hashes_LightingBufferEnd.pixel_shaders.emplace(Shader::Hash_StrToNum("B2662B89"));
+      // The most common materials (e.g. common geometry and boy shaders)
+      shader_hashes_Materials.pixel_shaders =
+      { std::stoul("3F826D79", nullptr, 16),
+         std::stoul("D2E14BDB", nullptr, 16) };
+      shader_hashes_MaterialsEnd.pixel_shaders.emplace(Shader::Hash_StrToNum("BBC7E546"));
+
+#if DEVELOPMENT // INSIDE
+      forced_shader_names.emplace(Shader::Hash_StrToNum("B8090FB7"), "Clear");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("B6762984"), "Draw Black");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("BBC7E546"), "Draw White");
+
+      // Not inclusive list
+      forced_shader_names.emplace(Shader::Hash_StrToNum("82528FBE"), "Generate Reflections");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("63EB1954"), "Generate Reflections");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("5947A3FE"), "Generate Reflections");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("82528FBE"), "Generate Reflections (Transparent)");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("21047A13"), "Generate Reflections (Transparent)");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("1F271954"), "Generate Reflections (Transparent)");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("53E60842"), "Generate Reflections (Transparent)");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("0AAF0B02"), "Draw Motion Vectors");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("A6B71745"), "Downscale 1/2");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("2C49DEA4"), "Generate Bloom and Emissive");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("E34B6A4A"), "Downscale Bloom");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("45D205FB"), "Downscale Emissive");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("C41ACF9B"), "Downscale Emissive");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("4EEFB466"), "Upscale Emissive");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("10F78033"), "Mix Bloom and Emissive");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("7980933D"), "Generate Shadow Map (depth)");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("6C37B1D6"), "Generate Shadow Map (depth)");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("B2662B89"), "Linearize and Downscale Depth");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("A77CBE7A"), "Linearize Depth");
+
+      //forced_shader_names.emplace(Shader::Hash_StrToNum("BBC7E546"), "Generate Light Shafts Mask"); // Same as "Draw White" above
+      forced_shader_names.emplace(Shader::Hash_StrToNum("907C01ED"), "Generate Light Shafts");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("E267173D"), "Generate Light Shafts");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("B196A894"), "Generate Light Shafts");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("2BA9556B"), "Generate Light Shafts");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("424CD1EB"), "Generate Light Shafts");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("7BA896D6"), "Compose Light Shafts");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("F4CB7914"), "Draw Floor Screen Space Reflections");
+
+      // Not inclusive list
+      forced_shader_names.emplace(Shader::Hash_StrToNum("00667169"), "Draw Lighting Buffer");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("D25D922C"), "Draw Lighting Buffer");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("A2D0F112"), "Draw Lighting Buffer");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("1D132483"), "Draw Lighting Buffer");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("FAD79F26"), "Draw Lighting Buffer");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("8CF70F59"), "Draw Lighting Buffer with Shadow Map");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("3E3BC12E"), "Draw Lighting Buffer Phase 2");
+      //forced_shader_names.emplace(Shader::Hash_StrToNum("B6762984"), "Draw Lighting Buffer Phase 2"); // Same as "Draw Black" above (it uses the alpha channel of the original R10G10B10A2 RT as stencil, it seems)
+      forced_shader_names.emplace(Shader::Hash_StrToNum("8DE93667"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("51D367BC"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("CE21BEA0"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("F31113C3"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("25DB2618"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("DD83BF95"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("6B79C71C"), "Draw Lighting Buffer Phase 2");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("3072F024"), "Draw Lighting Buffer Phase 2");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("017E3BDB"), "Draw Baked Shadow?");
+
+      // Materials color draws (albedo * lighting)
+      forced_shader_names.emplace(Shader::Hash_StrToNum("6EC3069D"), "Geometry Emissive");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("0C957010"), "Geometry Emissive");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("A6DD1D4A"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("6DF38EAF"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("887768C1"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("499E61A0"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("F530F57E"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("BF126A0F"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("BAF71D9B"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("DBDF5BE0"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("FC49CA3E"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("5DBD05FA"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("187EA450"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("418C1E59"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("C4B728C1"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("CA7517FF"), "Geometry Transparent");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("63BB6A97"), "Geometry Transparent");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("918A45F7"), "Geometry Masked");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("885B3C34"), "Geometry Masked");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("42ABE850"), "Geometry Masked?");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("65DF6B49"), "Water");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("EC3A9A46"), "Water");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("FC028A8B"), "Water");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("0406BFD1"), "Water Foam");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("0F462D3A"), "Water Surface");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("C6751363"), "Fog");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("101D8193"), "Decal");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("7D95CF84"), "Decal");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("C66DE2DD"), "Decal");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("C6F8102C"), "Baked Shadow or Decal?");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("B341FEEC"), "Particles");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("4D830665"), "Particles");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("E49EDA53"), "Particles");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("11D02B9C"), "Particles");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("43C9CF87"), "Particles");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("CF09813F"), "Screen Space Light");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("31DECB17"), "Generate DoF Phase 1");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("AD7B753B"), "Generate DoF Phase 2");
+
+      forced_shader_names.emplace(Shader::Hash_StrToNum("8674BE1F"), "Swapchain Copy"); // Skipped if not needed (if the render and output resolution match)
+#endif
+
+      HMODULE hModule = GetModuleHandle(nullptr); // handle to the current executable
+      auto dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(hModule);
+      auto ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(
+         reinterpret_cast<std::byte*>(hModule) + dosHeader->e_lfanew);
+
+      std::byte* base = reinterpret_cast<std::byte*>(hModule);
+      std::size_t section_size = ntHeaders->OptionalHeader.SizeOfImage; // imageSize
+
+      const std::vector<std::byte> pattern = { std::byte{0x39}, std::byte{0x8E}, std::byte{0xE3}, std::byte{0x3F} };
+
+      aspect_ratio_pattern_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
+
+      // A bit weird to hardcode this, given that we might be windowed etc, but it's good to do it as early as possible
+      int screen_width = GetSystemMetrics(SM_CXSCREEN);
+      int screen_height = GetSystemMetrics(SM_CYSCREEN);
+      float screen_aspect_ratio = static_cast<float>(screen_width) / static_cast<float>(screen_height);
+      PatchAspectRatio(screen_aspect_ratio);
+
+      std::vector<ShaderDefineData> game_shader_defines_data = {
+         {"ENABLE_LUMA", '1', false, false, "Enables all Luma's post processing modifications, to improve the image and output HDR"},
+         {"ENABLE_FILM_GRAIN", '1', false, false, "Allow disabling the game's film grain effect"},
+         {"ENABLE_LENS_DISTORTION", '1', false, false, "Allow disabling the game's lens distortion effect"},
+         {"ENABLE_CHROMATIC_ABERRATION", '1', false, false, "Allow disabling the game's chromatic aberration effect"},
+#if DEVELOPMENT || TEST
+         {"ENABLE_FAKE_HDR", '0', false, false, "Enable a \"Fake\" HDR boosting effect (not usually necessary as the game's tonemapper can already extract highlights)"},
+#endif
+      };
+      shader_defines_data.append_range(game_shader_defines_data);
+
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+      // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning (likely as an extreme optimization)!
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
+      // Unity games almost always have a clear last shader, so we can pre-scale by the inverse of the UI brightness, so the UI can draw at a custom brightness.
+      // The UI usually draws in linear space too, though that's an engine setting.
+      GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
+
+      native_shaders_definitions.emplace(CompileTimeStringHash("Sanitize Lighting"), ShaderDefinition{ "Luma_SanitizeLighting", reshade::api::pipeline_subobject_type::pixel_shader });
+   }
+
+   void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      device_data.game = new GameDeviceDataINSIDE;
+   }
+
+   void OnInitSwapchain(reshade::api::swapchain* swapchain) override
+   {
+      auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
+      if (device_data.game) // TODO: is this necessary? It crashed once before I added it.
+      {
+         auto& game_device_data = *static_cast<GameDeviceDataINSIDE*>(device_data.game);
+
+         game_device_data.sanitize_nans_data = {};
+      }
+   }
+
+   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   {
+      auto& game_device_data = *static_cast<GameDeviceDataINSIDE*>(device_data.game);
+
+      if (original_shader_hashes.Contains(shader_hashes_LightingBuffer))
+      {
+         com_ptr<ID3D11RenderTargetView> rtv;
+         native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
+         if (rtv.get())
+         {
+            if (game_device_data.lighting_buffer_rtv != rtv)
+            {
+               game_device_data.lighting_buffer_rtv = rtv; // We don't clean this usually, to make sure we always find it in a new frame
+
+               game_device_data.lighting_buffer_srv = nullptr;
+               game_device_data.lighting_buffer_texture = nullptr;
+               game_device_data.lighting_buffer_width = 0;
+               game_device_data.lighting_buffer_height = 0;
+            }
+         }
+      }
+
+      if (original_shader_hashes.Contains(shader_hashes_LightingBufferEnd))
+      {
+         ASSERT_ONCE(game_device_data.lighting_buffer_rtv.get());
+         game_device_data.is_drawing_materials = true;
+
+         // Sanitize the lighting buffer, if it had values beyond 1 (which happens), it'd mean lighting would go subtractive/negative (it was stored with flipped values)
+         if (device_data.native_pixel_shaders[CompileTimeStringHash("Sanitize Lighting")].get() && game_device_data.lighting_buffer_rtv.get())
+         {
+            if (!game_device_data.lighting_buffer_srv.get())
+            {
+               com_ptr<ID3D11Resource> resource;
+               game_device_data.lighting_buffer_rtv->GetResource(&resource);
+               if (resource)
+               {
+                  game_device_data.lighting_buffer_texture = CloneTexture<ID3D11Texture2D>(native_device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_RENDER_TARGET, false, false, native_device_context);
+
+                  if (game_device_data.lighting_buffer_texture)
+                  {
+                     HRESULT hr = native_device->CreateShaderResourceView(game_device_data.lighting_buffer_texture.get(), nullptr, &game_device_data.lighting_buffer_srv);
+                     ASSERT_ONCE(SUCCEEDED(hr));
+
+                     com_ptr<ID3D11Texture2D> texture_2d;
+                     resource->QueryInterface(&texture_2d);
+                     if (texture_2d)
+                     {
+                        D3D11_TEXTURE2D_DESC texture_2d_desc;
+                        texture_2d->GetDesc(&texture_2d_desc);
+                        game_device_data.lighting_buffer_width = texture_2d_desc.Width;
+                        game_device_data.lighting_buffer_height = texture_2d_desc.Height;
+                     }
+                  }
+               }
+            }
+
+            if (game_device_data.lighting_buffer_srv.get() && game_device_data.lighting_buffer_width != 0)
+            {
+               DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+               draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
+
+               com_ptr<ID3D11Resource> rtv_resource;
+               game_device_data.lighting_buffer_rtv->GetResource(&rtv_resource);
+               native_device_context->CopyResource(game_device_data.lighting_buffer_texture.get(), rtv_resource.get());
+
+               if (test_index != 19) // TODO: delete
+               DrawCustomPixelShader(native_device_context,
+                  device_data.default_depth_stencil_state.get(),
+                  device_data.default_blend_state.get(),
+                  nullptr,
+                  device_data.native_vertex_shaders[CompileTimeStringHash("Copy VS")].get(),
+                  device_data.native_pixel_shaders[CompileTimeStringHash("Sanitize Lighting")].get(),
+                  game_device_data.lighting_buffer_srv.get(),
+                  game_device_data.lighting_buffer_rtv.get(),
+                  game_device_data.lighting_buffer_width, game_device_data.lighting_buffer_height);
+
+#if DEVELOPMENT
+               const std::shared_lock lock_trace(s_mutex_trace);
+               if (trace_running)
+               {
+                  const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+                  TraceDrawCallData trace_draw_call_data;
+                  trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+                  trace_draw_call_data.command_list = native_device_context;
+                  trace_draw_call_data.custom_name = "Sanitize Lighting Buffer";
+                  cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
+
+                  trace_draw_call_data.custom_name = "Start Drawing Scene Color";
+                  cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+               }
+#endif
+
+               draw_state_stack.Restore(native_device_context);
+            }
+         }
+#if DEVELOPMENT // Make sure to clear the texture in case shaders failed to re-compile, to avoid keeping unnecessary resources references
+         else
+         {
+            game_device_data.lighting_buffer_srv = nullptr;
+            game_device_data.lighting_buffer_texture = nullptr;
+            game_device_data.lighting_buffer_width = 0;
+            game_device_data.lighting_buffer_height = 0;
+         }
+#endif
+      }
+      else if (original_shader_hashes.Contains(shader_hashes_MaterialsEnd) && game_device_data.is_drawing_materials)
+      {
+         ASSERT_ONCE(game_device_data.scene_color_rtv.get());
+         game_device_data.is_drawing_materials = false;
+
+         DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+         DrawStateStack<DrawStateStackType::Compute> compute_state_stack;
+         draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
+         compute_state_stack.Cache(native_device_context, device_data.uav_max_count);
+
+         // Avoids nans spreading over the transparency phase and TAA etc (character shaders occasionally spit out some)
+         if (test_index != 18) // TODO: delete
+         SanitizeNaNs(native_device, native_device_context, device_data, game_device_data.scene_color_rtv.get(), game_device_data.sanitize_nans_data);
+
+#if DEVELOPMENT
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data;
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+            trace_draw_call_data.command_list = native_device_context;
+
+            trace_draw_call_data.custom_name = "Stop Drawing Scene Color";
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+
+            trace_draw_call_data.custom_name = "Start Drawing Transparency"; // TODO: add stop event for these (when post process ends)
+            cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
+
+            trace_draw_call_data.custom_name = "Sanitize Scene Color NaNs";
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(game_device_data.scene_color_rtv.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 3, trace_draw_call_data); // Add this one before any other
+         }
+#endif
+
+         draw_state_stack.Restore(native_device_context);
+         compute_state_stack.Restore(native_device_context);
+      }
+      else if (game_device_data.is_drawing_materials)
+      {
+         if (original_shader_hashes.Contains(shader_hashes_Materials))
+         {
+            com_ptr<ID3D11RenderTargetView> rtv;
+            native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
+            if (rtv.get())
+            {
+               ASSERT_ONCE(!game_device_data.scene_color_rtv.get() || game_device_data.scene_color_rtv == rtv); // We don't expect this to change within the materials rendering
+               game_device_data.scene_color_rtv = rtv; // We don't clean this usually, to make sure we always find it in a new frame
+            }
+         }
+
+#if 0 // This doesn't work won't prevent NaNs in the dest texture from persisting, there's no blend mode to force the source to override the dest value without having the dest spread/keep its nans // TODO: delete
+         com_ptr<ID3D11BlendState> blend_state;
+         FLOAT blend_factor[4] = { 1.f, 1.f, 1.f, 1.f };
+         UINT blend_sample_mask;
+         native_device_context->OMGetBlendState(&blend_state, blend_factor, &blend_sample_mask);
+         if (blend_state && test_index != 17)
+         {
+            D3D11_BLEND_DESC blend_desc;
+            blend_state->GetDesc(&blend_desc);
+
+            // Change the blend state to skip the destination values, so we don't carry around NaNs from the dest if we are simply overwriting it
+            // (this blend combination was identical to blending disabled, but still allowed NaNs to persist, which would only happen if we upgraded textures from UNORM to FLOAT)
+            if (blend_desc.RenderTarget[0].BlendEnable
+               && blend_desc.RenderTarget[0].SrcBlend == D3D11_BLEND_ONE
+               && blend_desc.RenderTarget[0].DestBlend == D3D11_BLEND_ZERO
+               && blend_desc.RenderTarget[0].BlendOp == D3D11_BLEND_OP_ADD
+               && blend_desc.RenderTarget[0].SrcBlendAlpha == D3D11_BLEND_ZERO
+               && blend_desc.RenderTarget[0].DestBlendAlpha == D3D11_BLEND_ZERO
+               && blend_desc.RenderTarget[0].BlendOpAlpha == D3D11_BLEND_OP_ADD
+               && blend_desc.RenderTarget[0].RenderTargetWriteMask == D3D11_COLOR_WRITE_ENABLE_ALL)
+            {
+               if (!game_device_data.custom_blend_state) // TODO: move initialziation
+               {
+                  ASSERT_ONCE(!blend_desc.IndependentBlendEnable || !blend_desc.RenderTarget[1].BlendEnable);
+
+                  com_ptr<ID3D11RenderTargetView> rtvs[2];
+                  native_device_context->OMGetRenderTargets(2, &rtvs[0], nullptr);
+                  ASSERT_ONCE(!rtvs[1]);
+
+                  blend_desc.RenderTarget->DestBlend = D3D11_BLEND_BLEND_FACTOR;
+                  blend_desc.RenderTarget->DestBlendAlpha = D3D11_BLEND_BLEND_FACTOR;
+
+                  native_device->CreateBlendState(&blend_desc, &game_device_data.custom_blend_state);
+               }
+
+               if (test_index != 18)
+               {
+                  blend_factor[0] = 0.f;
+                  blend_factor[1] = 0.f;
+                  blend_factor[2] = 0.f;
+                  blend_factor[3] = 0.f;
+                  native_device_context->OMSetBlendState(game_device_data.custom_blend_state.get(), blend_factor, blend_sample_mask);
+               }
+               // Test disable blending completely
+               else
+               {
+                  native_device_context->OMSetBlendState(nullptr, blend_factor, blend_sample_mask);
+               }
+            }
+         }
+#endif
+      }
+
+      if (original_shader_hashes.Contains(shader_hashes_TAA))
+      {
+         ASSERT_ONCE(!game_device_data.is_drawing_materials);
+         game_device_data.is_drawing_materials = false;
+         device_data.has_drawn_main_post_processing = true;
+      }
+
+      // Update the game's render resolution and texture upgrade aspect ratio filter based on the final swapchain shader, which converts from the render resolution to the output one
+      if (original_shader_hashes.Contains(shader_hashes_SwapchainCopy))
+      {
+         com_ptr<ID3D11ShaderResourceView> srv;
+         native_device_context->PSGetShaderResources(0, 1, &srv);
+         if (srv.get())
+         {
+            com_ptr<ID3D11Resource> resource;
+            srv->GetResource(&resource);
+
+            com_ptr<ID3D11Texture2D> texture_2d;
+            HRESULT hr = resource->QueryInterface(&texture_2d);
+            if (SUCCEEDED(hr) && texture_2d)
+            {
+               D3D11_TEXTURE2D_DESC texture_2d_desc;
+               texture_2d->GetDesc(&texture_2d_desc);
+
+               device_data.render_resolution.x = texture_2d_desc.Width;
+               device_data.render_resolution.y = texture_2d_desc.Height;
+            }
+         }
+      }
+
+      return false;
+   }
+
+   void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      auto& game_device_data = GetGameDeviceData(device_data);
+
+      ASSERT_ONCE(!game_device_data.is_drawing_materials);
+      game_device_data.is_drawing_materials = false;
+
+      if (!device_data.has_drawn_main_post_processing)
+      {
+         game_device_data.lighting_buffer_rtv.reset();
+         game_device_data.scene_color_rtv.reset();
+      }
+   }
+
+   void LoadConfigs() override
+   {
+      reshade::api::effect_runtime* runtime = nullptr;
+
+#if 0 // TODO: delete in all places
+      reshade::get_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+      reshade::get_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
+#endif
+
+      reshade::get_config_value(runtime, NAME, "CustomAspectRatio", max_aspect_ratio);
+      // Don't re-patch if the custom AR was disabled, we'll let the mod default to the output AR
+      if (max_aspect_ratio > 0.f)
+      {
+         PatchAspectRatio(max_aspect_ratio);
+      }
+   }
+
+   void DrawImGuiSettings(DeviceData& device_data) override
+   {
+      reshade::api::effect_runtime* runtime = nullptr;
+
+      ImGui::NewLine();
+
+#if 0
+      if (cb_luma_global_settings.DisplayMode == 1)
+      {
+         if (ImGui::SliderFloat("HDR Boost", &fake_hdr_effect, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+         {
+            reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("\"Artificially\" increases the amount of highlights in the game, given that the game's lighting was created for SDR and is fairly flat.\nHigher values are better to be reserved for lower \"Scene Paper White\" values.");
+         }
+         DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
+
+         if (ImGui::SliderFloat("Expand Color Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
+         {
+            reshade::set_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.\n0 is neutral/vanilla.");
+         }
+         DrawResetButton(expand_hdr_gamut, 0.1f, "ExpandHDRGamut", runtime);
+      }
+#endif
+
+      ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+      if (ImGui::TreeNode("Advanced Settings"))
+      {
+         bool custom_aspect_ratio_enabled = max_aspect_ratio > 0.f;
+         const float output_aspect_ratio = device_data.output_resolution.x / device_data.output_resolution.y;
+         if (ImGui::Checkbox("Custom Aspect Ratio", &custom_aspect_ratio_enabled))
+         {
+            if (custom_aspect_ratio_enabled)
+               max_aspect_ratio = output_aspect_ratio; // Start from the output AR (it's probably already patched in)
+            else
+               max_aspect_ratio = -1.f;
+            PatchAspectRatio(output_aspect_ratio);
+            reshade::set_config_value(runtime, NAME, "CustomAspectRatio", max_aspect_ratio);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Luma automatically unlocks the aspect ratio for the game from 16:9 on boot,"
+               "\nhowever the game was designed for 16:9, and some objects might be missing from the edges on wider aspect ratios, other might end up being visible before they were meant to,"
+               " this allows you to customize it.\nFor the change to apply, it's necessary to change the resolution or fullscreen state in the graphics settings menu.\nIf HDR seems disabled after changing the aspect ratio, restart the game"); // TODO: needs texture cloning as RTs are resized before the swapchain when we change resolution (aspect ratio)
+         }
+
+         if (custom_aspect_ratio_enabled)
+         {
+            // Going beyond the window aspect ratio won't work,
+            // nor going below 16:9 (the game never allows rendering below that).
+            if (ImGui::SliderFloat("Custom Aspect Ratio", &max_aspect_ratio, default_aspect_ratio, output_aspect_ratio))
+            {
+               reshade::set_config_value(runtime, NAME, "CustomAspectRatio", max_aspect_ratio);
+               PatchAspectRatio(max_aspect_ratio);
+            }
+            if (DrawResetButton(max_aspect_ratio, output_aspect_ratio, "CustomAspectRatio", runtime))
+            {
+               reshade::set_config_value(runtime, NAME, "CustomAspectRatio", max_aspect_ratio);
+               PatchAspectRatio(max_aspect_ratio);
+            }
+         }
+
+         ImGui::TreePop();
+      }
+   }
+
+#if DEVELOPMENT
+   void DrawImGuiDevSettings(DeviceData& device_data) override
+   {
+      reshade::api::effect_runtime* runtime = nullptr;
+   }
+#endif
+
+   void PrintImGuiAbout() override
+   {
+      ImGui::Text("Luma for \"INSIDE\" is developed by Pumbo and is open source and free.\n"
+         "It adds HDR rendering and output, improved SDR output, improved tonemapping,\n"
+         "and additionally it adds ultrawide compatibility.\n"
+         "If you enjoy it, consider donating.", "");
+
+      const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+      const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+      const auto button_active_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+      ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo.c_str()))
+      {
+         system("start https://buymeacoffee.com/realfiloppi");
+      }
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str()))
+      {
+         system("start https://ko-fi.com/realpumbo");
+      }
+      ImGui::PopStyleColor(3);
+
+      ImGui::NewLine();
+      // Restore the previous color, otherwise the state we set would persist even if we popped it
+      ImGui::PushStyleColor(ImGuiCol_Button, button_color);
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
+      static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);
+      if (ImGui::Button(social_link.c_str()))
+      {
+         // Unique link for Luma by Pumbo (to track the origin of people joining), do not share for other purposes
+         static const std::string obfuscated_link = std::string("start https://discord.gg/J9fM") + std::string("3EVuEZ");
+         system(obfuscated_link.c_str());
+      }
+      static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
+      if (ImGui::Button(contributing_link.c_str()))
+      {
+         system("start https://github.com/Filoppi/Luma-Framework");
+      }
+      ImGui::PopStyleColor(3);
+
+      ImGui::NewLine();
+      ImGui::Text("Credits:"
+         "\n\nMain:"
+         "\nPumbo"
+
+         "\n\nThird Party:"
+         "\nReShade"
+         "\nImGui"
+         "\nRenoDX"
+         "\n3Dmigoto"
+         "\nOklab"
+         "\nDICE (HDR tonemapper)"
+         , "");
+   }
+};
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+{
+   if (ul_reason_for_call == DLL_PROCESS_ATTACH)
+   {
+      Globals::SetGlobals(PROJECT_NAME, "INSIDE Luma mod");
+      Globals::VERSION = 2;
+
+      // Unity apparently never uses these
+      luma_settings_cbuffer_index = 13;
+      luma_data_cbuffer_index = 12;
+
+      enable_swapchain_upgrade = true;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
+      enable_texture_format_upgrades = true;
+      texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio | (uint32_t)TextureFormatUpgrades2DSizeFilters::RenderAspectRatio;
+      // PoPTLC only requires r8g8b8a8_typeless but will work with others regardless
+      texture_upgrade_formats = {
+            reshade::api::format::r8g8b8a8_unorm,
+            reshade::api::format::r8g8b8a8_unorm_srgb,
+            reshade::api::format::r8g8b8a8_typeless,
+            reshade::api::format::r11g11b10_float,
+      };
+
+      redirected_shader_hashes["Tonemap"] = { "2FE2C060", "BEC46939", "90337E76", "8DEE69CB", "BA96FA20", "2D6B78F6", "A5777313", "0AE21975", "519DF6E7", "C5DABDD4", "9D414A70", "BFAB5215", "C4065BE1", "F0503978" };
+
+#if DEVELOPMENT // Unity flips Y coordinates on all textures until the final swapchain draws
+      debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::FlipY;
+#endif
+
+      game = new INSIDE();
+   }
+
+   CoreMain(hModule, ul_reason_for_call, lpReserved);
+
+   return TRUE;
+}

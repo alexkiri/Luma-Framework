@@ -62,6 +62,17 @@ namespace Shader
       = true;
 #endif
 
+   struct SimplerShaderDefine
+   {
+      std::string name;
+      std::string value;
+
+      bool operator==(const SimplerShaderDefine& other) const noexcept
+      {
+         return name == other.name && value == other.value;
+      }
+   };
+
    struct ShaderDefineData
    {
       ShaderDefineData(const char* name = "", char value = '\0', bool _fixed_name = false, bool _fixed_value = false, const char* _tooltip = nullptr) :

@@ -133,29 +133,29 @@ namespace Patches
          reinterpret_cast<std::byte*>(hModule) + dosHeader->e_lfanew);
 
       std::byte* base = reinterpret_cast<std::byte*>(hModule);
-      std::size_t sectionSize = ntHeaders->OptionalHeader.SizeOfImage; // imageSize
+      std::size_t section_size = ntHeaders->OptionalHeader.SizeOfImage; // imageSize
 
       std::vector<std::byte> pattern;
       
       // There seems to be only one of these
       // This seems to be in the "rdata" section
       pattern = { std::byte{0x38}, std::byte{0x8E}, std::byte{0xE3}, std::byte{0x3F} }; // Just 16.f/9.f in memory
-      pattern_1_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_1_addresses = System::ScanMemoryForPattern2(base, section_size, pattern);
 
       // TODO: try to patch the other 0x39 version too?
       pattern = { std::byte{0x39}, std::byte{0x8E}, std::byte{0xE3}, std::byte{0x3F} };
       static std::vector<std::byte*> pattern_1b_addresses;
-      pattern_1b_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_1b_addresses = System::ScanMemoryForPattern2(base, section_size, pattern);
 
       // There seems to be only one of these
       // This is probably also in the the "rdata" section
       pattern = { std::byte{0x00}, std::byte{0x00}, std::byte{0x10}, std::byte{0x41}, std::byte{0x00}, std::byte{0x00}, std::byte{0x20}, std::byte{0x41}, std::byte{0x00}, std::byte{0x00}, std::byte{0x50} }; // Projection matrix aspect ratio dependent stuff? 9, 10, ... in float
-      pattern_2_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_2_addresses = System::ScanMemoryForPattern2(base, section_size, pattern);
 
       // There seems to be only one of these
       // This is probably also in the the "text" (code) section
       pattern = { std::byte{0xF3}, std::byte{0x0F}, std::byte{0x10}, std::byte{0xB0}, std::byte{0x08}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0xE8} };
-      pattern_3_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_3_addresses = System::ScanMemoryForPattern2(base, section_size, pattern);
    }
    
    void AllocateData()

@@ -142,7 +142,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       enable_ui_separation = false; //TODOFT
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,

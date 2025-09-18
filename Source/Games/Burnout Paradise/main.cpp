@@ -30,7 +30,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // ### Check which of these are needed and remove the rest ###
       texture_upgrade_formats = {

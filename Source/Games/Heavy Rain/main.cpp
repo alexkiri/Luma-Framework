@@ -55,7 +55,7 @@ public:
 
    void OnLoad(std::filesystem::path& file_path, bool failed) override
    {
-      if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) == NULL) {
+      if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) != NULL) {
          if (MessageBoxA(NULL, "This mod only works on the Steam and GOG versions of the game.\nUltrawide fixes will also work on the Epic Store version, but custom shaders might not all load, as that's an older version of the game.", "Incompatible Game Version", MB_OK | MB_SETFOREGROUND) == IDOK) {
             // Just continue for now
          }
@@ -289,7 +289,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // Most of these are probably not needed, the game always uses B8G8R8A8_UNORM, with no SRGB views etc
       texture_upgrade_formats = {

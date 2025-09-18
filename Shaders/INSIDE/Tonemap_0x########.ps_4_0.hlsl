@@ -34,6 +34,15 @@ SamplerState s2_s : register(s2);
 SamplerState s1_s : register(s1);
 SamplerState s0_s : register(s0);
 
+// Common or sensible defaults
+#define USER_BRIGHTNESS 1
+
+// TODO: flip this default
+#if _8DEE69CB || _BEC46939 || _C5DABDD4 || _BFAB5215 || _0AE21975 || _2D6B78F6 || _F0503978
+#undef USER_BRIGHTNESS
+#define USER_BRIGHTNESS 0
+#endif
+
 // Shader permutations:
 // 0x2FE2C060 - Default gameplay
 // 0xBEC46939 - Default gameplay but user lowered brightness
@@ -52,10 +61,11 @@ SamplerState s0_s : register(s0);
 // 
 // TODO: play the whole game to get all permutations, e.g. death in water, or water without color filter etc
 // (e.g. search for "0x7ef311c3", there seems to be 64 in total, so 8 base setings, there's a copy of each shader without lens distortion (and thus chromatic aberration))
-// TODO: make sure that with our settings disabled, it looks identical to vanilla (e.g. try the trailer scene with the guys looking at the curved window)
+// Same for TAA but it seems like it's done
 
 cbuffer cb0 : register(b0)
 {
+// TODO: splitting here it's not necessary, we can always allow more CBs
 #if _BA96FA20 || _519DF6E7 || _2D6B78F6 || _0AE21975 || _C5DABDD4 || _BFAB5215 || _9D414A70 || _A5777313
   float4 cb0[14];
 #elif _90337E76 || _8DEE69CB || _C4065BE1 || _F0503978
@@ -74,6 +84,7 @@ float3 Quake_rsqrt(float3 number)
     return y;
 }
 
+// Alpha is emissiveness
 float GetSceneWeightFromAlpha(float sceneColorAlpha)
 {
   float sceneWeight = saturate(sceneColorAlpha); // Luma: add saturate on alpha just to make sure texture upgrades didn't make the value go beyond 0-1
@@ -89,7 +100,7 @@ float3 AdjustBloom(float3 bloomColor)
 #if ENABLE_LUMA
   return sqr_mirrored(bloomColor); // Luma: added mirroring to preserve scRGB colors
 #else // !ENABLE_LUMA
-  return sqr(bloomColor);
+  return sqr(saturate(bloomColor));
 #endif // ENABLE_LUMA
 }
 
@@ -103,30 +114,32 @@ float3 OptionalSaturate(float3 x)
 #endif // ENABLE_LUMA
 }
 
+float3 ApplyColorFilter(float3 color, float3 colorFilter)
+{
+#if ENABLE_LUMA // Mirror the rgb scaling in the opposite direction. Like... if red was meant to be doubled, scaling its negative value by 2 will actually halve it
+  return (color >= 0.0 || colorFilter <= FLT_EPSILON) ? (color * colorFilter) : (color / colorFilter);
+#else // !ENABLE_LUMA
+  return color * colorFilter;
+#endif // ENABLE_LUMA
+}
+
 // Cubic polynomial
-float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAdditive, float4 polynomialParams)
+float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAdditive, float4 polynomialParams, float midtonesHDRBoost = 0.0, float highlightsHDRBoost = 0.0)
 {
   // Params:
   // x: highlights intensity  (directly proportional) (can be 0, and defaults to it, changes if the user changes the brightness)
-  // y: midtones and highlights intensity (directly proportional) (can be 0, and defaults to it, changes if the user changes the brightness)
+  // y: midtones and highlights intensity (directly proportional) (can be 0, and defaults to it, changes if the user changes the brightness) (this also slightly lowers blacks when raised, acting as contrast)
   // z: subtractive color (higher means darker, on the whole range, similar to pow) (best left untouched, it cold crush and clip blacks if changed)
   // w: additive color (higher means brighter, usually 0)
   // levelAdditive: raises blacks a bit, but if set to 0, it can crush them, so it's likely compensated by the other params (e.g. z and "levelAdditive"?).
   
-#if ENABLE_LUMA && DEVELOPMENT && 0 // TODO: play the whole game making sure these params are always 0, so that the mod can reliably change them (it should work anyway!)? These are changed by the user brightness setting, so it's ok!
-  if (polynomialParams.x != 0.0 || polynomialParams.y != 0.0)
-  {
-    return float3(1.0, 0.0, 1.0);
-  }
-#endif
-
 #if ENABLE_LUMA && 1
   // Changing these will automatically output images in the HDR range!
+  // Note that these are already changed by the user brightness setting so that's best left at default. It doesn't seem like these are ever changed depending on the game scene.
   if (LumaSettings.DisplayMode == 1) // HDR mode, leave SDR as it was
   {
-    // TODO: further raise highlights if our peak is beyond 1000 nits?
-    polynomialParams.x += 1.0; // Raise highlights (we could afford to go a bit higher too, but it looks too much in some scenes, AutoHDR like)
-    polynomialParams.y += 1.0; // Raise midtones and highlights
+    polynomialParams.x += highlightsHDRBoost; // Raise highlights (we could afford to go a bit higher too, but it looks too much in some scenes, AutoHDR like). Setting this to negative values can break the image.
+    polynomialParams.y += midtonesHDRBoost; // Raise midtones and highlights. It also crushes blacks a bit, acting as contrast.
   }
 #elif DEVELOPMENT && 0
   polynomialParams.x += LumaSettings.DevSetting06 * 2.0;
@@ -142,7 +155,7 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
 
   float3 c1 = OptionalSaturate(color * levelMultiplication + levelAdditive); // Multiply and add (first) // Luma: removed saturate
 
-#if _BA96FA20 || _519DF6E7 || _9D414A70 || _BFAB5215 || _C5DABDD4 || _0AE21975 || _2D6B78F6 || _A5777313 // These shader permutations have more parameters, it's seemengly some color filter
+#if _BA96FA20 || _519DF6E7 || _9D414A70 || _BFAB5215 || _C5DABDD4 || _0AE21975 || _2D6B78F6 || _A5777313 // These shader permutations have more parameters, it's seemengly some color filter, or desaturation
   // TODO: expose the cbs as func params
   float3 scaledC = cb0[3].rgb * c1;
   float2 rg_rb = scaledC.rr + scaledC.gb;
@@ -159,12 +172,24 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
   return (c1 * c3) + polynomialParams.w;
 }
 
+// Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
+float3 ApplyCustomCurveWrapped(float3 color, float levelMultiplication, float levelAdditive, float4 polynomialParams, float midtonesHDRBoost = 0.0, float highlightsHDRBoost = 0.0)
+{
+  const float3 zeroShift = ApplyCustomCurve(0.0, levelMultiplication, levelAdditive, polynomialParams, midtonesHDRBoost, highlightsHDRBoost);
+  float3 colorSigns = sign(color);
+  color = ApplyCustomCurve(abs(color), levelMultiplication, levelAdditive, polynomialParams, midtonesHDRBoost, highlightsHDRBoost);
+  color -= zeroShift;
+  color *= colorSigns;
+  color += zeroShift;
+  return color;
+}
+
 // Applies bloom and some minor color filtering, and lens distortion
 void main(
   float4 v0 : SV_POSITION0,
-  float2 v1 : TEXCOORD0, // TODO: very the signature is right (it should be!)
+  float2 v1 : TEXCOORD0,
   nointerpolation float4 v2 : TEXCOORD1,
-#if _8DEE69CB || _BEC46939 || _C5DABDD4 || _BFAB5215 || _0AE21975 || _2D6B78F6 || _F0503978
+#if !USER_BRIGHTNESS
   nointerpolation float2 v3 : TEXCOORD2,
 #else
   nointerpolation float3 v3 : TEXCOORD2,
@@ -175,15 +200,19 @@ void main(
 
   const float fadeToWhite = cb0[11].x; // White at 1
   const float colorFilterIntensity = cb0[6].z; // Neutral (unfiltered) at 0. Color filtering isn't always used
-  const float blackFloor = cb0[10].x * DVS2; // TODO: clear
+  const float blackFloor = cb0[10].x;
   const float colorPow = cb0[10].z;
-#if _8DEE69CB || _BEC46939 || _C5DABDD4 || _BFAB5215 || _0AE21975 || _2D6B78F6 || _F0503978
-  const float fadeToBlackOrVignetteOrUserBrightness = 1.0; // TODO: rename
+#if !USER_BRIGHTNESS
+  const float userBrightness = 1.0;
 #else
   // Black at 0 (could also be vignette (exclusively based on the horizontal axis), though that's not used (at least not in every scene))
   // Update: this is likely to be the user brightness (if the brightness is >= default), as it's not in the shader if the user lowers the brightness
-  const float fadeToBlackOrVignetteOrUserBrightness = v3.z;
+  const float userBrightness = v3.z;
 #endif
+  // TODO: expose these to the user? At least the mid tones?
+  float midtonesHDRBoost = 0.5;
+  float highlightsHDRBoost = 1.0;
+
 	float screenWidth, screenHeight;
 	sceneTexture.GetDimensions(screenWidth, screenHeight);
 
@@ -251,8 +280,8 @@ void main(
   float3 centralBloomColor = bloomTexture.Sample(s2_s, currentSceneUV).rgb;
   centralBloomColor = AdjustBloom(centralBloomColor);
 
-  float3 sceneColor = centralSceneColor.rgb * centralColorFilter;
-  float3 bloomColor = centralBloomColor * centralColorFilter;
+  float3 sceneColor = ApplyColorFilter(centralSceneColor.rgb, centralColorFilter);
+  float3 bloomColor = ApplyColorFilter(centralBloomColor, centralColorFilter);
   float3 colorFilter = centralColorFilter;
 
   // Other 7 iterations.
@@ -285,8 +314,8 @@ void main(
   finalColorFilter = hackyMathResult * asfloat(r0i);
 #endif
 
-  float3 scaledSceneColor = OptionalSaturate(sceneColor * finalColorFilter); // Luma: removed saturate
-  float3 scaledBloomColor = OptionalSaturate(bloomColor * finalColorFilter); // Luma: removed saturate
+  float3 scaledSceneColor = OptionalSaturate(ApplyColorFilter(sceneColor, finalColorFilter)); // Luma: removed saturate
+  float3 scaledBloomColor = OptionalSaturate(ApplyColorFilter(bloomColor, finalColorFilter)); // Luma: removed saturate
   float3 invertedScaledSceneColor = 1.0 - scaledSceneColor;
   float3 invertedScaledBloomColor = 1.0 - scaledBloomColor;
   // Compose bloom
@@ -297,9 +326,10 @@ void main(
 #endif // ENABLE_LUMA
   float3 scaledComposedColor = 1.0 - invertedScaledComposedColor;
 
-#if ENABLE_LUMA && 1 // Luma: replace the clipped min black + black crush, with a lerp to black, given it killed black detail (this lowers brightness usually)
+#if ENABLE_LUMA && 1 // Luma: replace the clipped min black + black crush, with a lerp to black, given it killed near black detail (this lowers brightness usually). There's a few scenes where this was meant to hide detail, but overall it's not nice.
   const float blackFloorScale = 2.0; // Empyrically found value that keeps the blacks level roughly the same without clipping it (note that this is calibrated to also match the original black level with the additive film grain). Values like 5 would be a better match in some scenes, but they'd completely destroy other scenes.
-  scaledComposedColor = lerp(0.0, scaledComposedColor, blackFloor == 0.0 ? 1.0 : sqr(saturate(scaledComposedColor / (blackFloor * blackFloorScale))));
+  float3 blackFloorCorrectionRatio = blackFloor == 0.0 ? 1.0 : sqr(saturate(scaledComposedColor / (blackFloor * blackFloorScale)));
+  scaledComposedColor = lerp(0.0, scaledComposedColor, blackFloorCorrectionRatio);
 #else // !ENABLE_LUMA
   scaledComposedColor = max(blackFloor, scaledComposedColor) - blackFloor;
 #endif // ENABLE_LUMA
@@ -331,14 +361,39 @@ void main(
   scaledComposedColor += someColor1 * 0.5;
 #endif
 
-  // The main tonemapping (it seemengly darkens the game usually)
-#if ENABLE_LUMA // Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
-  const float3 zeroShift = ApplyCustomCurve(0.0, v3.y, v3.x, v2); //TODO: run in BT.2020?
-  float3 scaledComposedColorSigns = sign(scaledComposedColor);
-  scaledComposedColor = ApplyCustomCurve(abs(scaledComposedColor), v3.y, v3.x, v2);
-  scaledComposedColor -= zeroShift;
-  scaledComposedColor *= scaledComposedColorSigns;
-  scaledComposedColor += zeroShift;
+  // The main tonemapping
+  // It seemengly darkens the game usually, and extracts a lot of highlights from the already dim image, given that the range was mostly within SDR even if textures were upgraded
+#if ENABLE_LUMA
+  bool TM_BT2020 = LumaSettings.DisplayMode == 1; // It seems to look a bit better, usually it barely makes any difference
+  const bool TM_ByLuminance = false;
+  scaledComposedColor = TM_BT2020 ? BT709_To_BT2020(scaledComposedColor) : scaledComposedColor;
+  float3 tonemapByChannel = ApplyCustomCurveWrapped(scaledComposedColor, v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost);
+  float tonemapByLuminance = average(ApplyCustomCurveWrapped(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709), v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost));
+  if (!TM_ByLuminance)
+  {
+    scaledComposedColor = tonemapByChannel;
+    
+    // In HDR, desaturate highlights to get a look closer to SDR (HDR tonemapper output is more saturated due to the more aggressive params)
+    if (LumaSettings.DisplayMode == 1)
+    {
+      const bool desaturateInLinear = true; // Slightly more accurate in most cases
+      float highlightsBoost = (midtonesHDRBoost + highlightsHDRBoost) / 2.0; // These are usually both in 0-1 range and rougly boost saturation equally
+      // Values closer to 0.5 provide a look more similar to SDR, but then HDR would end up looking like SDR. 0.333 can desaturate too little in a few scenes that feel too "joyful" for the game, but most of the scene textures are already a grey scale,
+      // so this rarely matters, and it allows for a few colorful things to shine through HDR.
+      float maxDesaturation = 0.333 * highlightsBoost; // TODO: expose to users to get a vanilla look as well? Or a more colorful one?
+
+      scaledComposedColor = desaturateInLinear ? gamma_to_linear(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
+      float saturation = 1.0 - saturate(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709) - (desaturateInLinear ? MidGray : 0.5)) * maxDesaturation;
+      scaledComposedColor = Saturation(scaledComposedColor, saturation, TM_BT2020 ? CS_BT2020 : CS_BT709);
+      scaledComposedColor = desaturateInLinear ? linear_to_gamma(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
+    }
+  }
+  else
+  {
+    float TM_ByLuminance_Amount = 0.5; // TODO: all this branch. It's got artifacts near black now. Luminance should be calculated in linear etc. This might also loose the color filtering the tonemapper applies...
+    scaledComposedColor = lerp(tonemapByChannel, RestoreLuminance(scaledComposedColor, tonemapByLuminance, true, TM_BT2020 ? CS_BT2020 : CS_BT709), TM_ByLuminance_Amount);
+  }
+  scaledComposedColor = TM_BT2020 ? BT2020_To_BT709(scaledComposedColor) : scaledComposedColor;
 #else
   scaledComposedColor = ApplyCustomCurve(scaledComposedColor, v3.y, v3.x, v2);
 #endif
@@ -349,22 +404,25 @@ void main(
   otherFilter = (1.0 - barsColor) * float3(0.0980392173, 0.121568628, 0.141176477) + barsColor;
 #endif
 
-  outColor.rgb = (scaledComposedColor * fadeToBlackOrVignetteOrUserBrightness * otherFilter) + noise.rgb;
+  outColor.rgb = (scaledComposedColor * userBrightness * otherFilter) + noise.rgb;
 
 #if ENABLE_LUMA // Luma: HDR display mapping and UI etc
   outColor.rgb = gamma_to_linear(outColor.rgb, GCT_MIRROR);
+  
+#if 1 // This might slightly change a lot of colors due to the game's strong dithering
+	FixColorGradingLUTNegativeLuminance(outColor.rgb);
+#endif
 
 #if ENABLE_FAKE_HDR // Not really needed anymore after tweaking the tonemapper
   float normalizationPoint = 0.25; // Found empyrically
   float fakeHDRIntensity = 0.5;
   bool boostSaturation = false;
-#if 0 // TODO: delete
+#if 1 // TODO: delete
   normalizationPoint = LumaSettings.DevSetting01;
-  fakeHDRIntensity =  LumaSettings.DevSetting02;
-  boostSaturation =  LumaSettings.DevSetting03 > 0.5;
+  fakeHDRIntensity = LumaSettings.DevSetting02;
 #endif
   outColor.rgb = FakeHDR(outColor.rgb, normalizationPoint, fakeHDRIntensity, boostSaturation);
-#endif
+#endif // ENABLE_FAKE_HDR
 
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
   const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
@@ -383,6 +441,10 @@ void main(
 #endif
 
   outColor.rgb = linear_to_gamma(outColor.rgb, GCT_MIRROR);
+#else
+#if UI_DRAW_TYPE == 2
+  outColor.rgb *= pow(LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits, 1.0 / DefaultGamma);
+#endif
 #endif // ENABLE_LUMA
 
 #if _C4065BE1 || _F0503978 // Death permutations

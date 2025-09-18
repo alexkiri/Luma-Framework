@@ -393,7 +393,7 @@ namespace Shader
          std::wstring file_path_cso = file_path;
          if (file_path_cso.ends_with(L".hlsl"))
          {
-            file_path_cso = file_path_cso.substr(0, file_path_cso.size() - 5);
+            file_path_cso = file_path_cso.substr(0, file_path_cso.size() - 5); // strlen(".hlsl")
             file_path_cso += L".cso";
          }
          else if (!file_path_cso.ends_with(L".cso"))
@@ -416,22 +416,25 @@ namespace Shader
       return file_loaded;
    }
 
-   void CompileShaderFromFileFXC(std::vector<uint8_t>& output, const CComPtr<ID3DBlob>& optional_uncompiled_code_input, LPCWSTR file_read_path, LPCSTR shader_target, const D3D_SHADER_MACRO* defines = nullptr, bool save_to_disk = false, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR file_write_path = nullptr, LPCSTR func_name = "main")
+   void CompileShaderFromFileFXC(std::vector<uint8_t>& output, const CComPtr<ID3DBlob>& optional_uncompiled_code_input, LPCWSTR file_read_path, LPCSTR shader_target, const D3D_SHADER_MACRO* defines = nullptr, bool save_to_disk = false, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR file_write_path = nullptr, LPCSTR func_name = nullptr)
    {
       UINT flags1 = 0;
-      if (shader_target[3] <= '4' || (shader_target[3] == '5' && shader_target[5] == '0'))
-         flags1 |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY; // /Gec
-#if _DEBUG
+      //if (shader_target[3] <= '4' || (shader_target[3] == '5' && shader_target[5] == '0'))
+      //   flags1 |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY; // /Gec
+#if _DEBUG && 0
       flags1 |= D3DCOMPILE_DEBUG; // /Zi
       flags1 |= D3DCOMPILE_SKIP_OPTIMIZATION; // /Od
       if ((flags1 & D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY) == 0) // Not mutually compatible
          flags1 |= D3DCOMPILE_ENABLE_STRICTNESS; // /Ges
       flags1 |= D3DCOMPILE_IEEE_STRICTNESS; // /Gis
 #else
-      flags1 |= D3DCOMPILE_OPTIMIZATION_LEVEL3; // /O3
+      flags1 |= D3DCOMPILE_OPTIMIZATION_LEVEL0; // /O3
       //flags1 |= D3DCOMPILE_SKIP_VALIDATION; // Faster to compile? We could do this in publishing mode
       //flags1 |= D3DCOMPILE_SKIP_REFLECTION_DATA; // It removes the reflections data, I don't think we want this
 #endif
+
+      if (func_name == nullptr)
+         func_name = "main";
 
       auto custom_include = FxcD3DInclude(file_read_path);
 
@@ -489,7 +492,7 @@ namespace Shader
             std::wstring file_path_cso = (file_write_path && file_write_path[0] != '\0') ? file_write_path : file_read_path;
             if (file_path_cso.ends_with(L".hlsl"))
             {
-               file_path_cso = file_path_cso.substr(0, file_path_cso.size() - 5);
+               file_path_cso = file_path_cso.substr(0, file_path_cso.size() - 5); // strlen(".hlsl")
                file_path_cso += L".cso";
             }
             else if (!file_path_cso.ends_with(L".cso"))
@@ -722,8 +725,11 @@ namespace Shader
       return CompileFromBlob(source, file_name, defines, include_handler, entrypoint, target, flags1, flags2, code, error_messages);
    }
 
-   void CompileShaderFromFileDXC(std::vector<uint8_t>& output, LPCWSTR file_path, LPCSTR shader_target, const D3D_SHADER_MACRO* defines = nullptr, bool& error = dummy_bool, LPCSTR func_name = "main", std::string* out_error = nullptr)
+   void CompileShaderFromFileDXC(std::vector<uint8_t>& output, LPCWSTR file_path, LPCSTR shader_target, const D3D_SHADER_MACRO* defines = nullptr, bool& error = dummy_bool, LPCSTR func_name = nullptr, std::string* out_error = nullptr)
    {
+      if (func_name == nullptr)
+         func_name = "main";
+
       CComPtr<ID3DBlob> out_blob;
       CComPtr<ID3DBlob> error_blob;
       // TODO: add optional input (code) blob here too
@@ -781,7 +787,7 @@ namespace Shader
       }
    }
 
-   void CompileShaderFromFile(std::vector<uint8_t>& output, const CComPtr<ID3DBlob>& optional_uncompiled_code_input, LPCWSTR file_path, LPCSTR shader_target, const std::vector<std::string>& defines = {}, bool save_to_disk = false, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR file_write_path = nullptr, LPCSTR func_name = "main")
+   void CompileShaderFromFile(std::vector<uint8_t>& output, const CComPtr<ID3DBlob>& optional_uncompiled_code_input, LPCWSTR file_path, LPCSTR shader_target, const std::vector<std::string>& defines = {}, bool save_to_disk = false, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR file_write_path = nullptr, LPCSTR func_name = nullptr)
    {
       std::vector<D3D_SHADER_MACRO> local_defines;
       FillDefines(defines, local_defines);

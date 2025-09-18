@@ -43,6 +43,7 @@ void main(
 #if 1 // Luma: character light intensity (1 is vanilla)
   float smoothnessParam = asfloat(LumaData.CustomData2);
   float intensityParam = LumaData.CustomData3;
+  // TODO: there's a second character light that happens just before bloom at the end, PS hash: 0x7418DC7D, however it's probably a generic shader so it'd need a hook to add tweak params there
 
   if (o0.w > 0.0)
     o0.w = pow(o0.w / v1.w, smoothnessParam >= 1.0 ? remap(smoothnessParam, 1.0, 2.0, 1.0, 2.0) : remap(smoothnessParam, 0.0, 1.0, 0.667, 1.0)) * v1.w; // Normalize it before scaling, so we avoid doing a pow around the (e.g.) 0-0.5 range, which changes the intensity of the peak as well
