@@ -314,6 +314,11 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11Buffer> cb_per_view_global_buffer;
 #if DEVELOPMENT
    std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers;
+   std::unordered_set<ID3D11Buffer*> cb_non_per_view_global_buffers;
+#endif
+#if GAME_PREY // TODO: temp
+   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers_confirmed;
+   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers_denied;
 #endif
    void* cb_per_view_global_buffer_map_data = nullptr;
 #if DEVELOPMENT
