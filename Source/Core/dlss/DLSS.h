@@ -1,7 +1,7 @@
 #pragma once
 
 #ifndef ENABLE_NGX
-#define ENABLE_NGX 1
+#define ENABLE_NGX 0
 #endif // ENABLE_NGX
 
 #if ENABLE_NGX
