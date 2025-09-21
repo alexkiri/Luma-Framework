@@ -8,8 +8,6 @@
 
 #include "..\..\Core\core.hpp"
 
-#include "..\..\Core\dlss\DLSS.cpp"
-
 namespace
 {
 	float2 projection_jitters = { 0, 0 };

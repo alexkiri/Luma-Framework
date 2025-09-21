@@ -307,6 +307,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Core\unity_build.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="patches\Patches.cpp" />
   </ItemGroup>

@@ -2,6 +2,7 @@
 
 #include "..\..\Core\core.hpp"
 
+// TODO: rename all
 struct GameDeviceDataTemplate final : public GameDeviceData
 {
 };

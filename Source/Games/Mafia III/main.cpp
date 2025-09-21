@@ -6,8 +6,6 @@
 
 #include "..\..\Core\core.hpp"
 
-#include "..\..\Core\dlss\DLSS.cpp"
-
 uint32_t GetHaltonSequencePhases(float renderResY, float outputResY, float basePhases)
 {
    // NV DLSS suggested formula

@@ -1,5 +1,6 @@
 #include "../Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
+#include "../Includes/Reinhard.hlsl"
 
 cbuffer DrawableBuffer : register(b1)
 {
@@ -66,7 +67,7 @@ Texture2D<float4> p_default_Material_0C25AF6416088781_Param_texture : register(t
 #define ENABLE_DESATURATION 1
 #endif
 
-// This is from the original game, or the golder filter restoration mod
+// This is from the original game, or the golder filter restoration mod. The DC edition doesn't run it be default.
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
@@ -97,7 +98,7 @@ void main(
   color = lerp(luminance, color, saturationAmount);
 #endif // ENABLE_DESATURATION
 
-//TODO: Do this before bloom?
+//TODO: Do this before bloom? Or skip it partially on alpha (bloom).
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
   float normalizationPoint = 0.25; // Found empyrically
   float fakeHDRIntensity = 0.5;
@@ -137,7 +138,8 @@ void main(
     isLinear = true;
   }
   // "pow(pow(x, gamma) * pow(y, gamma), 1.0 / gamma)" is equal to "x * y", so we should only do it if we want to preserve the exact original behaviour
-  color = color * gamma_to_linear(finalFilter);
+  finalFilter = gamma_to_linear(finalFilter);
+  color = (color >= 0.0 || finalFilter <= FLT_EPSILON) ? (color * finalFilter) : (color / finalFilter); // Scale negative colors with the inverse value
 #else // !ENABLE_IMPROVED_COLOR_GRADING
   color *= finalFilter;
 #endif // ENABLE_IMPROVED_COLOR_GRADING
@@ -157,14 +159,31 @@ void main(
 
 #if 1 // Luma
   if (!isLinear)
+  {
     o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
+    isLinear = true;
+  }
+  
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
   const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-	DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+  if (LumaSettings.DisplayMode == 1)
+  {
+	  DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
 #if 0
-  settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
+    settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
 #endif
-  o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
+    o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
+  }
+  else
+  {
+    o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
+    o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+  }
+  
+#if UI_DRAW_TYPE == 2
+  o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+#endif // UI_DRAW_TYPE == 2
+
   o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);
 #endif
 }

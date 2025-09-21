@@ -25,6 +25,20 @@ public:
       return *static_cast<GameDeviceDataHeavyRain*>(device_data.game);
    }
 
+   void OnLoad(std::filesystem::path& file_path, bool failed) override
+   {
+      if (!failed)
+      {
+         if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) != NULL) {
+            if (MessageBoxA(NULL, "This mod only works on the Steam and GOG versions of the game.\nUltrawide fixes will also work on the Epic Store version, but custom shaders might not all load, as that's an older version of the game.", "Incompatible Game Version", MB_OK | MB_SETFOREGROUND) == IDOK) {
+               // Just continue for now
+            }
+         }
+
+         Patches::Init(NAME, Globals::VERSION); // This might already try to patch the executably but likely not as it's still got the default aspect ratio (we don't know the window AR yet)
+      }
+   }
+
    void OnInit(bool async) override
    {
       std::vector<ShaderDefineData> game_shader_defines_data = {
@@ -49,29 +63,25 @@ public:
 #if 1 // Default to the display aspect ratio, so we apply the patch as early as possible, reducing the possible "damage" it does (it still doesn't prevent users from force toggling fullscreen and borderless once for the changes to take effect)
       int screen_width = GetSystemMetrics(SM_CXSCREEN);
       int screen_height = GetSystemMetrics(SM_CYSCREEN);
-      pending_swapchain_resize = Patches::SetOutputResolution(screen_width, screen_height);
-#endif
-   }
-
-   void OnLoad(std::filesystem::path& file_path, bool failed) override
-   {
-      if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) != NULL) {
-         if (MessageBoxA(NULL, "This mod only works on the Steam and GOG versions of the game.\nUltrawide fixes will also work on the Epic Store version, but custom shaders might not all load, as that's an older version of the game.", "Incompatible Game Version", MB_OK | MB_SETFOREGROUND) == IDOK) {
-            // Just continue for now
-         }
-      }
-
-      if (!failed)
+      bool patched = Patches::SetOutputResolution(screen_width, screen_height);
+      pending_swapchain_resize |= patched;
+      if (!patched)
       {
-         Patches::Init(NAME, Globals::VERSION);
+         reshade::log::message(reshade::log::level::warning, "Heavy Rain Luma failed to patch for Ultrawide compatibility.\nIf you have already patched the executable, restore the original.\nSteam and GOG versions of the game should work.");
       }
+#endif
    }
 
    void OnInitSwapchain(reshade::api::swapchain* swapchain) override
    {
       auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
 
-      pending_swapchain_resize |= Patches::SetOutputResolution(device_data.output_resolution.x + 0.5f, device_data.output_resolution.y + 0.5f);
+      bool patched = Patches::SetOutputResolution(device_data.output_resolution.x + 0.5f, device_data.output_resolution.y + 0.5f);
+      if (!patched)
+      {
+         reshade::log::message(reshade::log::level::warning, "Heavy Rain Luma failed to patch for Ultrawide compatibility.\nIf you have already patched the executable, restore the original.\nSteam and GOG versions of the game should work.");
+      }
+      pending_swapchain_resize |= patched;
 
       cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.render_resolution.x;
       cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.render_resolution.y;

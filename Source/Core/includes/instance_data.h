@@ -204,7 +204,8 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
 
 struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 {
-   // Only for "swapchains", "back_buffers" and "upgraded_resources" (and related). Device object creation etc is usually single threaded anyway, except for the destructor.
+   // Only for "swapchains", "back_buffers" and "upgraded_resources" (and related) and "modified_shaders_byte_code".
+   // Device object creation etc is usually single threaded anyway, except for the destructor.
    std::shared_mutex mutex;
 
    std::thread thread_auto_loading;
@@ -214,6 +215,12 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 #if DEVELOPMENT
    std::unordered_map<uint64_t, reshade::api::format> original_upgraded_resources_formats; // These include the swapchain buffers too!
    std::unordered_map<uint64_t, std::pair<uint64_t, reshade::api::format>> original_upgraded_resource_views_formats; // All the views for upgraded resources, with the resource and the original resource view format
+#endif
+
+#if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
+   // We cache these in memory forever just because with ReShade handling their destruction on the spot between the pipeline (shader) creation and init function isn't "possible",
+   // and it can be called from multiple threads so we need to protect it.
+   std::vector<std::unique_ptr<std::byte[]>> modified_shaders_byte_code;
 #endif
 
    std::unordered_set<reshade::api::swapchain*> swapchains;
@@ -238,10 +245,11 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 
    // Pipelines by handle. Multiple pipelines can target the same shader, and even have multiple shaders within themselves.
    // This contains all pipelines (from the game) that we can replace shaders of (e.g. pixel shaders, vertex shaders, ...).
+   // It's basically data we append (link) to pipelines, done manually because we have no other way.
    std::unordered_map<uint64_t, Shader::CachedPipeline*> pipeline_cache_by_pipeline_handle;
-   // Same as "pipeline_cache_by_pipeline_handle" but for cloned (custom) pipelines.
+   // Same as "pipeline_cache_by_pipeline_handle" but mapped to cloned (custom) pipeline handles.
    std::unordered_map<uint64_t, Shader::CachedPipeline*> pipeline_cache_by_pipeline_clone_handle;
-   // All the pipelines linked to a shader. By shader hash.
+   // All the pipelines linked to a shader. By original shader hash.
    std::unordered_map<uint32_t, std::unordered_set<Shader::CachedPipeline*>> pipeline_caches_by_shader_hash;
 
    std::unordered_set<uint64_t> pipelines_to_reload;

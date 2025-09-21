@@ -39,7 +39,6 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
-  float StereoOffset : packoffset(c25.w);
 }
 
 cbuffer InstanceBuffer : register(b5)
@@ -47,12 +46,10 @@ cbuffer InstanceBuffer : register(b5)
   float4 InstanceParams[8] : packoffset(c0);
 }
 
-SamplerState p_default_Material_0D4489A4339784082_NormalBufferTexture_sampler_s : register(s0);
-SamplerState p_default_Material_098651E4334612755_DepthBufferTexture_sampler_s : register(s1);
-SamplerState p_default_Material_17EB60A410427501_Param_sampler_s : register(s2);
-Texture2D<float4> p_default_Material_0D4489A4339784082_NormalBufferTexture_texture : register(t0);
-Texture2D<float4> p_default_Material_098651E4334612755_DepthBufferTexture_texture : register(t1);
-Texture2D<float4> p_default_Material_17EB60A410427501_Param_texture : register(t2);
+SamplerState p_default_Material_098651E4334612755_DepthBufferTexture_sampler_s : register(s0);
+SamplerState p_default_Material_0D4489A4339784082_NormalBufferTexture_sampler_s : register(s1);
+Texture2D<float4> p_default_Material_098651E4334612755_DepthBufferTexture_texture : register(t0);
+Texture2D<float4> p_default_Material_0D4489A4339784082_NormalBufferTexture_texture : register(t1);
 
 void main(
   float4 v0 : SV_POSITION0,
@@ -72,26 +69,21 @@ void main(
   r0.w = dot(r0.xyz, r0.xyz);
   r0.w = sqrt(r0.w);
   r0.xyz = r0.xyz / r0.www;
-  r0.w = saturate(InstanceParams[2].z * r0.w); // Luma: removed saturate?
+  r0.w = saturate(InstanceParams[2].x * r0.w);
   r0.w = 1 + -r0.w;
-  r0.w = InstanceParams[4].x * r0.w;
+  r0.w = saturate(InstanceParams[3].x * r0.w);
   r1.x = dot(r2.xyz, r2.xyz);
   r1.x = rsqrt(r1.x);
   r1.xyz = r1.xxx * r2.xyz;
-  r1.x = saturate(dot(r1.xyz, r0.xyz)); // Luma: removed saturate?
-  r0.x = saturate(dot(r0.xyz, -InstanceParams[1].xyz));
-  r0.x = -InstanceParams[2].w + r0.x;
-  r0.y = r1.x * r0.w;
-  r0.z = -InstanceParams[2].w + 1;
-  r1.x = r0.x / r0.z;
-  r1.y = 0;
-  r0.xzw = p_default_Material_17EB60A410427501_Param_texture.Sample(p_default_Material_17EB60A410427501_Param_sampler_s, r1.xy).xyz;
-  r0.xyz = r0.xzw * r0.yyy;
-  o0.xyz = InstanceParams[3].xyz * r0.xyz;
+  r0.x = dot(r1.xyz, r0.xyz);
+  r0.x = 1 + r0.x;
+  r0.x = r0.x * r0.w;
+  r0.x = 0.5 * r0.x;
+  o0.xyz = InstanceParams[1].xyz * r0.xxx;
 #if DEVELOPMENT && 1 // Luma: test materials clipping
   o0.xyz *= 30.0;
-#else // Luma: boost lights (they look nicer in HDR)
-  o0.xyz *= 2.0;
+#elif 0 // Luma: make ambient lighting dimmer, to keep more contrast with lights (this would need a lot more work to look proper)
+  o0.xyz *= 0.5;
 #endif
   o0.w = MaterialOpacity;
 }

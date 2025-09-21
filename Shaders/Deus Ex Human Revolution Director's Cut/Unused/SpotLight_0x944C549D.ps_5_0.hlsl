@@ -83,10 +83,10 @@ void main(
   r0.yzw = p_default_Material_2858F59C8024843_Param_texture.Sample(p_default_Material_2858F59C8024843_Param_sampler_s, r1.xy).xyz;
   r0.xyz = r0.yzw * r0.xxx;
   o0.xyz = InstanceParams[1].xyz * r0.xyz;
-#if DEVELOPMENT && 1 // Luma: test materials clipping
+#if DEVELOPMENT && 0 // Luma: test materials clipping
   o0.xyz *= 30.0;
-#elif 0 // Luma: make ambient lighting dimmer, to keep more contrast with lights
-  o0.xyz *= 0.5;
+#elif 0 // Luma: boost lights (they look nicer in HDR) (this would need a lot more work to look proper)
+  o0.xyz *= 1.25;
 #endif
   o0.w = MaterialOpacity;
 }

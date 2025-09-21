@@ -117,6 +117,9 @@ namespace Shader
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
       std::string type_and_version;
       std::string disasm;
+#if DEVELOPMENT
+      std::string live_patched_disasm; // Only valid if "live_patched_data" also is
+#endif
 #endif
 
 #if DEVELOPMENT
@@ -132,6 +135,9 @@ namespace Shader
       bool srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
       // Unordered Access Views
       bool uavs[D3D11_1_UAV_SLOT_COUNT] = {};
+
+      const void* live_patched_data = nullptr; // Usually nullptr. Valid if we edited the byte code of the shader live when it was created (the data in here should be the original, not the patched one)
+      size_t live_patched_size = 0;
 #endif
 
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
@@ -164,6 +170,7 @@ namespace Shader
 #if DEVELOPMENT || TEST
       bool compilation_error;
       std::string preprocessed_code;
+      std::string disasm;
 #if DEVELOPMENT
       ShaderDefinition definition; // Might be empty in non luma native shaders
 #endif

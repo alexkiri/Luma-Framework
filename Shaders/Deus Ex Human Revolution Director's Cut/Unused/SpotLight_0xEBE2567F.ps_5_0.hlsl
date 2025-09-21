@@ -79,9 +79,9 @@ void main(
   r0.x = r0.x * r0.w;
   o0.xyz = InstanceParams[1].xyz * r0.xxx;
   o0.w = MaterialOpacity;
-#if DEVELOPMENT && 1 // Luma: test materials clipping
+#if DEVELOPMENT && 0 // Luma: test materials clipping
   o0.xyz *= 30.0;
-#elif 0 // Luma: boost lights (they look nicer in HDR)
+#elif 0 // Luma: boost lights (they look nicer in HDR) (this would need a lot more work to look proper)
   o0.xyz *= 1.25;
 #endif
   o0.w = MaterialOpacity;

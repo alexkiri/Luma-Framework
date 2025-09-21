@@ -20,8 +20,8 @@ cbuffer cb0 : register(b0)
 
 #define cmp
 
-// Makes the whole screen vibrate when under water
-// This also draws some glasses (I'm not sure how)
+// Makes the whole screen vibrate when under water, or to simulate non clear glass.
+// This also seems to add some glasses to the scene (I'm not sure how).
 // This spreads NaNs on objects that outputted NaNs in the source scene color.
 void main(
   float4 v0 : SV_POSITION0,
@@ -64,8 +64,7 @@ void main(
   r2.xyzw = IsNaN_Strict(r2.xyzw) ? 0.0 : r2.xyzw; // Luma
   r2.xyzw = float4(0,0,0,9.99999997e-007) + r2.xyzw;
   
-  o0.xyzw = r2.xyzw; return;
-  //o0.xyzw = t2.Load(v0.xyz).xyzw; return; // Test passthrough
+  //o0.xyzw = r2.xyzw; return; // Test passthrough
 
   r0.zw = r1.yw * float2(-0.707106769,-0.707106769) + r0.xy;
   r1.yw = float2(-0.707106769,-0.707106769) * r1.yw;
@@ -93,4 +92,7 @@ void main(
   r0.xyzw = r2.xyzw + r0.xyzw;
   r0.xyzw = r0.xyzw + r3.xyzw;
   o0.xyzw = float4(0.25,0.25,0.25,0.25) * r0.xyzw;
+  
+  // Luma:
+  o0.a = saturate(o0.a);
 }

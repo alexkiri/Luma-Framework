@@ -39,6 +39,7 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
+  float StereoOffset : packoffset(c25.w);
 }
 
 cbuffer InstanceBuffer : register(b5)
@@ -77,12 +78,13 @@ void main(
   r1.xyz = r1.xxx * r2.xyz;
   r0.x = dot(r1.xyz, r0.xyz);
   r0.x = 1 + r0.x;
-  r0.x = r0.x * r0.w;
   r0.x = 0.5 * r0.x;
+  r0.x = r0.x * r0.x;
+  r0.x = r0.x * r0.w;
   o0.xyz = InstanceParams[1].xyz * r0.xxx;
-#if DEVELOPMENT && 1 // Luma: test materials clipping
+#if DEVELOPMENT && 0 // Luma: test materials clipping
   o0.xyz *= 30.0;
-#elif 0 // Luma: make ambient lighting dimmer, to keep more contrast with lights
+#elif 0 // Luma: make ambient lighting dimmer, to keep more contrast with lights (this would need a lot more work to look proper)
   o0.xyz *= 0.5;
 #endif
   o0.w = MaterialOpacity;

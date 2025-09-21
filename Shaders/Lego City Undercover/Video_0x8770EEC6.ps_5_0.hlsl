@@ -46,20 +46,20 @@ void main(
 #else // This is how the game would have originally appeared, independently of the video's actual aspect ratio, though we hope it's always 16:9, or if not, that it's not expected to be stretched anyway
   float sourceAspectRatio = 16.0 / 9.0;
 #endif
-  float targetAspectRatio = g_MiscGroupPS.fs_screenSize.x / g_MiscGroupPS.fs_screenSize.y; // Inv Size
+  float targetAspectRatio = g_MiscGroupPS.fs_screenSize.x / g_MiscGroupPS.fs_screenSize.y;
 
   float2 scale = 1.0;
 
   if (targetAspectRatio >= sourceAspectRatio)
-      scale.x = targetAspectRatio / sourceAspectRatio;
+    scale.x = targetAspectRatio / sourceAspectRatio;
   else
-      scale.y = sourceAspectRatio / targetAspectRatio;
+    scale.y = sourceAspectRatio / targetAspectRatio;
 
   // Center the UVs before scaling them
   uv = (uv - 0.5) * scale + 0.5; 
   if (any(uv.xy < 0) || any(uv.xy > 1))
   {
-    o0 = float4(0, 0, 0, v1.w); // Out of bounds UVs, draw black
+    o0 = float4(0, 0, 0, v1.w); // Out of bounds UVs, draw black (and keep alpha because...)
     return;
   }
 

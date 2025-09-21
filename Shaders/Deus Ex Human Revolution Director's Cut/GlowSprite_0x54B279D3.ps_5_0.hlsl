@@ -86,7 +86,7 @@ void main(
   r0.yzw = InstanceParams[5].xyz * r0.y;
   o0.xyz = r0.yzw * r0.x;
   o0.w = MaterialOpacity;
-  // Luma: fix artifacts in bloom sprites
-  if (MaterialOpacity != 0)
-    o0.rgb = saturate(o0.rgb * MaterialOpacity) / MaterialOpacity;
+
+  // Luma: fix negative values creating outlines
+  o0 = max(o0, 0.0);
 }

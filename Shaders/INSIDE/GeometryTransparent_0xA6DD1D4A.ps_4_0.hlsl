@@ -66,7 +66,6 @@ void main(
   r0.xyzw = frac(r0.xyzw);
   o0.xyzw = -r0.xyzw * float4(0.00392156886,0.00392156886,0.00392156886,0.00392156886) + r2.xyzw;
 
-  
   // NOTE: this is probably not needed as it's for opaque geometry and the code almost never outputs beyond 0-1 (and when it does it's mostly fine)
   // Luma: typical UNORM like clamping
   o0.rgb = max(o0.rgb, 0.0);

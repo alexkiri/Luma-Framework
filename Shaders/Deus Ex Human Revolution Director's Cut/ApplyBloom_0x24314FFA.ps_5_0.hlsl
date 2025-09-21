@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -57,7 +59,9 @@ void main(
   float4 r0,r1;
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
   r1.xyz = p_default_Material_0B33AF346638807_Param_texture.Sample(p_default_Material_0B33AF346638807_Param_sampler_s, r0.xy).xyz;
+  r1.xyz = IsNaN_Strict(r1.xyz) ? 0.0 : r1.xyz; // Luma: fix NaNs in bloom
   r0.xyz = p_default_Material_0B33AFF46643651_Param_texture.Sample(p_default_Material_0B33AFF46643651_Param_sampler_s, r0.xy).xyz;
-  o0.xyz = r0.xyz * MaterialParams[0].xxx + r1.xyz;
+  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz;
+  o0.xyz = r0.xyz * MaterialParams[0].x + r1.xyz;
   o0.w = MaterialOpacity;
 }

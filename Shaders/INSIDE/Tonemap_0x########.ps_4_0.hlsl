@@ -22,59 +22,92 @@
 #define ENABLE_LUMA 1
 #endif
 
+// There are 64 permutations of the tonemap shader in INSIDE (7 branches, with some combinations skipped). Some of them are possibly unused, but still, all of them were available in the dumps.
+// The pause menu brightness preview has a separate permutation ("BLACK_BARS"), the death screen another one ("DARKEN"), under water is another ("WAVE_EFFECT"), lens distortion+chromatic aberration, etc etc.
+// They all share a unique hex value in the code that can quickly identify them "0x7ef311c3".
+// See the code for more information about these.
+// 0x1926C2D3 is the most barebones permutation while 0xBF930E1F is the most complete one.
+#define LOW_QUALITY 0
+// Only ever false if "LOW_QUALITY" is also false.
+#define COLOR_FILTER_TEXTURE 1
+// Always true if "COLOR_FILTER_TEXTURE" is true.
+#define WAVE_EFFECT 0
+#define DESATURATION 0
+#define USER_BRIGHTNESS 0
+#define BLACK_BARS 0
+#define DARKEN 0
+
+// 32x
+#if _06132AC1 || _07FE2DEC || _0EF00A11 || _1926C2D3 || _21B3A200 || _30074255 || _3796FF82 || _38A7430E || _48E38F85 || _493DA507 || _91970ABF || _9B7D1702 || _B0398871 || _B5908835 || _C71FE0A4 || _D4C38351 || _02C7E7CB || _ED517C58 || _18010638 || _49BDA2EC || _50873049 || _51DF35B3 || _59C674F6 || _6792E8D3 || _746E571C || _8847F08D || _9D055A64 || _A51DAE54 || _A97B7480 || _C753F2E4 || _FF2021BF || _3A63AE73
+#undef LOW_QUALITY
+#define LOW_QUALITY 1
+#endif
+
+// 48x
+#if _02C7E7CB || _0AE21975 || _10E5A1DF || _18010638 || _2337502D || _2D6B78F6 || _2FE2C060 || _343CD73C || _3A63AE73 || _3E3A55F7 || _4030784C || _49BDA2EC || _50873049 || _515B88D8 || _519DF6E7 || _51DF35B3 || _59C674F6 || _6787B520 || _6792E8D3 || _6956455B || _7003995F || _746E571C || _82A02335 || _84F1D7F4 || _8589AC8E || _87E4E17A || _8847F08D || _8DEE69CB || _90337E76 || _9D055A64 || _9D414A70 || _A51DAE54 || _A5777313 || _A97B7480 || _BA96FA20 || _BEC46939 || _BF930E1F || _BFAB5215 || _C4065BE1 || _C5DABDD4 || _C753F2E4 || _CF97AAD6 || _D6763B69 || _D86D3CA9 || _D8EE0CED || _ED517C58 || _F0503978 || _FF2021BF
+#undef COLOR_FILTER_TEXTURE
+#define COLOR_FILTER_TEXTURE 1
+#endif
+
+// 32x
+#if _10E5A1DF || _2337502D || _343CD73C || _4030784C || _515B88D8 || _519DF6E7 || _6956455B || _84F1D7F4 || _87E4E17A || _9D414A70 || _BF930E1F || _BFAB5215 || _C5DABDD4 || _CF97AAD6 || _D6763B69 || _D8EE0CED || _02C7E7CB || _18010638 || _3A63AE73 || _49BDA2EC || _50873049 || _51DF35B3 || _59C674F6 || _6792E8D3 || _746E571C || _8847F08D || _9D055A64 || _A51DAE54 || _A97B7480 || _C753F2E4 || _ED517C58 || _FF2021BF
+#undef WAVE_EFFECT
+#define WAVE_EFFECT 1
+#endif
+
+// 32x
+#if _02C7E7CB || _06132AC1 || _0AE21975 || _2337502D || _2D6B78F6 || _3796FF82 || _3A63AE73 || _3E3A55F7 || _4030784C || _48E38F85 || _493DA507 || _50873049 || _519DF6E7 || _6792E8D3 || _6956455B || _7003995F || _8589AC8E || _91970ABF || _9B7D1702 || _9D414A70 || _A51DAE54 || _A5777313 || _B5908835 || _BA96FA20 || _BF930E1F || _BFAB5215 || _C5DABDD4 || _C71FE0A4 || _C753F2E4 || _D86D3CA9 || _ED517C58 || _FF2021BF
+#undef DESATURATION
+#define DESATURATION 1
+#endif
+
+// 32x
+#if _02C7E7CB || _06132AC1 || _07FE2DEC || _0EF00A11 || _10E5A1DF || _18010638 || _2FE2C060 || _3E3A55F7 || _4030784C || _48E38F85 || _515B88D8 || _519DF6E7 || _6787B520 || _746E571C || _8589AC8E || _87E4E17A || _8847F08D || _90337E76 || _9D055A64 || _9D414A70 || _A51DAE54 || _A5777313 || _B0398871 || _B5908835 || _BA96FA20 || _BF930E1F || _C4065BE1 || _C71FE0A4 || _C753F2E4 || _D4C38351 || _D8EE0CED || _ED517C58
+#undef USER_BRIGHTNESS
+#define USER_BRIGHTNESS 1
+#endif
+
+// 32x
+#if _06132AC1 || _07FE2DEC || _0AE21975 || _10E5A1DF || _18010638 || _21B3A200 || _343CD73C || _38A7430E || _3A63AE73 || _493DA507 || _49BDA2EC || _6787B520 || _6956455B || _7003995F || _746E571C || _82A02335 || _8589AC8E || _87E4E17A || _8DEE69CB || _90337E76 || _9B7D1702 || _9D414A70 || _A5777313 || _A97B7480 || _B5908835 || _BF930E1F || _BFAB5215 || _C753F2E4 || _CF97AAD6 || _D4C38351 || _ED517C58 || _FF2021BF
+#undef BLACK_BARS
+#define BLACK_BARS 1
+#endif
+
+// 32x
+#if _02C7E7CB || _06132AC1 || _10E5A1DF || _2337502D || _30074255 || _3796FF82 || _38A7430E || _3A63AE73 || _3E3A55F7 || _4030784C || _48E38F85 || _493DA507 || _49BDA2EC || _515B88D8 || _59C674F6 || _6787B520 || _6792E8D3 || _6956455B || _7003995F || _746E571C || _82A02335 || _84F1D7F4 || _8589AC8E || _9D055A64 || _B0398871 || _BF930E1F || _C4065BE1 || _CF97AAD6 || _D4C38351 || _D86D3CA9 || _ED517C58 || _F0503978
+#undef DARKEN
+#define DARKEN 1
+#endif
+
+#if COLOR_FILTER_TEXTURE
 Texture2D<float4> bloomTexture : register(t4); // Very blurred
 Texture2D<float4> sceneTexture : register(t3); // TAA'd
 Texture2D<float4> colorFilterTexture : register(t2); // RGB color palette/filter. 3x2
+#else
+Texture2D<float4> bloomTexture : register(t3);
+Texture2D<float4> sceneTexture : register(t2);
+#endif
 Texture2D<float4> noiseTexture : register(t1); // 256x256
 Texture2D<float4> lensDistortionAndChromaticAberrationTexture : register(t0); // Matches your aspect ratio at its lower resolution (e.g. 16x9, 32x9), given it's generated in the previous pass
 
-SamplerState s4_s : register(s4);
-SamplerState s3_s : register(s3);
-SamplerState s2_s : register(s2);
-SamplerState s1_s : register(s1);
-SamplerState s0_s : register(s0);
-
-// Common or sensible defaults
-#define USER_BRIGHTNESS 1
-
-// TODO: flip this default
-#if _8DEE69CB || _BEC46939 || _C5DABDD4 || _BFAB5215 || _0AE21975 || _2D6B78F6 || _F0503978
-#undef USER_BRIGHTNESS
-#define USER_BRIGHTNESS 0
+#if COLOR_FILTER_TEXTURE
+SamplerState lensDistortionAndChromaticAberrationSampler : register(s4);
+SamplerState noiseSampler : register(s3);
+SamplerState bloomSampler : register(s2);
+SamplerState colorFilterSampler : register(s1);
+#else
+SamplerState lensDistortionAndChromaticAberrationSampler : register(s3);
+SamplerState noiseSampler : register(s2);
+SamplerState bloomSampler : register(s1);
 #endif
-
-// Shader permutations:
-// 0x2FE2C060 - Default gameplay
-// 0xBEC46939 - Default gameplay but user lowered brightness
-// 0x90337E76 - Default gameplay but during menu change resolution view
-// 0x8DEE69CB - Default gameplay but user lowered brightness and during menu change resolution view
-// 0xBA96FA20 - Rare scene with extra color filter
-// 0x2D6B78F6 - Rare scene with extra color filter but user lowered brightness
-// 0xA5777313 - Rare scene with extra color filter but during menu change resolution view
-// 0x0AE21975 - Rare scene with extra color filter but user lowered brightness and during menu change resolution view
-// 0x519DF6E7 - Water gameplay (does chromatic aborration differently, they also have the extra color filter)
-// 0xC5DABDD4 - Water gameplay but user lowered brightness
-// 0x9D414A70 - Water gameplay but during menu change resolution view
-// 0xBFAB5215 - Water gameplay but user lowered brightness and during menu change resolution view
-// 0xC4065BE1 - Death (game can't be paused during death)
-// 0xF0503978 - Death but user lowered brightness
-// 
-// TODO: play the whole game to get all permutations, e.g. death in water, or water without color filter etc
-// (e.g. search for "0x7ef311c3", there seems to be 64 in total, so 8 base setings, there's a copy of each shader without lens distortion (and thus chromatic aberration))
-// Same for TAA but it seems like it's done
+SamplerState sceneSampler : register(s0);
 
 cbuffer cb0 : register(b0)
 {
-// TODO: splitting here it's not necessary, we can always allow more CBs
-#if _BA96FA20 || _519DF6E7 || _2D6B78F6 || _0AE21975 || _C5DABDD4 || _BFAB5215 || _9D414A70 || _A5777313
   float4 cb0[14];
-#elif _90337E76 || _8DEE69CB || _C4065BE1 || _F0503978
-  float4 cb0[13];
-#elif _2FE2C060 || _BEC46939
-  float4 cb0[12];
-#endif
 }
 
+// Weird to do this in shaders, it seems slower than just doing a sqrt? Maybe that wasn't the intent?
 float3 Quake_rsqrt(float3 number)
 {
     int3 i = asint(number);                  // reinterpret float bits as int
@@ -84,10 +117,12 @@ float3 Quake_rsqrt(float3 number)
     return y;
 }
 
-// Alpha is emissiveness
+// Alpha is emissiveness, or anyway, "brightness" boost.
+// This is one of the ways they managed to make the game have an HDR look even with UNORM textures.
+// TODO: mess around with these to get a more HDR look? The tonemapper already seems to do a lot.
 float GetSceneWeightFromAlpha(float sceneColorAlpha)
 {
-  float sceneWeight = saturate(sceneColorAlpha); // Luma: add saturate on alpha just to make sure texture upgrades didn't make the value go beyond 0-1
+  float sceneWeight = max(sceneColorAlpha, 0.0); // Luma: add max 0 on alpha just to make sure texture upgrades didn't make the value go below 0
   sceneWeight += 0.629960537;
   sceneWeight *= sceneWeight;
   sceneWeight *= sceneWeight;
@@ -155,11 +190,10 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
 
   float3 c1 = OptionalSaturate(color * levelMultiplication + levelAdditive); // Multiply and add (first) // Luma: removed saturate
 
-#if _BA96FA20 || _519DF6E7 || _9D414A70 || _BFAB5215 || _C5DABDD4 || _0AE21975 || _2D6B78F6 || _A5777313 // These shader permutations have more parameters, it's seemengly some color filter, or desaturation
-  // TODO: expose the cbs as func params
+#if DESATURATION // These shader permutations have more parameters, it's seemengly some color filter, or desaturation
   float3 scaledC = cb0[3].rgb * c1;
   float2 rg_rb = scaledC.rr + scaledC.gb;
-  float filterOffset = (c1.b * cb0[3].b) + rg_rb.x + (sqrt(scaledC.g * rg_rb.y) * 2.0 * cb0[3].w);
+  float filterOffset = (c1.b * cb0[3].b) + rg_rb.x + (sqrt(scaledC.g * rg_rb.y) * 2.0 * cb0[3].a);
   c1 -= filterOffset;
   c1 *= cb0[13].x;
   c1 += filterOffset;
@@ -217,13 +251,18 @@ void main(
 	sceneTexture.GetDimensions(screenWidth, screenHeight);
 
   // Start from the "center"
+#if LOW_QUALITY
+  const int numIterations = 3;
+#else
   const int numIterations = 8;
+#endif
   const float uvStep = 1.0 / float(numIterations);
 
   const float lensDistortionScale = 42.5; // Probably a manually picked constant, not the size of the texture, the same variable is found in the generation shader.
-  float4 lensDistortionAndChromaticAberration = lensDistortionAndChromaticAberrationTexture.SampleLevel(s4_s, v1.xy, 0).xyzw;
+  float4 lensDistortionAndChromaticAberration = lensDistortionAndChromaticAberrationTexture.SampleLevel(lensDistortionAndChromaticAberrationSampler, v1.xy, 0).xyzw;
   float2 lensDistortion = (lensDistortionAndChromaticAberration.xy / lensDistortionScale) - (0.5 / lensDistortionScale); // Outwards lens distortion. Neutral at 0.
   float2 chromaticAberration = (lensDistortionAndChromaticAberration.zw * (0.5 / lensDistortionScale)) - (0.25 / lensDistortionScale); // Chromatic aberration + inwards lens distortion. Neutral at 0.
+
 #if !ENABLE_LENS_DISTORTION
   lensDistortion = 0;
 #elif ENABLE_LUMA // Fix lens distortion being stronger on the sides for Ultrawide
@@ -245,10 +284,10 @@ void main(
 #if ENABLE_LUMA // Fix grain being near invisible at 4k, set it to 1080, the most common resolution of when the game shipped
   noiseUV *= 1080.0 / screenHeight;
 #endif // ENABLE_LUMA
-  float4 noise = noiseTexture.SampleLevel(s3_s, noiseUV, 0).rgba;
+  float4 noise = noiseTexture.SampleLevel(noiseSampler, noiseUV, 0).rgba;
 
 #if ENABLE_FILM_GRAIN
-#if ENABLE_LUMA // Fixed film grain raising blacks (see "blackFloorScale" above if you change this)
+#if ENABLE_LUMA // Fixed film grain raising blacks (see "blackFloorScale" above if you change this, given that had the opposite effect, both were possibly somehow intentional)
   noise.rgb = noise.rgb * 4.0 - 2.0;
   noise.rgb *= 5.0 / 4.0; // Slightly increase the intensity to kinda match the previous range
 #else // !ENABLE_LUMA
@@ -259,47 +298,65 @@ void main(
   noise.rgb = 0.0;
 #endif // ENABLE_FILM_GRAIN
 
-  // The palette starting shift (between 0 and 1 (or more)) determines what color we shift towards
-  float colorPaletteShift = 0.5;
-#if _519DF6E7 || _C5DABDD4 || _9D414A70 || _BFAB5215 // Water permutations
-  colorPaletteShift = noise.a;
+  // The palette/scene samples starting shift (between 0 and 1 (or more))
+  float colorSampleShift = 0.5;
+#if WAVE_EFFECT // Usually happens under water, presumably to create a wave like effect
+  colorSampleShift = noise.a;
 #endif
 
   float2 currentSceneUV = v1.xy + lensDistortion;
-  currentSceneUV += chromaticAberration * uvStep * colorPaletteShift;
-  float2 currentColorPaletteUV = float2(uvStep * colorPaletteShift, 0.5); // This will do all horizontal samples from 0.0625 to 0.9375, as if the texture had an orizontal size 0f 8, though it doesn't, but it's fine anyway (8 is our horizontal iterations)
+  currentSceneUV += chromaticAberration * uvStep * colorSampleShift;
+  float2 currentColorPaletteUV = float2(uvStep * colorSampleShift, 0.5); // This will do all horizontal samples from 0.0625 to 0.9375, as if the texture had an orizontal size 0f 8, though it doesn't, but it's fine anyway (8 is our horizontal iterations)
 
   // First iteration
-  float3 centralColorFilter = colorFilterTexture.SampleLevel(s1_s, currentColorPaletteUV, 0).rgb;
+  // We called it center as supposedly it's not offsetted, the other ones go in the same (positive?) direction though, not in both the opposite directions
+#if COLOR_FILTER_TEXTURE
+  float3 centralColorFilter = colorFilterTexture.SampleLevel(colorFilterSampler, currentColorPaletteUV, 0).rgb;
   centralColorFilter = lerp(1.0, centralColorFilter, colorFilterIntensity);
-  float4 centralSceneColor = sceneTexture.Sample(s0_s, currentSceneUV).rgba;
+#else
+  float alternativeColorFilter = 1.0 - cb0[6].z; // "colorFilterIntensity" is being re-used for a different purpose
+  float3 centralColorFilter = float3(1.0, alternativeColorFilter.xx); // GB (R neutral)
+#endif
+  float4 centralSceneColor = sceneTexture.Sample(sceneSampler, currentSceneUV).rgba;
 #if 0 // Test: passthrough color (a lot dimmer!)
   outColor = centralSceneColor; return;
 #endif
   centralSceneColor.rgb *= GetSceneWeightFromAlpha(centralSceneColor.a);
-  float3 centralBloomColor = bloomTexture.Sample(s2_s, currentSceneUV).rgb;
+  float3 centralBloomColor = bloomTexture.Sample(bloomSampler, currentSceneUV).rgb;
   centralBloomColor = AdjustBloom(centralBloomColor);
-
+  
   float3 sceneColor = ApplyColorFilter(centralSceneColor.rgb, centralColorFilter);
   float3 bloomColor = ApplyColorFilter(centralBloomColor, centralColorFilter);
   float3 colorFilter = centralColorFilter;
 
-  // Other 7 iterations.
+  // Other n-1 iterations.
   // This does some blurring and chromatic aberration.
+#if LOW_QUALITY // That's how it was in the original shaders
+  [unroll]
+#endif
   for (int i = 1; i < numIterations; i++)
   {
     currentColorPaletteUV.x += uvStep;
     currentSceneUV += chromaticAberration * uvStep;
-
-    float3 currentColorFilter = colorFilterTexture.SampleLevel(s1_s, currentColorPaletteUV, 0).rgb;
+    
+#if COLOR_FILTER_TEXTURE
+    float3 currentColorFilter = colorFilterTexture.SampleLevel(colorFilterSampler, currentColorPaletteUV, 0).rgb; // Point sampler, likely on purpose
     currentColorFilter = lerp(1.0, currentColorFilter, colorFilterIntensity);
     colorFilter += currentColorFilter;
+#else
+    float3 currentColorFilter = 1.0;
+    if (i == 1)
+      currentColorFilter.rb = alternativeColorFilter; // RB (G neutral)
+    else if (i == 2)
+      currentColorFilter.rg = alternativeColorFilter; // RG (B neutral)
+      float3(1.0, alternativeColorFilter.xx) + float3(alternativeColorFilter.x, 1.0, alternativeColorFilter.x) + float3(alternativeColorFilter.xx, 1.0)
+#endif
 
-    float4 currentSceneColor = sceneTexture.Sample(s0_s, currentSceneUV).rgba;
+    float4 currentSceneColor = sceneTexture.Sample(sceneSampler, currentSceneUV).rgba;
     currentSceneColor.rgb *= GetSceneWeightFromAlpha(currentSceneColor.a);
     sceneColor += currentSceneColor.rgb * currentColorFilter;
     
-    float3 currentBloomColor = bloomTexture.Sample(s2_s, currentSceneUV).rgb;
+    float3 currentBloomColor = bloomTexture.Sample(bloomSampler, currentSceneUV).rgb;
     currentBloomColor = AdjustBloom(currentBloomColor);
     bloomColor += currentBloomColor * currentColorFilter;
   }
@@ -307,12 +364,16 @@ void main(
   outColor.rgb = sceneColor / float(numIterations); return;
 #endif
 
-  float3 finalColorFilter = 1.0 / numIterations;
-#if 1 // Some kind of hacky performance optimization (pow/sqrt like) to do brightness scaling... The image is overly dark without it
-  int3 r0i = 0x7ef311c3 - asint(colorFilter);
-  float3 hackyMathResult = 2.0 - (asfloat(r0i) * colorFilter);
-  finalColorFilter = hackyMathResult * asfloat(r0i);
+  float3 finalColorFilter = 1.0 / numIterations; // Just the value I'd expect it to have, but it doesn't
+#if COLOR_FILTER_TEXTURE // Some kind of hacky performance optimization (pow/sqrt like) to do brightness scaling... The image is overly dark without it
+  int3 hackyMathResultA = 0x7ef311c3 - asint(colorFilter);
+  float3 hackyMathResultB = 2.0 - (asfloat(hackyMathResultA) * colorFilter);
+#else // Dunno why this path uses some yyz instead of xyz, nor how it creates its filter
+  colorFilter = alternativeColorFilter + float3(-cb0[6].zz, alternativeColorFilter) + float3(2,2,1);
+  int3 hackyMathResultA = 0x7ef311c3 - asint(colorFilter.ggb);
+  float3 hackyMathResultB = 2.0 - (asfloat(hackyMathResultA.ggb) * colorFilter);
 #endif
+  finalColorFilter = hackyMathResultB * asfloat(hackyMathResultA);
 
   float3 scaledSceneColor = OptionalSaturate(ApplyColorFilter(sceneColor, finalColorFilter)); // Luma: removed saturate
   float3 scaledBloomColor = OptionalSaturate(ApplyColorFilter(bloomColor, finalColorFilter)); // Luma: removed saturate
@@ -394,17 +455,17 @@ void main(
     scaledComposedColor = lerp(tonemapByChannel, RestoreLuminance(scaledComposedColor, tonemapByLuminance, true, TM_BT2020 ? CS_BT2020 : CS_BT709), TM_ByLuminance_Amount);
   }
   scaledComposedColor = TM_BT2020 ? BT2020_To_BT709(scaledComposedColor) : scaledComposedColor;
-#else
+#else // !ENABLE_LUMA
   scaledComposedColor = ApplyCustomCurve(scaledComposedColor, v3.y, v3.x, v2);
-#endif
+#endif // ENABLE_LUMA
 
   float3 otherFilter = 1.0;
-#if _90337E76 || _8DEE69CB || _0AE21975 || _9D414A70 || _BFAB5215 || _A5777313
+#if BLACK_BARS
   float barsColor = (v1.y > cb0[12].w) ? cb0[12].y : cb0[12].z;
   otherFilter = (1.0 - barsColor) * float3(0.0980392173, 0.121568628, 0.141176477) + barsColor;
 #endif
 
-  outColor.rgb = (scaledComposedColor * userBrightness * otherFilter) + noise.rgb;
+  outColor.rgb = scaledComposedColor * userBrightness * otherFilter;
 
 #if ENABLE_LUMA // Luma: HDR display mapping and UI etc
   outColor.rgb = gamma_to_linear(outColor.rgb, GCT_MIRROR);
@@ -413,14 +474,10 @@ void main(
 	FixColorGradingLUTNegativeLuminance(outColor.rgb);
 #endif
 
-#if ENABLE_FAKE_HDR // Not really needed anymore after tweaking the tonemapper
-  float normalizationPoint = 0.25; // Found empyrically
+#if ENABLE_FAKE_HDR // Not really needed anymore after tweaking the original tonemapper
+  float normalizationPoint = 0.25; // Found empyrically (could be improved)
   float fakeHDRIntensity = 0.5;
   bool boostSaturation = false;
-#if 1 // TODO: delete
-  normalizationPoint = LumaSettings.DevSetting01;
-  fakeHDRIntensity = LumaSettings.DevSetting02;
-#endif
   outColor.rgb = FakeHDR(outColor.rgb, normalizationPoint, fakeHDRIntensity, boostSaturation);
 #endif // ENABLE_FAKE_HDR
 
@@ -447,8 +504,11 @@ void main(
 #endif
 #endif // ENABLE_LUMA
 
-#if _C4065BE1 || _F0503978 // Death permutations
+#if DARKEN // Death permutations
   // Darken screen, or anyway fade to black. For consistency, we do this after the HDR tonemapping.
   outColor.rgb *= cb0[12].x;
 #endif
+
+  // Add dither/grain at the very end, how it already was. This will generate some invalid luminances near zero but whatever.
+  outColor.rgb += noise.rgb;
 }

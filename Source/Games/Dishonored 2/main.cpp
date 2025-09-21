@@ -12,9 +12,6 @@
 
 #include "..\..\Core\core.hpp"
 
-// Hack: we need to include this cpp file here because it's part of the core library but we actually don't include it as a library, due to limitations (see the game template for more)
-#include "..\..\Core\dlss\DLSS.cpp"
-
 struct CBPerViewGlobals
 {
    float4 cb_alwaystweak;

@@ -22,6 +22,7 @@
       <Filter>Native Plugin</Filter>
     </ClCompile>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="..\..\Core\unity_build.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="vcpkg.json" />

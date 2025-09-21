@@ -92,7 +92,8 @@ public:
       shader_hashes_SwapchainCopy.pixel_shaders.emplace(Shader::Hash_StrToNum("8674BE1F"));
 
       shader_hashes_LightingBuffer.pixel_shaders =
-      { std::stoul("00667169", nullptr, 16),
+      {
+         std::stoul("00667169", nullptr, 16),
          std::stoul("D25D922C", nullptr, 16),
          std::stoul("A2D0F112", nullptr, 16),
          std::stoul("1D132483", nullptr, 16),
@@ -107,12 +108,15 @@ public:
          std::stoul("25DB2618", nullptr, 16),
          std::stoul("DD83BF95", nullptr, 16),
          std::stoul("6B79C71C", nullptr, 16),
-         std::stoul("3072F024", nullptr, 16) };
+         std::stoul("3072F024", nullptr, 16)
+      };
       shader_hashes_LightingBufferEnd.pixel_shaders.emplace(Shader::Hash_StrToNum("B2662B89"));
       // The most common materials (e.g. common geometry and boy shaders)
       shader_hashes_Materials.pixel_shaders =
-      { std::stoul("3F826D79", nullptr, 16),
-         std::stoul("D2E14BDB", nullptr, 16) };
+      {
+         std::stoul("3F826D79", nullptr, 16),
+         std::stoul("D2E14BDB", nullptr, 16)
+      };
       shader_hashes_MaterialsEnd.pixel_shaders.emplace(Shader::Hash_StrToNum("BBC7E546"));
 
 #if DEVELOPMENT // INSIDE
@@ -229,13 +233,12 @@ public:
       forced_shader_names.emplace(Shader::Hash_StrToNum("8674BE1F"), "Swapchain Copy"); // Skipped if not needed (if the render and output resolution match)
 #endif
 
-      HMODULE hModule = GetModuleHandle(nullptr); // handle to the current executable
-      auto dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(hModule);
-      auto ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(
-         reinterpret_cast<std::byte*>(hModule) + dosHeader->e_lfanew);
+      HMODULE module_handle = GetModuleHandle(nullptr); // Handle to the current executable
+      auto dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(module_handle);
+      auto nt_headers = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<std::byte*>(module_handle) + dos_header->e_lfanew);
 
-      std::byte* base = reinterpret_cast<std::byte*>(hModule);
-      std::size_t section_size = ntHeaders->OptionalHeader.SizeOfImage; // imageSize
+      std::byte* base = reinterpret_cast<std::byte*>(module_handle);
+      std::size_t section_size = nt_headers->OptionalHeader.SizeOfImage;
 
       const std::vector<std::byte> pattern = { std::byte{0x39}, std::byte{0x8E}, std::byte{0xE3}, std::byte{0x3F} };
 
@@ -713,16 +716,82 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio | (uint32_t)TextureFormatUpgrades2DSizeFilters::RenderAspectRatio;
-      // PoPTLC only requires r8g8b8a8_typeless but will work with others regardless
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             reshade::api::format::r8g8b8a8_unorm_srgb,
             reshade::api::format::r8g8b8a8_typeless,
+            // Likely unnecessary but won't hurt
             reshade::api::format::r11g11b10_float,
       };
 
-      redirected_shader_hashes["Tonemap"] = { "2FE2C060", "BEC46939", "90337E76", "8DEE69CB", "BA96FA20", "2D6B78F6", "A5777313", "0AE21975", "519DF6E7", "C5DABDD4", "9D414A70", "BFAB5215", "C4065BE1", "F0503978" };
-
+      // There's many...
+      redirected_shader_hashes["Tonemap"] =
+      {
+         "02C7E7CB",
+         "06132AC1",
+         "07FE2DEC",
+         "0AE21975",
+         "0EF00A11",
+         "10E5A1DF",
+         "18010638",
+         "1926C2D3",
+         "21B3A200",
+         "2337502D",
+         "2D6B78F6",
+         "2FE2C060",
+         "30074255",
+         "343CD73C",
+         "3796FF82",
+         "38A7430E",
+         "3A63AE73",
+         "3E3A55F7",
+         "4030784C",
+         "48E38F85",
+         "493DA507",
+         "49BDA2EC",
+         "50873049",
+         "515B88D8",
+         "519DF6E7",
+         "51DF35B3",
+         "59C674F6",
+         "6787B520",
+         "6792E8D3",
+         "6956455B",
+         "7003995F",
+         "746E571C",
+         "82A02335",
+         "84F1D7F4",
+         "8589AC8E",
+         "87E4E17A",
+         "8847F08D",
+         "8DEE69CB",
+         "90337E76",
+         "91970ABF",
+         "9B7D1702",
+         "9D055A64",
+         "9D414A70",
+         "A51DAE54",
+         "A5777313",
+         "A97B7480",
+         "B0398871",
+         "B5908835",
+         "BA96FA20",
+         "BEC46939",
+         "BF930E1F",
+         "BFAB5215",
+         "C4065BE1",
+         "C5DABDD4",
+         "C71FE0A4",
+         "C753F2E4",
+         "CF97AAD6",
+         "D4C38351",
+         "D6763B69",
+         "D86D3CA9",
+         "D8EE0CED",
+         "ED517C58",
+         "F0503978",
+         "FF2021BF",
+      };
 #if DEVELOPMENT // Unity flips Y coordinates on all textures until the final swapchain draws
       debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::FlipY;
 #endif

@@ -1,8 +1,9 @@
 Texture2D<float4> g_txInitialImage : register(t0);
 Texture2D<uint2> g_txCount : register(t2);
 
-#define cmp -
+#define cmp
 
+// Might be MLAA actually, as that's what it says in the settings
 void main(
   float4 v0 : SV_Position0,
   float4 v1 : COLOR0,

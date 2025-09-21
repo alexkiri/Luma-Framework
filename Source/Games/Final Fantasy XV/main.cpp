@@ -6,9 +6,6 @@
 #define ENABLE_NGX 1
 
 #include "..\..\Core\core.hpp"
-#include "..\..\Core\includes\math.h"
-#include "..\..\Core\includes\matrix.h"
-#include "..\..\Core\dlss\DLSS.cpp"
 
 namespace
 {

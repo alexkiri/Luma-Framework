@@ -1,9 +1,5 @@
-#pragma once
+#include "system.h"
 
-#include <windows.h>
-#include <shlobj.h>
-#include <string>
-#include <filesystem>
 #include "assert.h"
 
 // For "GetFileVersionInfoSize" etc
@@ -11,18 +7,14 @@
 
 namespace System
 {
-   // TODO: move these to a cpp body, they send linking warnings
-
-   // Returns the path to the "System32" directory
-   __forceinline std::filesystem::path GetSystemPath()
+   std::filesystem::path GetSystemPath()
    {
       WCHAR buf[4096];
       GetSystemDirectoryW(buf, ARRAYSIZE(buf));
       return buf;
    }
 
-   // Pass in null/0 to get the path to the process executable (.exe)
-   std::filesystem::path GetModulePath(HMODULE hModule = 0)
+   std::filesystem::path GetModulePath(HMODULE hModule)
    {
       std::vector<wchar_t> path(32768); // Maximum path length in Windows, there's no define for it, the old one is "MAX_PATH"
       DWORD length = GetModuleFileNameW(hModule, path.data(), (DWORD)path.size());
@@ -136,22 +128,29 @@ namespace System
 #endif
    }
 
-   // Returns all matches
-   std::vector<std::byte*> ScanMemoryForPattern(std::byte* base, size_t size, const std::vector<std::byte>& pattern)
+   std::vector<std::byte*> ScanMemoryForPattern(const std::byte* base, size_t size, const std::byte* pattern, size_t pattern_size)
    {
+      if (pattern == nullptr || base == nullptr || pattern_size == 0 || pattern_size > size)
+         return {};
+
       std::vector<std::byte*> matches;
-      for (size_t i = 0; i <= size - pattern.size(); ++i) {
-         if (std::memcmp(base + i, pattern.data(), pattern.size()) == 0) {
-            matches.push_back(base + i);
+      for (size_t i = 0; i <= size - pattern_size; ++i) {
+         if (std::memcmp(base + i, pattern, pattern_size) == 0) {
+            matches.push_back(const_cast<std::byte*>(base + i));
          }
       }
       return matches;
    }
+   std::vector<std::byte*> ScanMemoryForPattern(const std::byte* base, size_t size, const std::vector<std::byte>& pattern)
+   {
+      return ScanMemoryForPattern(base, size, pattern.data(), pattern.size());
+   }
+   std::vector<std::byte*> ScanMemoryForPattern(const std::byte* base, size_t size, const std::vector<uint8_t>& pattern)
+   {
+      return ScanMemoryForPattern(base, size, reinterpret_cast<const std::byte*>(pattern.data()), pattern.size());
+   }
 
-
-
-   // Allocate within +/-2GB to make it reachable by 32 bit offsets
-   void* VirtualAllocNear(void* target, size_t size, DWORD protect = PAGE_EXECUTE_READWRITE)
+   void* VirtualAllocNear(void* target, size_t size, DWORD protect)
    {
       // Avoid messes with ReShade redefining min/max
       auto localMin = [](auto a, auto b) { return (a < b) ? a : b; };

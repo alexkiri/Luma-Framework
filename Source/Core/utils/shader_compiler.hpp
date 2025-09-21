@@ -12,7 +12,7 @@
 
 #include <include/reshade.hpp>
 
-#include "system.hpp"
+#include "system.h"
 
 namespace Shader
 {
@@ -35,6 +35,27 @@ namespace Shader
    static pD3DWriteBlobToFile d3d_writeBlobToFile;
    static pD3DReflect d3d_reflect;
    static pD3DGetBlobPart d3d_getBlobPart;
+
+   struct DXBCHeader
+   {
+      static constexpr DWORD hash_size = 16;
+
+      char format_name[4]; // 'DXBC'
+      uint8_t hash[hash_size]; // Checksum MD5
+      uint32_t version; // Seemengly always 1
+      uint32_t file_size; // Total size in bytes (including the header)
+      uint32_t chunk_count;
+      uint32_t chunk_offsets[]; // Array of DWORD offsets in bytes
+   };
+   enum class DXBCProgramType : uint16_t
+   {
+      PixelShader = 0,
+      VertexShader = 1,
+      GeometryShader = 2,
+      HullShader = 3,
+      DomainShader = 4,
+      ComputeShader = 5,
+   };
 
    // Only call this once from one thread
    // Needs to be called before calling any shader compiler function
@@ -115,6 +136,72 @@ namespace Shader
    }
 
    bool dummy_bool;
+
+   // From "dxbc-spirv", developed by Philip Rebohle, MIT license
+   Hash::MD5::Digest CalcDXBCHash(const void* data, size_t size)
+   {
+      constexpr size_t BlockSize = 64u;
+
+      /* Skip initial part of the header including the hash digest */
+      size_t offset = offsetof(DXBCHeader, version);
+
+      if (size < offset)
+         return Hash::MD5::Digest();
+
+      auto bytes = reinterpret_cast<const unsigned char*>(data) + offset;
+      size -= offset;
+
+      /* Compute byte representations of the bit count and a derived
+       * number that will be appended to the stream */
+      const uint32_t aNum = uint32_t(size) * 8u;
+      const uint32_t bNum = (aNum >> 2u) | 1u;
+
+      std::array<uint8_t, sizeof(uint32_t)> a = { };
+      std::array<uint8_t, sizeof(uint32_t)> b = { };
+
+      for (uint32_t i = 0u; i < sizeof(uint32_t); i++) {
+         a[i] = Math::Bextract(aNum, 8u * i, 8u);
+         b[i] = Math::Bextract(bNum, 8u * i, 8u);
+      }
+
+      /* Hash remaining header and all chunk data */
+      size_t remainder = size % BlockSize;
+      size_t paddingSize = BlockSize - remainder;
+
+      Hash::MD5::Hasher hasher = { };
+      hasher.update(bytes, size - remainder);
+
+      /* DXBC hashing does not finalize the last block properly, instead
+       * padding behaviour depends on the size of the byte stream */
+      static const std::array<uint8_t, BlockSize> s_padding = { 0x80u };
+
+      if (remainder >= 56u) {
+         /* Append last block and pad to multiple of 64 bytes */
+         hasher.update(&bytes[size - remainder], remainder);
+         hasher.update(s_padding.data(), paddingSize);
+
+         /* Pad with null block and custom finalizer */
+         hasher.update(a.data(), a.size());
+         hasher.update(s_padding.data() + a.size(), s_padding.size() - a.size() - b.size());
+         hasher.update(b.data(), b.size());
+      }
+      else {
+         /* Append bit count */
+         hasher.update(a.data(), a.size());
+
+         /* Append last block */
+         if (remainder)
+            hasher.update(&bytes[size - remainder], remainder);
+
+         /* Append regular padding sequence */
+         hasher.update(s_padding.data(), paddingSize - a.size() - b.size());
+
+         /* Append final magic number */
+         hasher.update(b.data(), b.size());
+      }
+
+      return hasher.getDigest();
+   }
    
    // TODO: optimize
    std::optional<std::string> ReadTextFile(const std::filesystem::path& path, bool force_value = false)

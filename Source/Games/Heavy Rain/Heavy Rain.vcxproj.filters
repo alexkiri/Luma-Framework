@@ -5,6 +5,7 @@
     <ClCompile Include="patches\Patches.cpp">
       <Filter>Patches</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Core\unity_build.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Patches">

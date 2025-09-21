@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -39,53 +41,25 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
-  float StereoOffset : packoffset(c25.w);
 }
 
-cbuffer InstanceBuffer : register(b5)
+cbuffer MaterialBuffer : register(b3)
 {
-  float4 InstanceParams[8] : packoffset(c0);
+  float4 MaterialParams[32] : packoffset(c0);
 }
 
-SamplerState p_default_Material_098651E4334612755_DepthBufferTexture_sampler_s : register(s0);
-SamplerState p_default_Material_0D4489A4339784082_NormalBufferTexture_sampler_s : register(s1);
-Texture2D<float4> p_default_Material_098651E4334612755_DepthBufferTexture_texture : register(t0);
-Texture2D<float4> p_default_Material_0D4489A4339784082_NormalBufferTexture_texture : register(t1);
+SamplerState p_default_Material_0B464C7419133480_Param_sampler_s : register(s0);
+Texture2D<float4> p_default_Material_0B464C7419133480_Param_texture : register(t0);
 
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
 {
-  float4 r0,r1,r2;
+  float4 r0;
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r0.z = p_default_Material_098651E4334612755_DepthBufferTexture_texture.Sample(p_default_Material_098651E4334612755_DepthBufferTexture_sampler_s, r0.xy).x;
-  r0.z = r0.z * DepthToW.x + DepthToW.y;
-  r1.z = 1 / r0.z;
-  r0.zw = r0.xy * DepthToView.xy + DepthToView.zw;
-  r2.xyz = p_default_Material_0D4489A4339784082_NormalBufferTexture_texture.Sample(p_default_Material_0D4489A4339784082_NormalBufferTexture_sampler_s, r0.xy).xyz;
-  r2.xyz = float3(-0.5,-0.5,-0.5) + r2.xyz;
-  r2.xyz = r2.xyz + r2.xyz;
-  r1.xy = r0.zw * r1.zz;
-  r0.xyz = InstanceParams[0].xyz + -r1.xyz;
-  r0.w = dot(r0.xyz, r0.xyz);
-  r0.w = sqrt(r0.w);
-  r0.xyz = r0.xyz / r0.www;
-  r0.w = saturate(InstanceParams[2].x * r0.w);
-  r0.w = 1 + -r0.w;
-  r0.w = saturate(InstanceParams[3].x * r0.w);
-  r1.x = dot(r2.xyz, r2.xyz);
-  r1.x = rsqrt(r1.x);
-  r1.xyz = r1.xxx * r2.xyz;
-  r0.x = dot(r1.xyz, r0.xyz);
-  r0.x = 1 + r0.x;
-  r0.x = 0.5 * r0.x;
-  r0.x = r0.x * r0.x;
-  r0.x = r0.x * r0.w;
-  o0.xyz = InstanceParams[1].xyz * r0.xxx;
-#if DEVELOPMENT && 1 // Luma: test materials clipping
-  o0.xyz *= 30.0;
-#elif 0 // Luma: make ambient lighting dimmer, to keep more contrast with lights
-  o0.xyz *= 0.5;
-#endif
+  r0.xyzw = p_default_Material_0B464C7419133480_Param_texture.Sample(p_default_Material_0B464C7419133480_Param_sampler_s, r0.xy).xyzw;
+  r0.w = saturate(MaterialParams[0].x * r0.w);
+  o0.xyz = r0.w * r0.xyz;
+  o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz; // Luma: fix NaNs (they were usually in the alpha channel)
   o0.w = MaterialOpacity;
 }

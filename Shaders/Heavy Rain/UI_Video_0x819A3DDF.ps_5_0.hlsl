@@ -19,14 +19,14 @@ void main(
   float width, height;
   texture0.GetDimensions(width, height);
   float sourceAspectRatio = width / height;
-  float targetAspectRatio = LumaSettings.GameSettings.InvRenderRes.x / LumaSettings.GameSettings.InvRenderRes.y;
+  float targetAspectRatio = LumaSettings.GameSettings.InvRenderRes.y / LumaSettings.GameSettings.InvRenderRes.x;
 
   float2 scale = 1.0;
 
   if (targetAspectRatio >= sourceAspectRatio)
-      scale.x = targetAspectRatio / sourceAspectRatio;
+    scale.x = targetAspectRatio / sourceAspectRatio;
   else
-      scale.y = sourceAspectRatio / targetAspectRatio;
+    scale.y = sourceAspectRatio / targetAspectRatio;
 
   // Center the UVs before scaling them
   uv = (uv - 0.5) * scale + 0.5;

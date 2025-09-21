@@ -11,6 +11,10 @@ public:
       luma_data_cbuffer_index = 12;
 
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
+
+      // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning to the end.
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
    }
 
    void PrintImGuiAbout() override

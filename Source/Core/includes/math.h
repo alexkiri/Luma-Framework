@@ -204,4 +204,24 @@ namespace Math
       }
       *write = '\0'; // Null-terminate the string
    }
+
+   // Inserts bit range from bit field
+   template<typename T>
+   T Bextract(T op, uint32_t first, uint32_t count)
+   {
+      if (!count)
+         return 0;
+
+      T mask = (T(2) << (count - 1)) - T(1);
+      return (op >> first) & mask;
+   }
+
+   // From Vert- to Hor+ scaling
+   float ScaleHorizontalFOV(float fov, bool true_rad_false_deg /*= false*/, float source_aspect_target /*= 16.f / 9.f*/, float target_aspect_target)
+   {
+      float scaling = true_rad_false_deg ? 1.f : (M_PI / 180.f);
+      float fov_rad = fov * scaling;
+      fov_rad = std::atan(std::tan(fov_rad / 2.f) * (target_aspect_target / source_aspect_target)) * 2.f;
+      return fov_rad / scaling;
+   }
 }
