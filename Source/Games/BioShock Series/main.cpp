@@ -7,6 +7,8 @@
 
 #include "BS2_CrashFix\BS2_CrashFix.h"
 
+#include <MinHook.h>
+
 namespace
 {
    ShaderHashesList pixel_shader_hashes_Bloom;
@@ -47,6 +49,7 @@ namespace
 
    // TODO: do this with a trampoline that reads the original value and converts it on the fly in code,
    // instead of reading the original value every frame and constantly changing the code to scale properly.
+   // Remove minhook if this isn't done.
    void PatchBS2Ultrawide(float target_aspect_ratio)
    {
       // The game's weapon (first person model) scaled Vert- instead of Hor+.
