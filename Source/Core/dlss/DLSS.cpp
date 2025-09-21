@@ -1,5 +1,6 @@
 #include "DLSS.h"
 
+#ifdef _WIN64
 #if ENABLE_NGX
 
 #include "../NGX/nvsdk_ngx_helpers.h"
@@ -513,4 +514,5 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 	return NVSDK_NGX_SUCCEED(result);
 }
 
+#endif
 #endif
