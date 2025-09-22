@@ -2671,26 +2671,21 @@ namespace
 #endif
                      std::byte* byte_code = reinterpret_cast<std::byte*>(&chunk[4]);
 
-                     if (!new_code)
+                     if (std::unique_ptr<std::byte[]> new_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type))
                      {
-                        new_code = std::make_unique<std::byte[]>(shader_desc->code_size);
-                        std::memcpy(new_code.get(), shader_desc->code, shader_desc->code_size);
+                        if (!new_code)
+                        {
+                           new_code = std::make_unique<std::byte[]>(shader_desc->code_size);
+                           std::memcpy(new_code.get(), shader_desc->code, shader_desc->code_size);
+                        }
+
+                        // Calculate the offset relative to original code and copy the replaced byte code in it
+                        // (we don't overwrite the original shader code because it's const, ReShade or the game's memory might expect it to not change,
+                        // and plus it'd break other mods that load before us that replace shaders by hash on creation)
+
+                        const size_t offset = byte_code - (std::byte*)shader_desc->code;
+                        std::memcpy(new_code.get() + offset, new_byte_code.get(), byte_code_size);
                      }
-                     //if (std::unique_ptr<std::byte[]> new_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type))
-                     //{
-                     //   if (!new_code)
-                     //   {
-                     //      new_code = std::make_unique<std::byte[]>(shader_desc->code_size);
-                     //      std::memcpy(new_code.get(), shader_desc->code, shader_desc->code_size);
-                     //   }
-
-                     //   // Calculate the offset relative to original code and copy the replaced byte code in it
-                     //   // (we don't overwrite the original shader code because it's const, ReShade or the game's memory might expect it to not change,
-                     //   // and plus it'd break other mods that load before us that replace shaders by hash on creation)
-
-                     //   const size_t offset = byte_code - (std::byte*)shader_desc->code;
-                     //   std::memcpy(new_code.get() + offset, new_byte_code.get(), byte_code_size);
-                     //}
                   }
                }
 
@@ -2699,7 +2694,7 @@ namespace
                   any_edited = true;
 
                   // Store the original shader so it can later be accessed in ReShade's pipeline init callback (it'd still be valid as it's an external ptr, unless ReShade changed its implementation)
-                  ASSERT_ONCE_MSG(subobject_count == 1 && subobject.count == 1, "This behaviour is hardcoded to work with DX9-11, with one object (shader) per pipeline");
+                  ASSERT_ONCE_MSG((subobject_count == 1 || subobject_count == 2) && subobject.count == 1, "This behaviour is hardcoded to work with DX9-11, with one object (shader) per pipeline"); // input layouts have two subobjects (input layour and vertex shader)
                   last_live_patched_shader_code = shader_desc->code;
                   last_live_patched_shader_size = shader_desc->code_size;
 
@@ -2790,7 +2785,7 @@ namespace
          case reshade::api::pipeline_subobject_type::pixel_shader:
          {
 #if !DX12
-            ASSERT_ONCE(subobject_count == 1);
+            ASSERT_ONCE(subobject_count == 1 || subobject_count == 2); // input layouts have two subobjects (input layour and vertex shader)
 #endif
             ASSERT_ONCE(subobject.count == 1);
 #if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS

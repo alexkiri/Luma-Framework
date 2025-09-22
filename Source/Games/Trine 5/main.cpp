@@ -43,7 +43,7 @@ public:
          {"ENABLE_VIGNETTE", '1', false, false, "Set to 0 to disable vanilla vignette"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1'); // TODO: set this to 1???? Also fix TAA.
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
@@ -134,10 +134,15 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
-      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
          system("start https://buymeacoffee.com/realfiloppi");
+      }
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str()))
+      {
+         system("start https://ko-fi.com/realpumbo");
       }
       ImGui::PopStyleColor(3);
 

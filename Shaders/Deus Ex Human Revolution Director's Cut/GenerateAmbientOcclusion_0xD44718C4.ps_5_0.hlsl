@@ -176,7 +176,7 @@ void main(
   r2.xyz = frac(sin(dot(worldPos.xyz, float3(12.9898,78.233,37.719))) * 43758.5453);
 #else // Screen space noise
   float2 noiseCoords = v0.xy / 128.0; // The noise texture is 128x128, this is already applied per pixel, so it's not stretched by resolution
-#if 0 // Fix Aspect Ratio
+#if DEVELOPMENT && 0 // Fix Aspect Ratio
   float aspectRatio = ScreenResolution.x / ScreenResolution.y;
   // if (aspectRatio >= 1.0)
   //   noiseCoords.x *= aspectRatio;
@@ -201,17 +201,18 @@ void main(
     bitmask.z = ((~(-1 << 2)) << 0) & 0xffffffff;  r3.z = (((uint)1 << 0) & bitmask.z) | ((uint)r3.y & ~bitmask.z);
     bitmask.w = ((~(-1 << 2)) << 0) & 0xffffffff;  r3.w = (((uint)2 << 0) & bitmask.w) | ((uint)r3.y & ~bitmask.w);
     bitmask.x = ((~(-1 << 2)) << 0) & 0xffffffff;  r4.x = (((uint)3 << 0) & bitmask.x) | ((uint)r3.y & ~bitmask.x);
+    
+    float3 noiseSpread = 1.0;
 #if 0 // Disable noise/spread
-    r4.yzw = r2.xyz * r1.w;
-    r5.xyz = r2.xyz * r1.w;
-    r6.xyz = r2.xyz * r1.w;
-    r7.xyz = r2.xyz * r1.w;
-#else
-    r4.yzw = r2.xyz * r1.w + icb[r3.y+0].xyz * float3(LumaSettings.DevSetting08, LumaSettings.DevSetting09, LumaSettings.DevSetting10);
-    r5.xyz = r2.xyz * r1.w + icb[r3.z+0].xyz * float3(LumaSettings.DevSetting08, LumaSettings.DevSetting09, LumaSettings.DevSetting10);
-    r6.xyz = r2.xyz * r1.w + icb[r3.w+0].xyz * float3(LumaSettings.DevSetting08, LumaSettings.DevSetting09, LumaSettings.DevSetting10);
-    r7.xyz = r2.xyz * r1.w + icb[r4.x+0].xyz * float3(LumaSettings.DevSetting08, LumaSettings.DevSetting09, LumaSettings.DevSetting10);
+    noiseSpread = 0;
+#elif DEVELOPMENT
+    noiseSpread = float3(LumaSettings.DevSetting08, LumaSettings.DevSetting09, LumaSettings.DevSetting10);
 #endif
+    r4.yzw = r2.xyz * r1.w + icb[r3.y+0].xyz * noiseSpread;
+    r5.xyz = r2.xyz * r1.w + icb[r3.z+0].xyz * noiseSpread;
+    r6.xyz = r2.xyz * r1.w + icb[r3.w+0].xyz * noiseSpread;
+    r7.xyz = r2.xyz * r1.w + icb[r4.x+0].xyz * noiseSpread;
+
     r3.z = dot(r4.yzw, r1.xyz);
     r3.z = cmp(r3.z < 0);
     r4.xyz = r3.z ? -r4.yzw : r4.yzw;

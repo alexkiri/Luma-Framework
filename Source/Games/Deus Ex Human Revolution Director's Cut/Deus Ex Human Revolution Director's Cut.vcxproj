@@ -145,7 +145,7 @@
       <AdditionalLibraryDirectories>
       </AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x86</AdditionalOptions>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFull</GenerateDebugInformation>
       <ImportLibrary>
       </ImportLibrary>
       <IgnoreSpecificDefaultLibraries>

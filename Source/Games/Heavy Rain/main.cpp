@@ -228,6 +228,7 @@ public:
       }
       ImGui::PopStyleColor(3);
 
+      ImGui::NewLine();
       // Make the Rose button ~purple for consistency with their style
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(128, 0, 128, 255)); // purple
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(192, 0, 192, 255)); // lighter purple / pinkish

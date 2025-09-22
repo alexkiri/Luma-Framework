@@ -492,7 +492,6 @@ public:
       {
          system("start https://ko-fi.com/realpumbo");
       }
-
       ImGui::PopStyleColor(3);
 
       ImGui::NewLine();

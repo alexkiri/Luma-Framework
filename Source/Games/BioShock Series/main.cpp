@@ -313,7 +313,7 @@ public:
    void PrintImGuiAbout() override
    {
       ImGui::Text("Luma for \"BioShock Remastered\", \"BioShock 2 Remastered\" and \"BioShock Infinite\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.\n"
-         "The \2BioShock 2 Remastered\" mod comes bundled with the \"Crash Fix\" mod by \"gir489\", which fixes multiple crashes with the game, and with an Ultrawide FoV fix for the first person models.", "");
+         "The \"BioShock 2 Remastered\" mod comes bundled with the \"Crash Fix\" mod by \"gir489\", which fixes multiple crashes with the game, and with an Ultrawide FoV fix for the first person models.", "");
 
       const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
       const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
@@ -321,10 +321,15 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
-      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
          system("start https://buymeacoffee.com/realfiloppi");
+      }
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str()))
+      {
+         system("start https://ko-fi.com/realpumbo");
       }
       ImGui::PopStyleColor(3);
 
