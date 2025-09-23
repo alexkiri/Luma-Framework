@@ -113,6 +113,7 @@ struct TraceDrawCallData
    float4 viewport_0 = {};
    // Already includes all the render targets
    D3D11_BLEND_DESC blend_desc = {};
+   FLOAT blend_factor[4] = { 1.f, 1.f, 1.f, 1.f };
 
    bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
    std::string cb_hash[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {}; // Ptr hash (not content hash)
@@ -218,9 +219,10 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 #endif
 
 #if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
+   // Edited shaders byte code + size + MD5 hash by (original) shader hash.
    // We cache these in memory forever just because with ReShade handling their destruction on the spot between the pipeline (shader) creation and init function isn't "possible",
    // and it can be called from multiple threads so we need to protect it.
-   std::vector<std::unique_ptr<std::byte[]>> modified_shaders_byte_code;
+   std::unordered_map<uint32_t, std::tuple<std::unique_ptr<std::byte[]>, size_t, Hash::MD5::Digest>> modified_shaders_byte_code;
 #endif
 
    std::unordered_set<reshade::api::swapchain*> swapchains;

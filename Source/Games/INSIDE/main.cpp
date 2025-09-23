@@ -119,7 +119,7 @@ public:
       };
       shader_hashes_MaterialsEnd.pixel_shaders.emplace(Shader::Hash_StrToNum("BBC7E546"));
 
-#if DEVELOPMENT // INSIDE
+#if DEVELOPMENT
       forced_shader_names.emplace(Shader::Hash_StrToNum("B8090FB7"), "Clear");
       forced_shader_names.emplace(Shader::Hash_StrToNum("B6762984"), "Draw Black");
       forced_shader_names.emplace(Shader::Hash_StrToNum("BBC7E546"), "Draw White");
@@ -280,7 +280,7 @@ public:
    void OnInitSwapchain(reshade::api::swapchain* swapchain) override
    {
       auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
-      if (device_data.game) // TODO: is this necessary? It crashed once before I added it.
+      if (device_data.game)
       {
          auto& game_device_data = *static_cast<GameDeviceDataINSIDE*>(device_data.game);
 

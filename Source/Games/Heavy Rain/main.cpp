@@ -165,7 +165,7 @@ public:
       if (pending_swapchain_resize)
       {
          ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255)); // yellow/orange
-         ImGui::TextUnformatted("Warning: Your resolution isn't 16:9, for Luma to correctly patch in support for your aspect ratio,\nplease go to the game graphics settings and swap between fullscreen, borderless or windowed (any will do).\nThis message might also appear after you change resolution again, please ignroe it if everything is fine.");
+         ImGui::TextUnformatted("Warning: Your resolution isn't 16:9, for Luma to correctly patch in support for your aspect ratio,\nplease go to the game graphics settings and swap between fullscreen, borderless or windowed (any will do).\nThis message might also appear after you change resolution again, please ignore it if everything is fine.");
          ImGui::PopStyleColor();
       }
 

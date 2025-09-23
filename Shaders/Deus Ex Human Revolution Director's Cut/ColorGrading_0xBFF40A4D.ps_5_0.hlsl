@@ -56,15 +56,11 @@ Texture2D<float4> p_default_Material_0C25AF6416088781_Param_texture : register(t
 #ifndef ENABLE_IMPROVED_COLOR_GRADING
 #define ENABLE_IMPROVED_COLOR_GRADING 1
 #endif
-// Requires ENABLE_IMPROVED_COLOR_GRADING
-#ifndef ENABLE_FAKE_HDR
-#define ENABLE_FAKE_HDR 0
-#endif
 #ifndef ENABLE_VIGNETTE
 #define ENABLE_VIGNETTE 1
 #endif
-#ifndef ENABLE_DESATURATION
-#define ENABLE_DESATURATION 1
+#ifndef ENABLE_COLOR_GRADING_DESATURATION
+#define ENABLE_COLOR_GRADING_DESATURATION 1
 #endif
 
 // This is from the original game, or the golder filter restoration mod. The DC edition doesn't run it be default.
@@ -87,7 +83,7 @@ void main(
   // Apply desaturation in linear space and base the rgb average on linear colors instead of gamma space colors.
   // To preserve the grading look, it's important to keep the rgb average instead of swapping it with the luminance.
   float rgbAverageGammaSpace = linear_to_gamma1(max(rgbAverage, 0.0));
-#if ENABLE_DESATURATION
+#if ENABLE_COLOR_GRADING_DESATURATION
   float luminance = GetLuminance(color);
   float luminanceGammaSpace = linear_to_gamma1(max(luminance, 0.0));
 #if 1
@@ -96,25 +92,18 @@ void main(
   saturationAmount = lerp(pow(saturationAmount, 1.0 / DefaultGamma), saturationAmount, saturate(luminanceGammaSpace)); // Desaturate more in the shadow when working in linear space, to emulate the gamma space desaturation behaviour
 #endif
   color = lerp(luminance, color, saturationAmount);
-#endif // ENABLE_DESATURATION
-
-//TODO: Do this before bloom? Or skip it partially on alpha (bloom).
-#if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
-  float normalizationPoint = 0.25; // Found empyrically
-  float fakeHDRIntensity = 0.5;
-  color = FakeHDR(color, normalizationPoint, fakeHDRIntensity, false);
-#endif // ENABLE_FAKE_HDR
+#endif // ENABLE_COLOR_GRADING_DESATURATION
 
 #else // !ENABLE_IMPROVED_COLOR_GRADING
 
   float rgbAverageGammaSpace = rgbAverage;
-#if ENABLE_DESATURATION
+#if ENABLE_COLOR_GRADING_DESATURATION
   // Note: this can generate colors with invalid luminances (too low negative values), and also crush shadow.
   // However, it might have expanded saturation in shadow, which could have arguably looked good.
   color -= rgbAverage;
   color *= saturationAmount;
   color += rgbAverage;
-#endif // ENABLE_DESATURATION
+#endif // ENABLE_COLOR_GRADING_DESATURATION
 
 #endif // ENABLE_IMPROVED_COLOR_GRADING
 
@@ -163,6 +152,12 @@ void main(
     o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
     isLinear = true;
   }
+
+#if ENABLE_COLOR_GRADING_DESATURATION && 0 // Theoretically it's another setting, but whatever // Disabled for now as it just doesn't look right, the game relies on saturated highlights for many things
+  // Desaturate bright highlights as they can get ridiculously high and still be very saturated in this game, while in SDR it would have all clipped at 1
+  // TODO: try with oklab or something else, and maybe restore the vanilla hue, however it's very much lost at this point as many saturates were skipped
+  o0.rgb = Saturation(o0.rgb, lerp(1.0, 0.5, pow(saturate((average(o0.rgb) - MidGray) / 20.0), 0.5)));
+#endif
   
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
   const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;

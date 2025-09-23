@@ -1,15 +1,10 @@
 #include "../Includes/Common.hlsl"
 
-#ifndef ENABLE_LUMA
-#define ENABLE_LUMA 1
-#endif
-
-cbuffer DrawableBuffer : register(b1)
+cbuffer WorldBuffer : register(b0)
 {
-  float4 FogColor : packoffset(c0);
-  float4 DebugColor : packoffset(c1);
-  float MaterialOpacity : packoffset(c2);
-  float AlphaThreshold : packoffset(c3);
+  row_major float4x4 WorldViewProject : packoffset(c0);
+  row_major float4x4 World : packoffset(c4);
+  row_major float4x4 ViewProject : packoffset(c8);
 }
 
 cbuffer SceneBuffer : register(b2)
@@ -47,29 +42,41 @@ cbuffer SceneBuffer : register(b2)
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
 }
 
-cbuffer MaterialBuffer : register(b3)
+cbuffer StreamDeclBuffer : register(b3)
 {
-  float4 MaterialParams[32] : packoffset(c0);
+  float4 NormalScaleOffset : packoffset(c0);
+  float4 TexcoordScales : packoffset(c1);
 }
 
-SamplerState p_default_Material_0B464C7419133480_Param_sampler_s : register(s0);
-Texture2D<float4> p_default_Material_0B464C7419133480_Param_texture : register(t0);
-
 void main(
-  float4 v0 : SV_POSITION0,
-  out float4 o0 : SV_Target0)
+  float4 v0 : COLOR0,
+  float4 v1 : TEXCOORD0,
+  float3 v2 : POSITION0,
+  out float4 o0 : SV_POSITION0,
+  out float4 o1 : COLOR0,
+  out float4 o2 : TEXCOORD0)
 {
-  float4 r0;
-  r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r0.xyzw = p_default_Material_0B464C7419133480_Param_texture.Sample(p_default_Material_0B464C7419133480_Param_sampler_s, r0.xy).xyzw;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs
-#if ENABLE_LUMA // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom
-  //r0.xyz = min(r0.xyz, 5.0); // TODO: not needed until proven again, bloom isn't crazy high anymore (it does get bright and saturated). Also not sure we should clamp by channel.
-#else
-  r0.xyz = saturate(r0.xyz);
-#endif
-  r0.w = saturate(MaterialParams[0].x * r0.w);
-  o0.xyz = r0.w * r0.xyz;
-  o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz; // Luma: fix NaNs again (they were usually in the alpha channel)
-  o0.w = MaterialOpacity;
+  float scale = DVS3*2;
+  v2.x = (v2.x - 0.5) * scale + 0.5; 
+  float4 r0,r1;
+  r0.xyzw = World._m10_m11_m12_m13 * v2.yyyy;
+  r0.xyzw = v2.xxxx * World._m00_m01_m02_m03 + r0.xyzw;
+  r0.xyzw = v2.zzzz * World._m20_m21_m22_m23 + r0.xyzw;
+  r0.xyzw = World._m30_m31_m32_m33 + r0.xyzw;
+  r0.x = (r0.x - 0.5) * (DVS4*2) + 0.5; 
+
+  r1.xyzw = ScreenMatrix._m10_m11_m12_m13 * r0.yyyy;
+  r1.xyzw = r0.xxxx * ScreenMatrix._m00_m01_m02_m03 + r1.xyzw;
+  r1.xyzw = r0.zzzz * ScreenMatrix._m20_m21_m22_m23 + r1.xyzw;
+  r0.xyzw = r0.wwww * ScreenMatrix._m30_m31_m32_m33 + r1.xyzw;
+  o0.xy = r0.xy * r0.ww;
+  o0.zw = r0.zw;
+  o0.x = (o0.x - 0.5) * (DVS1*2) + 0.5;
+  o1.xyzw = v0.zyxw;
+  v1.x = (v1.x - 0.5) * (DVS7*2) + 0.5; // NOTE: this is the one to scale for UW, but it doesn't work well...
+  o2.xy = TexcoordScales.xx * v1.xy;
+  o2.x = (o2.x - 0.5) * (DVS6*2) + 0.5;
+  o2.zw = float2(0,0);
+  // if (o2.x < 0.0 || o2.x > 1)
+  //   o0.w = -1.0;
 }

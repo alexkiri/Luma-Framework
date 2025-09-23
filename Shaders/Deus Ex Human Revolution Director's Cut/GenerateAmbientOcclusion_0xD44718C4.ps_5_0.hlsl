@@ -54,7 +54,7 @@ SamplerState p_default_Material_2A938F645990781_Param_sampler_s : register(s1);
 Texture2D<float4> p_default_Material_2A938EA45902502_DepthBufferTexture_texture : register(t0);
 Texture2D<float4> p_default_Material_2A938F645990781_Param_texture : register(t1);
 
-#define cmp -
+#define cmp
 
 float2 MirrorUV(float2 uv)
 {
@@ -127,6 +127,41 @@ float4x4 InverseMatrix(float4x4 m)
     return inv;
 }
 
+float2 WorldTo2D(float3 worldPos)
+{
+    float2 uv;
+    uv.x = dot(worldPos, float3(0.4123, 0.6572, 0.1124));
+    uv.y = dot(worldPos, float3(0.7251, 0.1397, 0.8432));
+    return uv;
+}
+
+float Hash(float x)
+{
+    return frac(sin(x) * 43758.5453);
+}
+
+// "scale" controls the “precision / frequency” of the noise
+float3 WorldNoise3D(float3 worldPos, float scale = 0.001)
+{
+    return float3(
+        Hash(worldPos.x * scale + 12.9898),
+        Hash(worldPos.y * scale + 78.233),
+        Hash(worldPos.z * scale + 37.719)
+    );
+}
+
+float RandomFromIndex(int i)
+{
+    // Convert index to float, apply some constants and sine hash
+    return frac(sin(float(i) * 12.9898 + 78.233) * 43758.5453);
+}
+
+float RandomFromIndex2(int i)
+{
+    // Convert index to float, apply some constants and sine hash
+    return frac(sin(float(i) * 14.9898 + 72.233) * 48758.5453);
+}
+
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : TEXCOORD0,
@@ -157,24 +192,49 @@ void main(
   r0.x = r0.x * DepthToW.x + DepthToW.y; // Inverted 0-1 depth
   r0.x = max(9.99999997e-007, r0.x);
   r0.z = 1 / r0.x; // Linear depth?
+  float linearDepth = r0.z;
   r1.xy = v1.xy * DepthToView.xy + DepthToView.zw;
   r0.xy = r1.xy * r0.z; // NCD depth
-  //o0 = r0.y * 1; return;
+  //o0 = r0.y * 1; return; // Quick test
   r1.xyz = ddx_fine(r0.zxy);
   r2.xyz = ddy_fine(r0.yzx);
   r3.xyz = r2.xyz * r1.xyz;
   r1.xyz = r1.zxy * r2.yzx + -r3.xyz;
   r0.w = 1 / MaterialParams[0].y;
+
 #if 0 // Disable noise
+
   r2.xyz = 0.5;
-#elif 0 // World space noise
-  float2 uv = v1.xy / ScreenResolution.xy; // Normalized UV coordinates
-  //r1.zw = v1.xy * ScreenExtents.zw + ScreenExtents.xy;
+
+#elif 1 // Luma: World space noise. This fixes the AO noise pattern being clearly visible on screen when panning or rotating the camera
+
+  float2 uv = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+#if 0 // Old attempt
   float4x4 ViewProj = mul(ScreenMatrix, View); // World -> Clip
   float4x4 InvViewProj = InverseMatrix(ViewProj);    // Clip -> World
-  float3 worldPos = GetWorldPos(uv, r0.z, InvViewProj);
-  r2.xyz = frac(sin(dot(worldPos.xyz, float3(12.9898,78.233,37.719))) * 43758.5453);
+  float3 worldPos2 = GetWorldPos(uv, r0.z, InvViewProj);
+  r2.xyz = frac(sin(dot(worldPos2.xyz, float3(12.9898,78.233,37.719))) * 43758.5453);
+  r2.xyz = WorldNoise3D(worldPos.xyz, DVS5 * 0.001);
+#else
+  float4 screenVec;
+  screenVec.z = linearDepth;
+  screenVec.xy = linearDepth * uv;
+  screenVec.w = 1;
+  float3 worldPos;
+  worldPos.x = dot(DepthToWorld._m00_m01_m02_m03, screenVec.xyzw);
+  worldPos.y = dot(DepthToWorld._m10_m11_m12_m13, screenVec.xyzw);
+  worldPos.z = dot(DepthToWorld._m20_m21_m22_m23, screenVec.xyzw);
+
+  //r2.xyz = frac(sin(dot(worldPos.xyz, float3(12.9898,78.233,37.719))) * 43758.5453); // Doesn't seem to work, probably cuz the randomization pattern isn't good for the following AO pass
+
+  // Use the world position to generate a "slowly" moving UV to be fed into the noise texture
+  float2 noiseCoords = WorldTo2D(worldPos.xyz * 0.075);
+  r2.xyz = p_default_Material_2A938F645990781_Param_texture.Sample(p_default_Material_2A938F645990781_Param_sampler_s, noiseCoords).xyz;
+#endif
+
 #else // Screen space noise
+
+  // The output of this is persistently blending with a history so we could afford some temporal
   float2 noiseCoords = v0.xy / 128.0; // The noise texture is 128x128, this is already applied per pixel, so it's not stretched by resolution
 #if DEVELOPMENT && 0 // Fix Aspect Ratio
   float aspectRatio = ScreenResolution.x / ScreenResolution.y;
@@ -187,31 +247,40 @@ void main(
 #endif
 #if 0
   noiseCoords *= ScreenResolution.y / 1080.0; // Scale to 1080p, so the noise isn't tiny at 4k, as it ends up being more noticeable
+  
+  noiseCoords += float2(RandomFromIndex(LumaSettings.FrameIndex), RandomFromIndex2(LumaSettings.FrameIndex));
 #endif
+
   r2.xyz = p_default_Material_2A938F645990781_Param_texture.Sample(p_default_Material_2A938F645990781_Param_sampler_s, noiseCoords).xyz;
+
 #endif
-  r2.xyz = r2.xyz * float3(2,2,2) + float3(-1,-1,-1);
+
+  r2.xyz = r2.xyz * float3(2,2,2) + float3(-1,-1,-1); // From 0|1 to -1|1
   r1.w = dot(r2.xyz, r2.xyz);
-  r1.w = r1.w != 0.0 ? (1.0 / sqrt(r1.w)) : 0.0; //TODO: max 0.01?
+  r1.w = r1.w != 0.0 ? (1.0 / sqrt(r1.w)) : 0.0;
   r2.w = saturate(r0.z / MaterialParams[0].w);
   r3.xy = float2(0,0);
+  int4 r3i = 0;
   while (true) {
-    r3.z = cmp((int)r3.y >= 16);
-    if (r3.z != 0) break;
-    bitmask.z = ((~(-1 << 2)) << 0) & 0xffffffff;  r3.z = (((uint)1 << 0) & bitmask.z) | ((uint)r3.y & ~bitmask.z);
-    bitmask.w = ((~(-1 << 2)) << 0) & 0xffffffff;  r3.w = (((uint)2 << 0) & bitmask.w) | ((uint)r3.y & ~bitmask.w);
-    bitmask.x = ((~(-1 << 2)) << 0) & 0xffffffff;  r4.x = (((uint)3 << 0) & bitmask.x) | ((uint)r3.y & ~bitmask.x);
-    
+    if (r3i.y >= 16) break;
+
+    bitmask.z = ((~(-1 << 2)) << 0) & 0xffffffff;
+    r3i.z = (((uint)1 << 0) & bitmask.z) | ((uint)r3i.y & ~bitmask.z);
+    bitmask.w = ((~(-1 << 2)) << 0) & 0xffffffff;
+    r3i.w = (((uint)2 << 0) & bitmask.w) | ((uint)r3i.y & ~bitmask.w);
+    bitmask.x = ((~(-1 << 2)) << 0) & 0xffffffff;
+    r3i.x = (((uint)3 << 0) & bitmask.x) | ((uint)r3i.y & ~bitmask.x);
+
     float3 noiseSpread = 1.0;
 #if 0 // Disable noise/spread
     noiseSpread = 0;
-#elif DEVELOPMENT
+#elif DEVELOPMENT && 0
     noiseSpread = float3(LumaSettings.DevSetting08, LumaSettings.DevSetting09, LumaSettings.DevSetting10);
 #endif
-    r4.yzw = r2.xyz * r1.w + icb[r3.y+0].xyz * noiseSpread;
-    r5.xyz = r2.xyz * r1.w + icb[r3.z+0].xyz * noiseSpread;
-    r6.xyz = r2.xyz * r1.w + icb[r3.w+0].xyz * noiseSpread;
-    r7.xyz = r2.xyz * r1.w + icb[r4.x+0].xyz * noiseSpread;
+    r4.yzw = r2.xyz * r1.w + icb[r3i.y+0].xyz * noiseSpread;
+    r5.xyz = r2.xyz * r1.w + icb[r3i.z+0].xyz * noiseSpread;
+    r6.xyz = r2.xyz * r1.w + icb[r3i.w+0].xyz * noiseSpread;
+    r7.xyz = r2.xyz * r1.w + icb[r3i.x+0].xyz * noiseSpread;
 
     r3.z = dot(r4.yzw, r1.xyz);
     r3.z = cmp(r3.z < 0);
@@ -271,7 +340,7 @@ void main(
     r4.xyzw = r5.xyzw ? r4.xyzw : float4(1,1,1,1);
     r3.z = dot(float4(1,1,1,1), r4.xyzw);
     r3.x = r3.z + r3.x;
-    r3.y = (int)r3.y + 4;
+    r3i.y += 4;
   }
   o0.xyz = r3.x * 0.0625; // All channels are equal
   o0.w = MaterialOpacity; // This doesn't seem to ever be used?

@@ -1,3 +1,9 @@
+#include "../Includes/Common.hlsl"
+
+#ifndef ENABLE_LUMA
+#define ENABLE_LUMA 1
+#endif
+
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -49,41 +55,88 @@ cbuffer MaterialBuffer : register(b3)
 SamplerState p_default_Material_0C38D4A418992488_Param_sampler_s : register(s0);
 Texture2D<float4> p_default_Material_0C38D4A418992488_Param_texture : register(t0);
 
+#ifndef ENABLE_IMPROVED_BLOOM
+#define ENABLE_IMPROVED_BLOOM 1
+#endif
+
+#ifndef BLOOM_UPGRADE_TYPE
+#if ENABLE_IMPROVED_BLOOM == 1
+#define BLOOM_UPGRADE_TYPE 2
+#else
+#define BLOOM_UPGRADE_TYPE 0
+#endif
+#endif
+
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
 {
-  float4 r0,r1,r2,r3,r4;
+  float2 centralUV = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+  float scale = 1.0;
+  uint iterations = 1.0;
+#if BLOOM_UPGRADE_TYPE != 0 // Luma: scale bloom based on 1080p resolution, given that it was very faint at high resolutions (this will make it closer to the Xbox 360 days, where bloom was very spread (as in, radius))
+  float2 size;
+  p_default_Material_0C38D4A418992488_Param_texture.GetDimensions(size.x, size.y);
+  float2 originalSize = size;
+  size *= 4.0; // At this point we are at 0.25x scale (rounded down to int)
+
+  scale = size.y / 1080.0;
+#if BLOOM_UPGRADE_TYPE == 1
+  iterations = max(scale + 0.5, 1);
+#if 0 // Reduce the radius as we don't fully generate mips properly, we have an approximation of them
+  scale *= 0.75;
+#endif
+#elif BLOOM_UPGRADE_TYPE == 2
+  iterations = 4; // Mips downscale
+#endif
+#endif
+  const float3 centralBloom = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, centralUV).xyz;
+
+  float4 r0,r1;
   r0.z = 0;
   r1.xy = MaterialParams[0].xy * ScreenExtents.zw;
   r0.xy = MaterialParams[0].zz * r1.xy;
   r0.w = -r0.x;
-  r1.zw = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r2.xy = r1.zw + r0.wz;
-  r2.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r2.xy).xyz;
-  r3.xy = r1.zw + r0.xz;
-  r3.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r3.xy).xyz;
-  r2.xyz = r3.xyz + r2.xyz;
-  r3.xy = r1.zw + r0.zy;
-  r0.zw = r0.zy * float2(1,-1) + r1.zw;
-  r4.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r0.zw).xyz;
-  r3.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r3.xy).xyz;
-  r2.xyz = r3.xyz + r2.xyz;
-  r2.xyz = r2.xyz + r4.xyz;
-  r3.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r1.zw).xyz;
-  r2.xyz = r3.xyz + r2.xyz;
-  r0.zw = r1.xy * MaterialParams[0].zz + r1.zw;
-  r1.xy = -r1.xy * MaterialParams[0].zz + r1.zw;
-  r3.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r1.xy).xyz;
-  r4.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r0.zw).xyz;
-  r0.zw = r0.xy * float2(-1,1) + r1.zw;
-  r0.xy = r0.xy * float2(1,-1) + r1.zw;
-  r1.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r0.xy).xyz;
-  r0.xyz = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r0.zw).xyz;
-  r0.xyz = r0.xyz + r4.xyz;
-  r0.xyz = r0.xyz + r1.xyz;
-  r0.xyz = r0.xyz + r3.xyz;
-  r0.xyz = r0.xyz + r2.xyz;
-  o0.xyz = float3(0.111100003,0.111100003,0.111100003) * r0.xyz;
+  float2 uv1 = centralUV + r0.wz;
+  float2 uv2 = centralUV + r0.xz;
+  float2 uv3 = r0.zy * float2(1,-1) + centralUV;
+  float2 uv4 = centralUV + r0.zy;
+  float2 uv5 = -r1.xy * MaterialParams[0].zz + centralUV;
+  float2 uv6 = r1.xy * MaterialParams[0].zz + centralUV;
+  float2 uv7 = r0.xy * float2(1,-1) + centralUV;
+  float2 uv8 = r0.xy * float2(-1,1) + centralUV;
+
+  float3 bloomSum = 0.0;
+  float localScale = scale;
+  // Luma: added local mips generation for wider radius bloom (hacky, but mostly works)
+#if BLOOM_UPGRADE_TYPE == 1
+  [loop]
+#else
+  [unroll]
+#endif
+  for (uint i = 0; i < iterations; i++)
+  {
+    localScale = scale * ((i + 1) / iterations);
+    float2 offset = 0.0;
+#if BLOOM_UPGRADE_TYPE == 2 // Do live mips
+    offset = 0.5 / originalSize;
+    offset *= min(scale, 2.0); // Not 100% sure why this is needed, but it looks the same as the original shader otherwise. We cannot easily scale bloom beyond 2x in a single pass, so 8k will have to wait.
+    if (i == 0) { offset = float2(offset.x, offset.y); }
+    if (i == 1) { offset = float2(offset.x, -offset.y); }
+    if (i == 2) { offset = float2(-offset.x, offset.y); }
+    if (i == 3) { offset = float2(-offset.x, -offset.y); }
+    localScale = 1.0;
+#endif
+    float3 bloom1 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv1, localScale) + offset).xyz;
+    float3 bloom2 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv2, localScale) + offset).xyz;
+    float3 bloom3 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv3, localScale) + offset).xyz;
+    float3 bloom4 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv4, localScale) + offset).xyz;
+    float3 bloom5 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv5, localScale) + offset).xyz;
+    float3 bloom6 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv6, localScale) + offset).xyz;
+    float3 bloom7 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv7, localScale) + offset).xyz;
+    float3 bloom8 = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, lerp(centralUV, uv8, localScale) + offset).xyz;
+    bloomSum += bloom1 + bloom2 + bloom3 + bloom4 + bloom5 + bloom6 + bloom7 + bloom8 + centralBloom;
+  }
+  o0.xyz = (bloomSum.xyz / 9.0) / iterations;
   o0.w = MaterialOpacity; // Unused
 }

@@ -469,6 +469,8 @@ namespace
    // Directly from cbuffer
    CB::LumaGlobalSettingsPadded cb_luma_global_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_global_settings_dirty" when changing within a frame (so it's uploaded again)
 
+   bool hdr_display_mode_pending_auto_peak_white_calibration = false;
+
    bool has_init = false;
    bool asi_loaded = true; // Whether we've been loaded from an ASI loader or ReShade Addons system (we assume true until proven otherwise)
    std::thread thread_auto_dumping;
@@ -497,6 +499,7 @@ namespace
 #if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
    thread_local const void* last_live_patched_shader_code = {};
    thread_local size_t last_live_patched_shader_size = {};
+   thread_local uint32_t last_live_patched_shader_hash = {};
 #endif
 #if DEVELOPMENT
    // ReShade specific design as we don't get a rejection between the create and init events if creation failed
@@ -2373,12 +2376,17 @@ namespace
             cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
             cb_luma_global_settings.UIPaperWhite = srgb_white_level;
          }
-         // Avoid increasing the peak if the user has SDR mode set, SDR mode might still rely on the peak white value
-         else if (cb_luma_global_settings.DisplayMode != 1)
+         // Avoid increasing the peak if the user has SDR mode set, SDR mode might still rely on the peak white value being set to "srgb_white_level"
+         else if (cb_luma_global_settings.DisplayMode == 1 && hdr_display_mode_pending_auto_peak_white_calibration)
          {
             cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
          }
+         else if (cb_luma_global_settings.DisplayMode == 1)
+         {
+            ASSERT_ONCE(cb_luma_global_settings.ScenePeakWhite == srgb_white_level && cb_luma_global_settings.ScenePaperWhite == srgb_white_level);
+         }
          device_data.cb_luma_global_settings_dirty = true;
+         hdr_display_mode_pending_auto_peak_white_calibration = false;
 
          if (enable_swapchain_upgrade && swapchain_upgrade_type > SwapchainUpgradeType::None)
          {
@@ -2590,8 +2598,10 @@ namespace
       ASSERT_ONCE(!last_live_patched_shader_code); // This should never happen, it means our conditions don't match, or well, that shader creation failed, which is possible, even in the original game code
       last_live_patched_shader_code = nullptr;
       last_live_patched_shader_size = 0;
+      last_live_patched_shader_hash = 0;
 
       bool any_edited = false;
+      uint64_t shader_hash = -1;
 
       DeviceData& device_data = *device->get_private_data<DeviceData>();
 
@@ -2619,13 +2629,15 @@ namespace
                if (memcmp(shader_header->format_name, "DXBC", 4) != 0) break;
                if (shader_header->file_size != shader_desc->code_size) break;
 
-               std::unique_ptr<std::byte[]> new_code;
+               std::unique_ptr<std::byte[]> new_patched_code;
+               const std::byte* pre_patched_code = nullptr;
+               Hash::MD5::Digest* pre_patched_code_hash = nullptr;
                bool found_code_chunk = false;
 
                for (uint32_t i = 0; i < shader_header->chunk_count; ++i)
                {
-                  uint32_t* chunk = (uint32_t*)((uint8_t*)shader_desc->code + shader_header->chunk_offsets[i]); // in "DWORD"
-                  uint32_t* type_name = &chunk[0];
+                  const uint32_t* chunk = (uint32_t*)((uint8_t*)shader_desc->code + shader_header->chunk_offsets[i]); // in "DWORD"
+                  const uint32_t* type_name = &chunk[0];
 
                   // These are the chunks with the actual shaders byte code:
                   // SHEX is SM5
@@ -2635,6 +2647,25 @@ namespace
                   // http://timjones.io/blog/archive/2015/09/02/parsing-direct3d-shader-bytecode#shdr-chunk
                   if (memcmp(type_name, "SHEX", 4) == 0 || memcmp(type_name, "SHDR", 4) == 0)
                   {
+                     if (shader_hash == -1)
+                     {
+                        shader_hash = Shader::BinToHash(static_cast<const uint8_t*>(shader_desc->code), shader_desc->code_size);
+
+                        constexpr bool always_repatch_live_patched_shaders = false; // TODO: expose for dev modes in case we wanted to dynamically change the patching logic by level (however it makes little sense as we are usually not in control of how games load shaders)
+                        if (!always_repatch_live_patched_shaders)
+                        {
+                           const std::shared_lock lock_device(device_data.mutex);
+                           auto modified_shader_byte_code = device_data.modified_shaders_byte_code.find(shader_hash);
+                           if (modified_shader_byte_code != device_data.modified_shaders_byte_code.end())
+                           {
+                              pre_patched_code = std::get<0>(modified_shader_byte_code->second).get();
+                              shader_desc->code_size = std::get<1>(modified_shader_byte_code->second);
+                              pre_patched_code_hash = &std::get<2>(modified_shader_byte_code->second);
+                              break;
+                           }
+                        }
+                     }
+
                      ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace?
                      found_code_chunk = true;
 
@@ -2669,14 +2700,14 @@ namespace
 #if DEVELOPMENT // Verify that the size is right
                      ASSERT_ONCE(chunk_size == (byte_code_size + prev_size)); // Add back the two DWORD that we excluded from the size
 #endif
-                     std::byte* byte_code = reinterpret_cast<std::byte*>(&chunk[4]);
+                     const std::byte* byte_code = reinterpret_cast<const std::byte*>(&chunk[4]);
 
-                     if (std::unique_ptr<std::byte[]> new_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type))
+                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type))
                      {
-                        if (!new_code)
+                        if (!new_patched_code)
                         {
-                           new_code = std::make_unique<std::byte[]>(shader_desc->code_size);
-                           std::memcpy(new_code.get(), shader_desc->code, shader_desc->code_size);
+                           new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size);
+                           std::memcpy(new_patched_code.get(), shader_desc->code, shader_desc->code_size);
                         }
 
                         // Calculate the offset relative to original code and copy the replaced byte code in it
@@ -2684,46 +2715,53 @@ namespace
                         // and plus it'd break other mods that load before us that replace shaders by hash on creation)
 
                         const size_t offset = byte_code - (std::byte*)shader_desc->code;
-                        std::memcpy(new_code.get() + offset, new_byte_code.get(), byte_code_size);
+                        std::memcpy(new_patched_code.get() + offset, patched_byte_code.get(), byte_code_size);
                      }
                   }
                }
 
-               if (new_code)
+               if (new_patched_code || pre_patched_code)
                {
                   any_edited = true;
+
+                  ASSERT_ONCE((pre_patched_code == nullptr) != (new_patched_code.get() == nullptr));
+
+                  const std::byte* patched_code = pre_patched_code ? pre_patched_code : new_patched_code.get();
+                  shader_header = (DXBCHeader*)patched_code;
 
                   // Store the original shader so it can later be accessed in ReShade's pipeline init callback (it'd still be valid as it's an external ptr, unless ReShade changed its implementation)
                   ASSERT_ONCE_MSG((subobject_count == 1 || subobject_count == 2) && subobject.count == 1, "This behaviour is hardcoded to work with DX9-11, with one object (shader) per pipeline"); // input layouts have two subobjects (input layour and vertex shader)
                   last_live_patched_shader_code = shader_desc->code;
                   last_live_patched_shader_size = shader_desc->code_size;
-
-                  shader_header = (DXBCHeader*)new_code.get();
+                  ASSERT_ONCE(shader_hash != -1);
+                  last_live_patched_shader_hash = uint32_t(shader_hash);
 
                   // Recalculate and set the hash, otherwise the shader might fail to load (or be used later on anyway)
-                  Hash::MD5::Digest md5_digest = Shader::CalcDXBCHash(new_code.get(), shader_header->file_size);
+                  Hash::MD5::Digest md5_digest = pre_patched_code_hash ? *pre_patched_code_hash : Shader::CalcDXBCHash(patched_code, shader_header->file_size);
                   memcpy(shader_header->hash, &md5_digest.data, DXBCHeader::hash_size);
 
                   // Update ReShade pointers to code and its size, so they point at the new code (that is kept alive by unique ptrs)
                   auto* shader_desc = static_cast<reshade::api::shader_desc*>(subobjects[i].data);
-                  shader_desc->code = new_code.get();
+                  shader_desc->code = patched_code;
                   shader_desc->code_size = shader_header->file_size;
 
+                  // Cache the newly patched
+                  if (new_patched_code.get())
                   {
                      const std::unique_lock lock_device(device_data.mutex);
 
                      // Allocate in chunks to avoid constant allocations
                      constexpr size_t reserve_size = 32; // Conservative value
-                     if (device_data.modified_shaders_byte_code.capacity() == 0)
+                     size_t size_distance = device_data.modified_shaders_byte_code.size() % reserve_size;
+                     if (size_distance == 0)
                      {
-                        device_data.modified_shaders_byte_code.reserve(reserve_size);
-                     }
-                     else if (device_data.modified_shaders_byte_code.size() + 1 > device_data.modified_shaders_byte_code.capacity())
-                     {
-                        device_data.modified_shaders_byte_code.reserve(device_data.modified_shaders_byte_code.capacity() + reserve_size);
+                        device_data.modified_shaders_byte_code.reserve(device_data.modified_shaders_byte_code.size() + reserve_size);
                      }
 
-                     device_data.modified_shaders_byte_code.push_back(std::move(new_code));
+                     auto& modified_shader_byte_code = device_data.modified_shaders_byte_code[uint32_t(shader_hash)];
+                     std::get<0>(modified_shader_byte_code) = std::move(new_patched_code);
+                     std::get<1>(modified_shader_byte_code) = shader_desc->code_size;
+                     std::get<2>(modified_shader_byte_code) = md5_digest;
                   }
                }
 
@@ -2746,6 +2784,7 @@ namespace
    {
       const void* live_patched_shader_code = nullptr;
       size_t live_patched_shader_size = 0;
+      size_t precalculated_shader_hash = -1;
 
       // In DX11 each pipeline should only have one subobject (e.g. a shader)
       for (uint32_t i = 0; i < subobject_count; ++i)
@@ -2804,9 +2843,26 @@ namespace
                shader_desc->code = last_live_patched_shader_code;
                shader_desc->code_size = last_live_patched_shader_size;
 #endif
+               precalculated_shader_hash = last_live_patched_shader_hash;
 
                last_live_patched_shader_code = nullptr;
                last_live_patched_shader_size = 0;
+               last_live_patched_shader_hash = 0;
+
+               // At this point, if we wanted, we could always destroy the shaders ptr we temporarily allocated
+               // to pass into ReShade (the shader creation DX function is split into two functions by it, so
+               // we have to resort to inventive ways). Note that if the shader creation failed,
+               // we wouldn't be able to clear it until the next function run, but barely a problem (it shouldn't happen).
+               // On x86 processes, space is limited so this might help.
+               // On the other end, if games constantly re-created the same shaders (e.g. CryEngine every time a level is reloaded)
+               // this could lead to additional stutters.
+               constexpr bool always_clear_live_patched_shaders = false; // TODO: expose
+               if (always_clear_live_patched_shaders)
+               {
+                  DeviceData& device_data = *device->get_private_data<DeviceData>();
+                  const std::unique_lock lock_device(device_data.mutex);
+                  device_data.modified_shaders_byte_code.clear();
+               }
             }
 #endif
             break;
@@ -2862,7 +2918,7 @@ namespace
 
                // TODO: when out of "DEVELOPMENT" or "TEST" builds, we could early out before cloning the pipeline based on whether "custom_shaders_cache.contains(shader_hash)" is true. That'd avoid some stutters on shader loading. Note that below we might modify even shaders that we don't replace so consider that too.
                // TODO: use the native DX hash stored at the beginning of shaders binaries? It might not always be reliable though
-               auto shader_hash = Shader::BinToHash(static_cast<const uint8_t*>(shader_desc->code), shader_desc->code_size);
+               uint32_t shader_hash = (precalculated_shader_hash != -1) ? uint32_t(precalculated_shader_hash) : Shader::BinToHash(static_cast<const uint8_t*>(shader_desc->code), shader_desc->code_size);
 
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
                {
@@ -3564,7 +3620,8 @@ namespace
          }
          else
 #endif
-         // TODO: have a high performance mode that swaps the original shader binary with the custom one on creation, so we don't have to analyze shader binding calls (probably wouldn't really speed up performance anyway)
+         // TODO: have a high performance mode that swaps the original shader binary with the custom one on creation, so we don't have to analyze shader binding calls (probably wouldn't really speed up performance anyway).
+         // This would also help save some memory in x86 games where we keep all shaders binaries in memory ("custom_shaders_cache::code").
          if (cached_pipeline->cloned)
          {
             cmd_list->bind_pipeline(stages, cached_pipeline->pipeline_clone);
@@ -8830,7 +8887,7 @@ namespace
                                                    ImGui::Text(" (Ignored)");
                                                 }
 
-                                                // TODO: add "BlendFactor", "SampleMask" etc (stencil too, together with stencil debug draw, but that goes with depth)
+                                                // TODO: add "SampleMask" etc (stencil too, together with stencil debug draw, but that goes with depth)
                                                 ImGui::Text("Blend RGB Mode Details: Src %s - Op %s - Dest %s", GetBlendName(render_target_blend_desc.SrcBlend), GetBlendOpName(render_target_blend_desc.BlendOp), GetBlendName(render_target_blend_desc.DestBlend));
 
                                                 bool has_drawn_blend_a_text = false;
@@ -8924,6 +8981,9 @@ namespace
                                                 if (render_target_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_ALPHA) ImGui::SameLine(), ImGui::Text(" A");
                                              }
                                           }
+
+                                          // Show even if all blend modes are disabled, given that it might still be useful to track its state
+                                          ImGui::Text("Blend Factor: %f %f %f %f", draw_call_data.blend_factor[0], draw_call_data.blend_factor[1], draw_call_data.blend_factor[2], draw_call_data.blend_factor[3]);
 
                                           const bool is_highlighted_resource = highlighted_resource == rt_hash;
                                           if (is_highlighted_resource ? ImGui::Button("Unhighlight Resource") : ImGui::Button("Highlight Resource"))
@@ -11234,6 +11294,18 @@ namespace
                ImGui::Text(text.c_str(), "");
             }
 
+            // Useful for x86 processes with limited space
+            {
+               MEMORYSTATUSEX status;
+               status.dwLength = sizeof(status);
+               if (GlobalMemoryStatusEx(&status))
+               {
+                  ImGui::NewLine();
+                  unsigned long long avail_mb = status.ullAvailVirtual / (1024 * 1024);
+                  ImGui::Text("Process Available Memory: %lluMB", avail_mb);
+               }
+            }
+
             game->PrintImGuiInfo(device_data);
 
             ImGui::EndTabItem(); // Info
@@ -11331,6 +11403,7 @@ void Init(bool async)
       {
          const std::shared_lock lock(s_mutex_device); // This is not completely safe as the write to "default_user_peak_white" isn't protected by this mutex but it's fine, it shouldn't have been written yet when we get here
          cb_luma_global_settings.ScenePeakWhite = global_devices_data.empty() ? default_peak_white : global_devices_data[0]->default_user_peak_white;
+         hdr_display_mode_pending_auto_peak_white_calibration = global_devices_data.empty(); // Re-adjust it later when we can
       }
       reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite);
       reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite);

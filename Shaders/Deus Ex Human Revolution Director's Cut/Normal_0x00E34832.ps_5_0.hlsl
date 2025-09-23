@@ -1,5 +1,3 @@
-#include "../Includes/Common.hlsl"
-
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -41,27 +39,51 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
+  float StereoOffset : packoffset(c25.w);
 }
+
 cbuffer MaterialBuffer : register(b3)
 {
   float4 MaterialParams[32] : packoffset(c0);
 }
 
-SamplerState p_default_Material_0B33AFF46643651_Param_sampler_s : register(s0);
-SamplerState p_default_Material_0B33AF346638807_Param_sampler_s : register(s1);
-Texture2D<float4> p_default_Material_0B33AFF46643651_Param_texture : register(t0);
-Texture2D<float4> p_default_Material_0B33AF346638807_Param_texture : register(t1);
+SamplerState p_default_Normal_050F2CA413890394_05A108244333199_Texture_sampler_s : register(s0);
+Texture2D<float4> p_default_Normal_050F2CA413890394_05A108244333199_Texture_texture : register(t0);
 
 void main(
   float4 v0 : SV_POSITION0,
+  float4 v1 : TEXCOORD0,
+  float3 v2 : TEXCOORD2,
+  float3 v3 : TEXCOORD3,
+  float3 v4 : TEXCOORD4,
   out float4 o0 : SV_Target0)
 {
   float4 r0,r1;
-  r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r1.xyz = p_default_Material_0B33AF346638807_Param_texture.Sample(p_default_Material_0B33AF346638807_Param_sampler_s, r0.xy).xyz;
-  r1.xyz = IsNaN_Strict(r1.xyz) ? 0.0 : r1.xyz; // Luma: fix NaNs in bloom
-  r0.xyz = p_default_Material_0B33AFF46643651_Param_texture.Sample(p_default_Material_0B33AFF46643651_Param_sampler_s, r0.xy).xyz;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz;
-  o0.xyz = r0.xyz * MaterialParams[0].x + r1.xyz;
+  r0.xy = MaterialParams[0].xy * v1.xy;
+  r0.xyz = p_default_Normal_050F2CA413890394_05A108244333199_Texture_texture.Sample(p_default_Normal_050F2CA413890394_05A108244333199_Texture_sampler_s, r0.xy).xyw;
+  r0.y = r0.y * r0.z;
+  r0.xy = r0.xy * float2(2,2) + float2(-1,-1);
+  r0.zw = saturate(MaterialParams[0].ww + -abs(r0.xy));
+  r1.x = 1 / MaterialParams[0].w;
+  r0.zw = -r0.zw * r1.xx + float2(1,1);
+  r0.zw = r0.zw * r0.xy;
+  r0.x = dot(r0.xy, r0.xy);
+  r0.x = 1 + -r0.x;
+  r0.x = max(0, r0.x);
+  r0.x = sqrt(r0.x);
+  r0.yz = MaterialParams[0].zz * r0.zw;
+  r1.xyz = v4.xyz * r0.zzz;
+  r0.yzw = r0.yyy * v3.xyz + r1.xyz;
+  r0.xyz = r0.xxx * v2.xyz + r0.yzw;
+  r0.w = dot(r0.xyz, r0.xyz);
+  r0.w = rsqrt(r0.w); // This causes the nans, however saturating it would break the output
+  r0.xyz = r0.w * r0.xyz;
+  r1.xyz = GlobalParams[12].xyz * r0.yyy;
+  r0.xyw = r0.xxx * GlobalParams[11].xyz + r1.xyz;
+  r0.xyz = r0.zzz * GlobalParams[13].xyz + r0.xyw;
+  o0.xyz = r0.xyz * float3(0.5,0.5,0.5) + float3(0.5,0.5,0.5);
   o0.w = MaterialOpacity;
+
+  // Luma: fixed NaNs
+  o0 = saturate(o0);
 }

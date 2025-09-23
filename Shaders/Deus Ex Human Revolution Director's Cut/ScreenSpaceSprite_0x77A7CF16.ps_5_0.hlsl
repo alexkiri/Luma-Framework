@@ -1,9 +1,5 @@
 #include "../Includes/Common.hlsl"
 
-#ifndef ENABLE_LUMA
-#define ENABLE_LUMA 1
-#endif
-
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -53,26 +49,48 @@ cbuffer InstanceBuffer : register(b5)
   float4 InstanceParams[8] : packoffset(c0);
 }
 
-SamplerState p_default_Material_176777245763634_Param_sampler_s : register(s0);
-Texture2D<float4> p_default_Material_176777245763634_Param_texture : register(t0);
+SamplerState p_default_Material_0CB112A4337965283_DepthBufferTexture_sampler_s : register(s0);
+SamplerState p_default_Material_0CB11C64337848596_Texture_sampler_s : register(s1);
+Texture2D<float4> p_default_Material_0CB112A4337965283_DepthBufferTexture_texture : register(t0);
+Texture2D<float4> p_default_Material_0CB11C64337848596_Texture_texture : register(t1);
 
 void main(
   float4 v0 : SV_POSITION0,
+  float4 v1 : COLOR0,
+  float4 texCoords : TEXCOORD0,
   out float4 o0 : SV_Target0)
 {
-  float4 r0;
-  r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r0.xyzw = p_default_Material_176777245763634_Param_texture.Sample(p_default_Material_176777245763634_Param_sampler_s, r0.xy).xyzw;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs
-#if ENABLE_LUMA // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom
-  //r0.xyz = min(r0.xyz, 5.0);
-#else
-  r0.xyz = saturate(r0.xyz);
+  float2 uv = texCoords.xy;
+#if 1 // Luma: fix screen space "bloom" sprites being stretched beyond 16:9 (or maybe even at anything beyond 1:1)
+  float2 size;
+  p_default_Material_0CB112A4337965283_DepthBufferTexture_texture.GetDimensions(size.x, size.y);
+  float sourceAspectRatio = 16.0 / 9.0; // What the vertex shader assumed (it seems to help at 4:3 too)
+  float targetAspectRatio = size.x / size.y;
+
+  float2 scale = 1.0;
+
+  if (targetAspectRatio >= sourceAspectRatio)
+    scale.x = targetAspectRatio / sourceAspectRatio;
+  else
+    scale.y = sourceAspectRatio / targetAspectRatio;
+  
+  // Center the UVs before scaling them
+  uv = (uv - 0.5) * scale + 0.5;
+  
+  // The sampler is wrap so we need to early out (hopefully the game didn't rely on looping textures)
+  if (any(uv.xy < 0) || any(uv.xy > 1))
+  {
+    o0 = float4(0, 0, 0, 0.0); // Out of bounds UVs, draw black
+    return;
+  }
 #endif
-  r0.w = InstanceParams[0].x * r0.w;
-  r0.xyz = r0.w * r0.xyz;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs again (they were usually in the alpha channel)
-  r0.w = GetLuminance(r0.xyz); // Luma: fixed wrong luminance calculations
-  o0.xyz = r0.xyz;
-  o0.w = MaterialOpacity * r0.w;
+
+  float4 r0;
+  r0.x = p_default_Material_0CB112A4337965283_DepthBufferTexture_texture.Sample(p_default_Material_0CB112A4337965283_DepthBufferTexture_sampler_s, InstanceParams[0].xy).x;
+  r0.x = r0.x * DepthToW.z + DepthToW.w;
+  r0.x = (r0.x >= InstanceParams[0].z);
+  r0.x = r0.x ? 1.000000 : 0;
+  o0.w = MaterialOpacity * r0.x;
+  r0.xyz = p_default_Material_0CB11C64337848596_Texture_texture.Sample(p_default_Material_0CB11C64337848596_Texture_sampler_s, uv).xyz;
+  o0.xyz = v1.xyz * r0.xyz;
 }

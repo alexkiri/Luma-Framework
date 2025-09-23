@@ -391,7 +391,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
          }
 
          com_ptr<ID3D11BlendState> blend_state;
-         native_device_context->OMGetBlendState(&blend_state, nullptr, nullptr);
+         native_device_context->OMGetBlendState(&blend_state, trace_draw_call_data.blend_factor, nullptr);
          if (blend_state)
          {
             D3D11_BLEND_DESC blend_desc;
@@ -782,6 +782,94 @@ void SetViewportFullscreen(ID3D11DeviceContext* device_context, uint2 size = {})
    device_context->RSSetViewports(viewports_num, &viewports[0]);
 }
 
+bool IsRTRGBBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
+{
+   if (!rt_blend_desc.BlendEnable) return true;
+
+   // It's enabled but it's as if it was disabled
+   if (rt_blend_desc.BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
+   {
+      if (rt_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ONE && rt_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ZERO)
+         return true;
+   }
+   else if (rt_blend_desc.BlendOp == D3D11_BLEND_OP::D3D11_BLEND_OP_REV_SUBTRACT)
+   {
+      if (rt_blend_desc.SrcBlend == D3D11_BLEND::D3D11_BLEND_ZERO && rt_blend_desc.DestBlend == D3D11_BLEND::D3D11_BLEND_ONE)
+         return true;
+   }
+
+   if ((rt_blend_desc.RenderTargetWriteMask & (D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE)) == 0) return true;
+
+   return false;
+}
+
+struct SanitizeNaNsSimpleData
+{
+   com_ptr<ID3D11RenderTargetView> original_rtv;
+
+   // Temp texture copy
+   com_ptr<ID3D11Texture2D> texture_2d;
+   com_ptr<ID3D11ShaderResourceView> srv;
+   UINT width = 1;
+   UINT height = 1;
+};
+
+void SanitizeNaNsSimple(ID3D11Device* device, ID3D11DeviceContext* device_context, const DeviceData& device_data, ID3D11RenderTargetView* rtv, SanitizeNaNsSimpleData& data)
+{
+   if (data.original_rtv != rtv)
+   {
+      if (data.original_rtv)
+      {
+         data = SanitizeNaNsSimpleData();
+      }
+
+      if (rtv)
+      {
+         com_ptr<ID3D11Resource> resource;
+         rtv->GetResource(&resource);
+         if (resource)
+         {
+            com_ptr<ID3D11Texture2D> texture_2d;
+            resource->QueryInterface(&texture_2d);
+            if (texture_2d)
+            {
+               D3D11_TEXTURE2D_DESC texture_2d_desc;
+               texture_2d->GetDesc(&texture_2d_desc);
+               if (IsSignedFloatFormat(texture_2d_desc.Format)) // They couldn't have NaNs otherwise
+               {
+                  data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_RENDER_TARGET, false, false, device_context);
+                  if (data.texture_2d)
+                  {
+                     data.original_rtv = rtv;
+
+                     data.width = texture_2d_desc.Width;
+                     data.height = texture_2d_desc.Height;
+
+                     HRESULT hr = device->CreateShaderResourceView(data.texture_2d.get(), nullptr, &data.srv);
+                     ASSERT_ONCE(SUCCEEDED(hr));
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   if (data.original_rtv)
+   {
+      const auto vs = device_data.native_vertex_shaders.find(Math::CompileTimeStringHash("Copy VS"));
+      const auto ps = device_data.native_pixel_shaders.find(Math::CompileTimeStringHash("Sanitize RGBA Mipped"));
+      if (vs == device_data.native_vertex_shaders.end() || !vs->second.get()
+         || ps == device_data.native_pixel_shaders.end() || !ps->second.get()) return;
+
+      com_ptr<ID3D11Resource> resource;
+      rtv->GetResource(&resource); // If we got here, it's valid
+
+      device_context->CopySubresourceRegion(data.texture_2d.get(), 0, 0, 0, 0, resource.get(), 0, nullptr);
+
+      DrawCustomPixelShader(device_context, nullptr, nullptr, device_data.sampler_state_point.get(), vs->second.get(), ps->second.get(), data.srv.get(), data.original_rtv.get(), data.width, data.height);
+   }
+}
+
 struct SanitizeNaNsData
 {
    com_ptr<ID3D11RenderTargetView> original_rtv;
@@ -798,6 +886,7 @@ struct SanitizeNaNsData
    UINT levels = 1; // >= 1 (includes base)
 };
 
+// TODO: rename both to better names
 void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, const DeviceData& device_data, ID3D11RenderTargetView* rtv, SanitizeNaNsData& data)
 {
    if (data.original_rtv != rtv)
@@ -807,7 +896,7 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, con
          data = SanitizeNaNsData();
       }
 
-      if (rtv) // TODO: this breaks after changing resolution or anyway when we have black bars
+      if (rtv)
       {
          com_ptr<ID3D11Resource> resource;
          rtv->GetResource(&resource);

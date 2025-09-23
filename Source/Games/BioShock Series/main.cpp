@@ -104,6 +104,12 @@ namespace
          // Write the new fov in the float part
          std::memcpy(&bs2_weapon_fov_patch[4], &adjusted_fov, sizeof(adjusted_fov));
 
+         // Restore the original Vert- code below 16:9 given that's how it should be
+         if (target_aspect_ratio <= (16.f / 9.f))
+         {
+            bs2_weapon_fov_patch = bs2_weapon_fov_pattern;
+         }
+
          DWORD old_protect;
          BOOL success = VirtualProtect(bs2_weapon_fov_matches[0], bs2_weapon_fov_patch.size(), PAGE_EXECUTE_READWRITE, &old_protect);
          if (success)

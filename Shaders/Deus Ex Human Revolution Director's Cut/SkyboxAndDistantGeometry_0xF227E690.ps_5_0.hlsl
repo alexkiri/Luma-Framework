@@ -1,9 +1,5 @@
 #include "../Includes/Common.hlsl"
 
-#ifndef ENABLE_LUMA
-#define ENABLE_LUMA 1
-#endif
-
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -45,6 +41,7 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
+  float StereoOffset : packoffset(c25.w);
 }
 
 cbuffer MaterialBuffer : register(b3)
@@ -52,24 +49,28 @@ cbuffer MaterialBuffer : register(b3)
   float4 MaterialParams[32] : packoffset(c0);
 }
 
-SamplerState p_default_Material_0B464C7419133480_Param_sampler_s : register(s0);
-Texture2D<float4> p_default_Material_0B464C7419133480_Param_texture : register(t0);
+SamplerState p_default_Material_0B390A243201500_0851E8642221812_Texture_sampler_s : register(s0);
+Texture2D<float4> p_default_Material_0B390A243201500_0851E8642221812_Texture_texture : register(t0);
 
 void main(
   float4 v0 : SV_POSITION0,
+  float4 v1 : TEXCOORD0,
+  float4 v2 : TEXCOORD5,
   out float4 o0 : SV_Target0)
 {
-  float4 r0;
-  r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r0.xyzw = p_default_Material_0B464C7419133480_Param_texture.Sample(p_default_Material_0B464C7419133480_Param_sampler_s, r0.xy).xyzw;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs
-#if ENABLE_LUMA // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom
-  //r0.xyz = min(r0.xyz, 5.0); // TODO: not needed until proven again, bloom isn't crazy high anymore (it does get bright and saturated). Also not sure we should clamp by channel.
-#else
-  r0.xyz = saturate(r0.xyz);
+  float4 r0,r1;
+  r0.x = saturate(v2.w);
+  r0.x = GlobalParams[2].x * r0.x;
+  r0.yz = MaterialParams[1].xy * v1.xy;
+  r1.xyzw = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Sample(p_default_Material_0B390A243201500_0851E8642221812_Texture_sampler_s, r0.yz).xyzw;
+  r0.yzw = MaterialParams[0].xyz * r1.xyz;
+  o0.w = MaterialParams[0].w * r1.w;
+  r1.xyz = MaterialParams[1].zzz * r0.yzw;
+  r0.yzw = -MaterialParams[1].zzz * r0.yzw + FogColor.xyz;
+  o0.xyz = r0.xxx * r0.yzw + r1.xyz;
+  
+#if 0 // Luma: fix banding in the sky. Disabled as this doesn't do enough
+  float2 sceneUV = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+  ApplyDithering(o0.xyz, sceneUV, true, 1.0, 5, LumaSettings.FrameIndex, true);
 #endif
-  r0.w = saturate(MaterialParams[0].x * r0.w);
-  o0.xyz = r0.w * r0.xyz;
-  o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz; // Luma: fix NaNs again (they were usually in the alpha channel)
-  o0.w = MaterialOpacity;
 }

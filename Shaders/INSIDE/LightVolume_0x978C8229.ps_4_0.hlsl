@@ -18,8 +18,6 @@ cbuffer cb0 : register(b0)
   float4 cb0[12];
 }
 
-#define cmp
-
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : COLOR0,
