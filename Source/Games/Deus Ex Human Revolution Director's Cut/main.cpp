@@ -72,7 +72,7 @@ public:
          {"ENABLE_LUMA", '1', false, false, "Allows disabling some of the Luma's post processing modifications to improve the image and output HDR"},
          {"ENABLE_IMPROVED_BLOOM", '1', false, false, "The bloom radius was calibrated for 720p/1080p and looked too small at higher resolutions"},
          {"ENABLE_IMPROVED_COLOR_GRADING", '1', false, false, "Allow running a new, modernized, version of the color grading pass (e.g. the gold filter)"},
-         {"ENABLE_COLOR_GRADING_DESATURATION", '1', false, false, "The color grading pass often had a strong desaturation effect, turn this off to preserve saturation"},
+         {"ENABLE_COLOR_GRADING_DESATURATION", '0', false, false, "The color grading pass (e.g. the gold filter) often had a strong desaturation effect, turn this off to preserve saturation (it's off by default as that was the case with the DE)"},
          {"ENABLE_FAKE_HDR", '1', false, false, "Enable a \"Fake\" HDR boosting effect"},
       };
       shader_defines_data.append_range(game_shader_defines_data);

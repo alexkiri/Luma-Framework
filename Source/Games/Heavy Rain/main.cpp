@@ -83,8 +83,9 @@ public:
       }
       pending_swapchain_resize |= patched;
 
-      cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.render_resolution.x;
-      cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.render_resolution.y;
+      // Assume it's the output resolution until proven otherwise
+      cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.output_resolution.x;
+      cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.output_resolution.y;
       device_data.cb_luma_global_settings_dirty = true;
    }
 
@@ -145,6 +146,8 @@ public:
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {
       cb_luma_global_settings.GameSettings.DrewTonemap = false;
+      cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.render_resolution.x;
+      cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.render_resolution.y;
       device_data.cb_luma_global_settings_dirty = true;
    }
 
