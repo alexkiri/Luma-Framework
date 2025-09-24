@@ -107,6 +107,8 @@ void main(
 
 #endif // ENABLE_IMPROVED_COLOR_GRADING
 
+  bool forceSDR = ShouldForceSDR(uv, true);
+
   float scaledAverage = saturate(InstanceParams[0].z * rgbAverageGammaSpace); // We still need to saturate, otherwise the highlights filter would apply too strongly (it will apply stronger than SDR anyway, as the source colors are beyond 1)
   float shadowAmount = -scaledAverage * 2.0 + 1.0; // Maps 1 to -1, 0.5 to 0 and 0 to 1
   float highlightAmount = scaledAverage * 2.0 - 1.0; // Maps 1 to 1, 0.5 to 0 and 0 to -1
@@ -128,7 +130,21 @@ void main(
   }
   // "pow(pow(x, gamma) * pow(y, gamma), 1.0 / gamma)" is equal to "x * y", so we should only do it if we want to preserve the exact original behaviour
   finalFilter = gamma_to_linear(finalFilter);
-  color = (color >= 0.0 || finalFilter <= FLT_EPSILON) ? (color * finalFilter) : (color / finalFilter); // Scale negative colors with the inverse value
+  
+  // Do the main color filter in BT.2020 to generate more HDR colors
+  if (LumaSettings.DisplayMode == 1 && !forceSDR)
+  {
+    finalFilter = BT709_To_BT2020(finalFilter);
+    color = BT709_To_BT2020(color);
+  }
+
+  color = (color >= 0.0 || abs(finalFilter) <= FLT_EPSILON) ? (color * finalFilter) : (color / finalFilter); // Scale negative colors with the inverse value
+
+  if (LumaSettings.DisplayMode == 1 && !forceSDR)
+  {
+    color = BT2020_To_BT709(color);
+  }
+
 #else // !ENABLE_IMPROVED_COLOR_GRADING
   color *= finalFilter;
 #endif // ENABLE_IMPROVED_COLOR_GRADING
@@ -159,7 +175,6 @@ void main(
   o0.rgb = Saturation(o0.rgb, lerp(1.0, 0.5, pow(saturate((average(o0.rgb) - MidGray) / 20.0), 0.5)));
 #endif
   
-  bool forceSDR = ShouldForceSDR(uv, true);
   if (!forceSDR)
   {
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
