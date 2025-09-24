@@ -4,6 +4,10 @@
 #define ENABLE_FAKE_HDR 1
 #endif
 
+#ifndef ENABLE_LUMA
+#define ENABLE_LUMA 1
+#endif
+
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -57,7 +61,7 @@ SamplerState p_default_Material_1D0C947425645075_Param_sampler_s : register(s0);
 SamplerState p_default_Material_189A68A42184148_Param_sampler_s : register(s1);
 SamplerState p_default_Material_16296FA480133513_Param_sampler_s : register(s2);
 Texture2D<float4> p_default_Material_1D0C947425645075_Param_texture : register(t0); // Scene
-Texture2D<float4> p_default_Material_189A68A42184148_Param_texture : register(t1);
+Texture2D<float4> p_default_Material_189A68A42184148_Param_texture : register(t1); // Depth
 Texture2D<float4> p_default_Material_16296FA480133513_Param_texture : register(t2); // Bloomed Scene
 
 void main(
@@ -66,6 +70,37 @@ void main(
 {
   float4 r0,r1,r2;
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+  
+  float4 bloomedColor = p_default_Material_16296FA480133513_Param_texture.Sample(p_default_Material_16296FA480133513_Param_sampler_s, r0.xy).xyzw;
+  //bloomedColor = IsNaN_Strict(bloomedColor) ? 0.0 : bloomedColor; // Shouldn't be needed
+
+  float4 sceneColor = p_default_Material_1D0C947425645075_Param_texture.Sample(p_default_Material_1D0C947425645075_Param_sampler_s, r0.xy).xyzw;
+  sceneColor = IsNaN_Strict(sceneColor) ? 0.0 : sceneColor; // Luma: fix NaNs in bloom output
+#if 0
+  sceneColor.xyz = isinf(sceneColor.xyz) ? 0.0 : sceneColor.xyz;
+#endif
+#if 0 // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom // Disabled as for some reason this breaks if there were nans
+  sceneColor.xyz = min(sceneColor.xyz, 5.0); // Bloom was already clamped before
+#endif
+
+#if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that. Do it before bloom to avoid bloom going crazy too
+  if (LumaSettings.DisplayMode == 1)
+  {
+    float normalizationPoint = 0.05; // Found empyrically
+    float fakeHDRIntensity = 0.1;
+    sceneColor.xyz = gamma_to_linear(sceneColor.xyz, GCT_MIRROR);
+    sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity, false);
+    sceneColor.xyz = linear_to_gamma(sceneColor.xyz, GCT_MIRROR);
+  }
+#endif // ENABLE_FAKE_HDR
+
+  bool forceSDR = ShouldForceSDR(r0.xy, true);
+
+  float emissiveScale = forceSDR ? 0.0 : asfloat(LumaData.CustomData1);
+#if ENABLE_LUMA
+  sceneColor.xyz /= lerp(1.0, max(sqr(sqr(saturate(1.0 - sceneColor.w))), 0.01), saturate(emissiveScale)); // Luma: scale scene color (before fogging it, and before bloom, as we already have bloom controls)
+#endif
+
   r0.z = p_default_Material_189A68A42184148_Param_texture.Sample(p_default_Material_189A68A42184148_Param_sampler_s, r0.xy).x;
   r0.z = r0.z * DepthToW.x + DepthToW.y;
   r0.z = max(9.99999997e-007, r0.z);
@@ -75,46 +110,20 @@ void main(
   r0.z = saturate(r0.z / r0.w);
   r0.w = -InstanceParams[3].z * r0.z + 1;
   r0.z = InstanceParams[3].z * r0.z;
-  
-  r1.xyzw = p_default_Material_16296FA480133513_Param_texture.Sample(p_default_Material_16296FA480133513_Param_sampler_s, r0.xy).xyzw;
-  //r1.xyz = IsNaN_Strict(r1.xyz) ? 0.0 : r1.xyz; // Shouldn't be needed
-  r1.xyzw *= LumaData.CustomData3; // Luma: scale bloom
 
-  if (LumaData.CustomData3 != 0.0 && r0.z >= 0.0)
-  {
-    r0.z = pow(r0.z, 1.0 / LumaData.CustomData3); // Luma: scale the fog effect that was in the DC version of the game too
-  }
-  else
-  {
-    r0.z = 0.0;
-  }
+  r0.z *= LumaData.CustomData4; // Luma: scale the fog effect that was in the DC version of the game too
 
-  r2.xyzw = p_default_Material_1D0C947425645075_Param_texture.Sample(p_default_Material_1D0C947425645075_Param_sampler_s, r0.xy).xyzw;
-  r2.xyz = IsNaN_Strict(r2.xyz) ? 0.0 : r2.xyz; // Luma: fix NaNs in bloom
-#if 0
-  r2.xyz = isinf(r2.xyz) ? 0.0 : r2.xyz;
-#endif
-#if 0 // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom // Disabled as for some reason this breaks if there were nans
-  r2.xyz = min(r2.xyz, 5.0); // Bloom was already clamped before
+  r0.x = saturate(bloomedColor.w) * r0.w + r0.z; // Luma: added saturate to bloom alpha (its average color) prevent negative fov
+  r0.x *= r0.z;
+  r0.xyz = r0.x * (InstanceParams[5].xyz * r0.x - sceneColor.xyz);
+  float3 foggedColor = r0.xyz + sceneColor.xyz; // This shouldn't ever result in negative colors
+#if !ENABLE_LUMA // Otherwise we already scaled the scene by its alpha (emissiveness)
+  foggedColor += sceneColor.xyz * sceneColor.w * emissiveScale;
 #endif
 
-#if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that. Do it before bloom to avoid bloom going crazy too
-  if (LumaSettings.DisplayMode == 1)
-  {
-    float normalizationPoint = 0.05; // Found empyrically
-    float fakeHDRIntensity = 0.1;
-    r2.xyz = gamma_to_linear(r2.xyz, GCT_MIRROR);
-    r2.xyz = FakeHDR(r2.xyz, normalizationPoint, fakeHDRIntensity, false);
-    r2.xyz = linear_to_gamma(r2.xyz, GCT_MIRROR);
-  }
-#endif // ENABLE_FAKE_HDR
+  bloomedColor.xyzw *= LumaData.CustomData3; // Luma: scale bloom
 
-  r0.x = r1.w * r0.w + r0.z;
-  r0.x = r0.x * r0.z;
-  r0.yzw = InstanceParams[5].xyz * r0.x - r2.xyz;
-  r0.xyz = r0.x * r0.yzw + r2.xyz;
-  r0.xyz = r2.xyz * r2.w + r0.xyz;
-  o0.xyz = r1.xyz * InstanceParams[4].x + r0.xyz;
+  o0.xyz = bloomedColor.xyz * InstanceParams[4].x + foggedColor.xyz;
   o0.w = MaterialOpacity;
   
   // Luma

@@ -52,6 +52,7 @@
 #include <cstdint>
 #include <functional>
 #include <regex>
+#include <ranges>
 
 // DirectX dependencies
 #include <DirectXMath.h>
@@ -208,6 +209,7 @@ namespace
 	bool reshade_effects_toggle_to_display_mode_toggle = false;
 #endif
 #if DEVELOPMENT
+   bool compile_clear_all_shaders = false; // If true, even shaders that aren't used by the current mod will be compiled, for a test
    bool trace_show_command_list_info = true;
    bool trace_ignore_vertex_shaders = true;
    bool trace_ignore_buffer_writes = true;
@@ -373,7 +375,8 @@ namespace
       { CompileTimeStringHash("Display Composition"), { "Luma_DisplayComposition", reshade::api::pipeline_subobject_type::pixel_shader } },
 
       { CompileTimeStringHash("Sanitize A"), { "Luma_SanitizeAlpha", reshade::api::pipeline_subobject_type::compute_shader } },
-      { CompileTimeStringHash("Sanitize RGBA"), { "Luma_SanitizeRGBA", reshade::api::pipeline_subobject_type::compute_shader } },
+      { CompileTimeStringHash("Sanitize RGBA CS"), { "Luma_SanitizeRGBA", reshade::api::pipeline_subobject_type::compute_shader } },
+      { CompileTimeStringHash("Sanitize RGBA PS"), { "Luma_SanitizeRGBA", reshade::api::pipeline_subobject_type::pixel_shader } },
       { CompileTimeStringHash("Sanitize RGBA Mipped"), { "Luma_SanitizeRGBAMipped", reshade::api::pipeline_subobject_type::pixel_shader } },
       { CompileTimeStringHash("Gen Sanitized Mip"), { "Luma_GenerateSanitizedMip_CS", reshade::api::pipeline_subobject_type::compute_shader } },
 
@@ -624,14 +627,28 @@ namespace
       return shaders_path;
    }
 
-   // TODO: if this was ever too slow, given we iterate through the shader folder which also contains (possibly hundreds of) dumps and our built binaries,
+   // TODO: if this was ever too slow (it is, at least in dev builds because they use the shader folder with all the games), given we iterate through the shader folder which also contains (possibly hundreds of) dumps and our built binaries,
    // we could split it up in 3 main branches (shaders code, shaders binaries and shaders dump).
-   // Alternatively we could make separate iterators for each main shaders folder.
+   // Alternatively we could make separate iterators for each main shaders folder, however, we've now gotten it fast enough.
    //
    // Note: the paths here might also be hardcoded in GitHub actions (build scripts)
+   // This expects a file path not a directory path.
    bool IsValidShadersSubPath(const std::filesystem::path& shader_directory, const std::filesystem::path& entry_path, bool& out_is_global)
    {
       const std::filesystem::path entry_directory = entry_path.parent_path();
+
+#if DEVELOPMENT
+      if (compile_clear_all_shaders)
+      {
+         // Return true on all first folders in the shaders directory (so, the first folder for each mod, and the global/include folders),
+         // except the includes and other special folders, otherwise it might try to compile shaders in them (unwanted).
+         // TODO: specify these directories somewhere globally, and also maybe rename out includes from ".hlsl" to ".h" or ".hlsli" or something
+         if (entry_directory != (shader_directory / "Includes") && entry_directory != (shader_directory / "Decompiler") && entry_directory.parent_path() == shader_directory)
+         {
+            return true;
+         }
+      }
+#endif
 
       // Global shaders (game independent)
       const auto global_shader_directory = shader_directory / "Global";
@@ -723,14 +740,20 @@ namespace
    }
 
    // Expects "s_mutex_loading" to make sure we don't try to compile/load any other files we are currently deleting
+   // Note: this will create the "meta" files too!
    void CleanShadersCache()
    {
       if (!std::filesystem::exists(shaders_path))
       {
          return;
       }
-      
-      for (const auto& entry : std::filesystem::recursive_directory_iterator(shaders_path))
+
+      for (const auto& entry : std::filesystem::recursive_directory_iterator(shaders_path)
+         | std::views::filter([](const std::filesystem::directory_entry& e) {
+            return e.is_regular_file() &&
+               (e.path().extension() == ".cso" ||
+                  e.path().extension() == ".meta");
+            }))
       {
          bool is_global = false;
          const auto& entry_path = entry.path();
@@ -1022,6 +1045,7 @@ namespace
 
                      // TODO: make this more flexible, allowing spaces around "#" and "define" etc,
                      // and defines values that are not numerical (from 0 to 9)
+                     // TODO: this is only used by Prey so make it optional!
                      std::string_view str_view(&str[i0], i - i0);
                      if (str_view.rfind("#define ", 0) == 0)
                      {
@@ -1120,7 +1144,12 @@ namespace
       }
 
       std::set<uint32_t> changed_luma_native_shaders_hashes;
-      for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
+      for (const auto& entry : std::filesystem::recursive_directory_iterator(directory)
+         | std::views::filter([](const std::filesystem::directory_entry& e) {
+            return e.is_regular_file() &&
+               (e.path().extension() == ".cso" ||
+                  e.path().extension() == ".hlsl");
+            }))
       {
          bool is_global = false;
          const auto& entry_path = entry.path();
@@ -2702,7 +2731,7 @@ namespace
 #endif
                      const std::byte* byte_code = reinterpret_cast<const std::byte*>(&chunk[4]);
 
-                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type))
+                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type, shader_hash))
                      {
                         if (!new_patched_code)
                         {
@@ -4172,21 +4201,21 @@ namespace
                HRESULT hr = native_device->CreateTexture2D(&proxy_target_desc, nullptr, &device_data.display_composition_texture);
                assert(SUCCEEDED(hr));
 
-               D3D11_TEXTURE2D_DESC texDesc = {};
-               device_data.display_composition_texture->GetDesc(&texDesc);
+               D3D11_TEXTURE2D_DESC tex_desc = {};
+               device_data.display_composition_texture->GetDesc(&tex_desc);
 
-               D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-               srvDesc.Format = proxy_target_desc.Format;
-               srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-               srvDesc.Texture2D.MostDetailedMip = 0;
-               srvDesc.Texture2D.MipLevels = texDesc.MipLevels == 0 ? UINT(-1) : texDesc.MipLevels; // For some reason this requires -1 instead of 0 to specify all mips
-               hr = native_device->CreateShaderResourceView(device_data.display_composition_texture.get(), &srvDesc, &device_data.display_composition_srv);
+               D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+               srv_desc.Format = proxy_target_desc.Format;
+               srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+               srv_desc.Texture2D.MostDetailedMip = 0;
+               srv_desc.Texture2D.MipLevels = tex_desc.MipLevels == 0 ? UINT(-1) : tex_desc.MipLevels; // For some reason this requires -1 instead of 0 to specify all mips
+               hr = native_device->CreateShaderResourceView(device_data.display_composition_texture.get(), &srv_desc, &device_data.display_composition_srv);
                assert(SUCCEEDED(hr));
 
                if (wants_mips)
                {
                   UINT support = 0;
-                  hr = native_device->CheckFormatSupport(texDesc.Format, &support);
+                  hr = native_device->CheckFormatSupport(tex_desc.Format, &support);
                   assert(SUCCEEDED(hr));
                   assert(support & D3D11_FORMAT_SUPPORT_MIP_AUTOGEN);
                }
@@ -7445,7 +7474,18 @@ namespace
          const std::unique_lock lock(s_mutex_loading);
          device_data.pipelines_to_reload.clear();
       }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("Automatically load (apply/replace) your custom shaders when they are first met in the game.");
+      }
       ImGui::PopID();
+
+      ImGui::SameLine();
+      ImGui::Checkbox("Compile/Clear All Shaders", &compile_clear_all_shaders);
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("If enabled, shaders that aren't used by this mod will be compiled or cleared too.\nUseful to test if they compile properly after changes to c++ or shaders code.\nNote that some mods has specific shader defines configurations that we don't have access too here, but they should build nonetheless.");
+      }
 #endif // DEVELOPMENT
 
       if (ImGui::BeginTabBar("##TabBar", ImGuiTabBarFlags_None))

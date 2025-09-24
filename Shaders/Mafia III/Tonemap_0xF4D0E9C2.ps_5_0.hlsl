@@ -15,7 +15,6 @@
 #endif
 
 #define SAFE_FLT_MIN 9.99999975e-006
-#define SAFE_FLT_MIN_2 9.99999997e-007
 
 Texture3D<float4> t9 : register(t9); // 3D LUT 16x
 Texture2D<float4> t8 : register(t8); // Film grain/dither map
@@ -283,7 +282,7 @@ void main(
   bool applyBlackAndWhite = cb0[4].z > 0.0;
   bool applyFilmGrain = cb0[4].w > 0.0;
   bool applySomething = cb0[5].x > 0;
-  bool applyLUTByMaxChannel = cb0[5].y > 0; // Disabled by default
+  bool applyLUTByMaxChannel = cb0[5].y > 0; // Disabled by default, for unused original HDR
   bool applyDithering = cb0[6].z > 0.0;
   
 #if ENABLE_CHROMATIC_ABERRATION // Chromatic Aberration (doesn't have a user toggle)
@@ -427,48 +426,56 @@ void main(
   
   // LUT
   if (applyLUT) {
-    // TODO: was this the original HDR? This outputs almost the same as below. Either way we need to make sure this was never used.
+    float lutIntensity = 1.0;
+#if ENABLE_LUMA
+    lutIntensity = LumaData.CustomData3;
+#endif
+    lutIntensity *= saturate(cb1[6].y);
+#if ENABLE_LUMA // This branch isn't needed with Luma, even if it was ever active
+    applyLUTByMaxChannel = false;
+#endif
+    // This is supposedly the game's original HDR implementation, in case it skipped the tonemapper or something, however it seems like it was never used.
+    // The same identical code is also in "Dying Light: The Beast", so it was either written by a shared developer, or can be found somewhere online (I couldn't find a rerence).
+    // It seems to look good, however it doesn't support negative input values.
     if (applyLUTByMaxChannel) {
-      r0.w = max3(tonemappedColor);
-      r0.w = max(SAFE_FLT_MIN_2, r0.w);
-      r2.x = -r0.w * 1.90476203 + 5.80952358;
-      r2.x = r0.w * r2.x - 0.429761916;
-      r2.x = 0.25 * r2.x;
-      r3.x = 1.0 - r0.w;
-      r3.x = cmp(abs(r3.x) < 0.524999976);
-      r3.y = min(1, r0.w);
-      r2.x = r3.x ? r2.x : r3.y;
-      r0.w = r2.x / r0.w;
-      r3.xyz = tonemappedColor * r0.w;
-      r4.xyz = max(SAFE_FLT_MIN, r3.xyz);
-      r4.xyz = pow(r4.xyz, 1.0 / 2.2);
-      r4.xyz = r4.xyz * 0.9375 + 0.03125; // LUT_SIZE
-      r4.xyz = t9.Sample(s2_s, r4.xyz).xyz;
-      r4.xyz = max(SAFE_FLT_MIN, r4.xyz);
-      r4.xyz = pow(r4.xyz, 2.2);
-      r2.x = saturate(cb1[6].y);
-      r4.xyz -= tonemappedColor * r0.w;
-      r3.xyz += r2.x * r4.xyz;
-      tonemappedColor = r3.xyz / r0.w;
-#if ENABLE_LUMA && (DEVELOPMENT || TEST) // Turn purple to see it
-      tonemappedColor = float3(1, 0, 1);
-#endif
-    } else {
-      float lutIntensity = 1.0;
-#if ENABLE_LUMA
-      lutIntensity = LumaData.CustomData3;
-#endif
-      lutIntensity *= saturate(cb1[6].y);
+      float3 color = tonemappedColor;
+      float max_channel = max3(color.r, color.g, color.b);
+      max_channel = max(1e-6, max_channel);
 
+      // Soft-knee highlight compression
+      const float KNEE = 0.525;
+      const float A = 1.0 / KNEE;     // 1.90476203
+      const float B = 122.0 / 21.0;  // 5.80952358
+      const float C = 9.0 / 21.0;    // 0.429761916
+      float scale;
+      if (abs(1.0 - max_channel) < KNEE) {
+        scale = ((-max_channel * A + B) * max_channel - C) * 0.25;
+      } else {
+        scale = min(1.0, max_channel);
+      }
+      scale /= max_channel;
+
+      color *= scale;
+
+      color = max(SAFE_FLT_MIN, color);
+      color = pow(color, 1.0 / 2.2);
+      color = color * 0.9375 + 0.03125; // LUT_SIZE
+      color = t9.Sample(s2_s, color).xyz;
+      color = max(SAFE_FLT_MIN, color);
+      color = pow(color, 2.2);
+
+      tonemappedColor = lerp(tonemappedColor, color / scale, saturate(lutIntensity));
+    } else {
+      float3 luttedColor;
 #if ENABLE_LUMA
-      r3.rgb = lutIntensity > 0.f ? ApplyLUT(tonemappedColor, SDRColor, t9, s2_s, forceSDR) : tonemappedColor;
+      luttedColor = lutIntensity > 0.f ? ApplyLUT(tonemappedColor, SDRColor, t9, s2_s, forceSDR) : tonemappedColor;
 #else
-      r3.xyz = max(SAFE_FLT_MIN, tonemappedColor);
-      r3.xyz = pow(r3.xyz, 1.0 / 2.2);
-      r3.xyz = r3.xyz * 0.9375 + 0.03125; // LUT_SIZE
-      r3.xyz = t9.Sample(s2_s, r3.xyz).xyz;
-      r3.xyz = max(SAFE_FLT_MIN, r3.xyz);
-      r3.xyz = pow(r3.xyz, 2.2);
+      luttedColor = max(SAFE_FLT_MIN, tonemappedColor);
+      luttedColor = pow(luttedColor, 1.0 / 2.2);
+      luttedColor = luttedColor * 0.9375 + 0.03125; // LUT_SIZE
+      luttedColor = t9.Sample(s2_s, luttedColor).xyz;
+      luttedColor = max(SAFE_FLT_MIN, luttedColor);
+      luttedColor = pow(luttedColor, 2.2);
 #endif
 
 #if ENABLE_LUMA // Attempt to undo the yellow filter the game LUT applied
@@ -477,16 +484,16 @@ void main(
       float lutMidGreyBrightnessLinear = max(GetLuminance(lutMidGreyLinear), 0.0); // Normalize it by luminance
       float yellowCorrectionIntensity = LumaData.CustomData4; // Note that this will correct other color filters as well!
 #if 1
-      r3.rgb /= (lutMidGreyLinear != 0.0) ? lerp(1.0, safeDivision(lutMidGreyLinear, lutMidGreyBrightnessLinear, 1), yellowCorrectionIntensity) : 1.0;
+      luttedColor /= (lutMidGreyLinear != 0.0) ? lerp(1.0, safeDivision(lutMidGreyLinear, lutMidGreyBrightnessLinear, 1), yellowCorrectionIntensity) : 1.0;
 #else // Do it in gamma space to better emulate the LUT color shift // TODO: test both and also simply avoid linearizing the lut output color above to prevent a double conversion, actually it seems like the result is identical...
-      r3.rgb = pow(abs(r3.rgb), 1.0 / 2.2) * sign(r3.rgb);
+      luttedColor = pow(abs(luttedColor), 1.0 / 2.2) * sign(luttedColor);
       float lutMidGreyBrightnessGamma = pow(lutMidGreyBrightnessLinear, 1.0 / 2.2);
-      r3.rgb /= (lutMidGreyGamma != 0.0) ? lerp(1.0, safeDivision(lutMidGreyGamma, lutMidGreyBrightnessGamma, 1), yellowCorrectionIntensity) : 1.0;
-      r3.rgb = pow(abs(r3.rgb), 2.2) * sign(r3.rgb);
+      luttedColor /= (lutMidGreyGamma != 0.0) ? lerp(1.0, safeDivision(lutMidGreyGamma, lutMidGreyBrightnessGamma, 1), yellowCorrectionIntensity) : 1.0;
+      luttedColor = pow(abs(luttedColor), 2.2) * sign(luttedColor);
 #endif
 #endif // ENABLE_LUMA
 
-      tonemappedColor = OptionalSaturate(lerp(tonemappedColor, r3.rgb, lutIntensity)); // LUT intensity
+      tonemappedColor = OptionalSaturate(lerp(tonemappedColor, luttedColor, lutIntensity)); // LUT intensity
     }
   }
   

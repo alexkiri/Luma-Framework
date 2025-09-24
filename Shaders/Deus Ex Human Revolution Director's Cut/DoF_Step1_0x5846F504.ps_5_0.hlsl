@@ -1,9 +1,3 @@
-#include "../Includes/Common.hlsl"
-
-#ifndef ENABLE_LUMA
-#define ENABLE_LUMA 1
-#endif
-
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -45,15 +39,18 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
+  float StereoOffset : packoffset(c25.w);
 }
 
-cbuffer MaterialBuffer : register(b3)
+cbuffer InstanceBuffer : register(b5)
 {
-  float4 MaterialParams[32] : packoffset(c0);
+  float4 InstanceParams[8] : packoffset(c0);
 }
 
-SamplerState p_default_Material_0B464C7419133480_Param_sampler_s : register(s0);
-Texture2D<float4> p_default_Material_0B464C7419133480_Param_texture : register(t0); // Scene
+SamplerState p_default_Material_1C7F38A4131815_Param_sampler_s : register(s0);
+SamplerState p_default_Material_228BB2E414810090_Param_sampler_s : register(s1);
+Texture2D<float4> p_default_Material_1C7F38A4131815_Param_texture : register(t0);
+Texture2D<float4> p_default_Material_228BB2E414810090_Param_texture : register(t1);
 
 void main(
   float4 v0 : SV_POSITION0,
@@ -61,15 +58,15 @@ void main(
 {
   float4 r0;
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  r0.xyzw = p_default_Material_0B464C7419133480_Param_texture.Sample(p_default_Material_0B464C7419133480_Param_sampler_s, r0.xy).xyzw;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs
-#if ENABLE_LUMA // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom
-  //r0.xyz = min(r0.xyz, 5.0); // TODO: not needed until proven again, bloom isn't crazy high anymore (it does get bright and saturated). Also not sure we should clamp by channel.
-#else
-  r0.xyz = saturate(r0.xyz);
-#endif
-  r0.w = saturate(MaterialParams[0].x * r0.w);
-  o0.xyz = r0.w * r0.xyz;
-  o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz; // Luma: fix NaNs again (they were usually in the alpha channel)
-  o0.w = MaterialOpacity;
+  r0.z = p_default_Material_228BB2E414810090_Param_texture.SampleLevel(p_default_Material_228BB2E414810090_Param_sampler_s, r0.xy, 0).x;
+  o0.xyz = p_default_Material_1C7F38A4131815_Param_texture.Sample(p_default_Material_1C7F38A4131815_Param_sampler_s, r0.xy).xyz;
+  r0.x = r0.z * DepthToW.x + DepthToW.y;
+  r0.x = max(9.99999997e-007, r0.x);
+  r0.x = 1 / r0.x;
+  r0.xy = -InstanceParams[0].zy + r0.xx;
+  r0.zw = InstanceParams[0].wx + -InstanceParams[0].zy;
+  r0.xy = r0.xy / r0.zw;
+  r0.x = saturate(max(r0.x, r0.y));
+  r0.x = saturate(InstanceParams[1].x * r0.x);
+  o0.w = MaterialOpacity * r0.x;
 }

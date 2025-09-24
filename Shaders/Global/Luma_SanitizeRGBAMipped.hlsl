@@ -23,7 +23,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #if 0 // Not sure if this is good, seems like not to me, it also just doesn't seem to work (it skips the loop? Makes no sense as returning a color in the loop ignores the call)
   [unroll(MAX_2D_MIP_LEVELS)]
 #else
-  [loop]
+  [loop] // Note: this might send false warnings
 #endif
   do
   {

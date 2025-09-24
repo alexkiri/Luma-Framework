@@ -159,20 +159,24 @@ void main(
   o0.rgb = Saturation(o0.rgb, lerp(1.0, 0.5, pow(saturate((average(o0.rgb) - MidGray) / 20.0), 0.5)));
 #endif
   
-  const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
-  const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-  if (LumaSettings.DisplayMode == 1)
+  bool forceSDR = ShouldForceSDR(uv, true);
+  if (!forceSDR)
   {
-	  DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+    const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
+    const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+    if (LumaSettings.DisplayMode == 1)
+    {
+      DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
 #if 0
-    settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
+      settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
 #endif
-    o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
-  }
-  else
-  {
-    o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
-    o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+      o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
+    }
+    else
+    {
+      o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
+      o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+    }
   }
   
 #if UI_DRAW_TYPE == 2

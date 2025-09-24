@@ -229,6 +229,7 @@ void main(
 
   // Use the world position to generate a "slowly" moving UV to be fed into the noise texture
   float2 noiseCoords = WorldTo2D(worldPos.xyz * 0.075);
+  //float2 noiseCoords = WorldTo2D(worldPos.xyz * 0.075 * DVS3 * 10) / (DVS4 * 10);
   r2.xyz = p_default_Material_2A938F645990781_Param_texture.Sample(p_default_Material_2A938F645990781_Param_sampler_s, noiseCoords).xyz;
 #endif
 

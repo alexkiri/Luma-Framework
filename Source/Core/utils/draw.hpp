@@ -666,7 +666,7 @@ void DrawCustomPixelShader(ID3D11DeviceContext* device_context, ID3D11DepthStenc
 {
    // Set the new resources/states:
    constexpr FLOAT blend_factor_alpha[4] = { 1.f, 1.f, 1.f, 1.f };
-   constexpr FLOAT blend_factor[4] = { 1.f, 1.f, 1.f, 0.f }; // TODO: this makes no sense as the blend state is unlikely to use ut
+   constexpr FLOAT blend_factor[4] = { 1.f, 1.f, 1.f, 0.f }; // TODO: this makes no sense as the blend state is unlikely to use it, use write mask instead
    device_context->OMSetBlendState(blend_state, alpha ? blend_factor_alpha : blend_factor, 0xFFFFFFFF);
    // Note: we don't seem to need to call (and cache+restore) IASetVertexBuffers() (at least not in Prey).
    // That's either because games always have vertices buffers set in there already, or because DX is tolerant enough (we are not seeing any etc errors in the DX log).
@@ -782,6 +782,27 @@ void SetViewportFullscreen(ID3D11DeviceContext* device_context, uint2 size = {})
    device_context->RSSetViewports(viewports_num, &viewports[0]);
 }
 
+bool IsRTAlphaBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
+{
+   if (!rt_blend_desc.BlendEnable) return true;
+
+   // It's enabled but it's as if it was disabled
+   if (rt_blend_desc.BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_ADD)
+   {
+      if (rt_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE && rt_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO)
+         return true;
+   }
+   else if (rt_blend_desc.BlendOpAlpha == D3D11_BLEND_OP::D3D11_BLEND_OP_REV_SUBTRACT)
+   {
+      if (rt_blend_desc.SrcBlendAlpha == D3D11_BLEND::D3D11_BLEND_ZERO && rt_blend_desc.DestBlendAlpha == D3D11_BLEND::D3D11_BLEND_ONE)
+         return true;
+   }
+
+   if ((rt_blend_desc.RenderTargetWriteMask & D3D11_COLOR_WRITE_ENABLE_ALPHA) == 0) return true;
+
+   return false;
+}
+
 bool IsRTRGBBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
 {
    if (!rt_blend_desc.BlendEnable) return true;
@@ -801,6 +822,11 @@ bool IsRTRGBBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
    if ((rt_blend_desc.RenderTargetWriteMask & (D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE)) == 0) return true;
 
    return false;
+}
+
+bool IsRTBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
+{
+   return IsRTRGBBlendDisabled(rt_blend_desc) && IsRTAlphaBlendDisabled(rt_blend_desc);
 }
 
 struct SanitizeNaNsSimpleData
@@ -857,7 +883,7 @@ void SanitizeNaNsSimple(ID3D11Device* device, ID3D11DeviceContext* device_contex
    if (data.original_rtv)
    {
       const auto vs = device_data.native_vertex_shaders.find(Math::CompileTimeStringHash("Copy VS"));
-      const auto ps = device_data.native_pixel_shaders.find(Math::CompileTimeStringHash("Sanitize RGBA Mipped"));
+      const auto ps = device_data.native_pixel_shaders.find(Math::CompileTimeStringHash("Sanitize RGBA PS"));
       if (vs == device_data.native_vertex_shaders.end() || !vs->second.get()
          || ps == device_data.native_pixel_shaders.end() || !ps->second.get()) return;
 
@@ -886,7 +912,7 @@ struct SanitizeNaNsData
    UINT levels = 1; // >= 1 (includes base)
 };
 
-// TODO: rename both to better names
+// TODO: rename both to better names, or unify with "SanitizeNaNsSimple" given they very similar.
 void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, const DeviceData& device_data, ID3D11RenderTargetView* rtv, SanitizeNaNsData& data)
 {
    if (data.original_rtv != rtv)

@@ -535,15 +535,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       if (executable_name == "BioshockHD.exe")
       {
          bioshock_game = BioShockGame::BioShock_Remastered;
+         sub_game_shaders_appendix = "BS";
       }
       else if (executable_name == "Bioshock2HD.exe")
       {
          bioshock_game = BioShockGame::BioShock_2_Remastered;
+         sub_game_shaders_appendix = "BS2";
       }
       // Steam and Epic Store versions respectively
       else if (executable_name == "BioShockInfinite.exe" || executable_name == "ShippingPC-XGame.exe")
       {
          bioshock_game = BioShockGame::BioShock_Infinite;
+         sub_game_shaders_appendix = "BSI";
       }
       else
       {

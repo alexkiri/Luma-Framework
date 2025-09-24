@@ -173,11 +173,11 @@ public:
       {
          reshade::set_config_value(runtime, NAME, "BloomAndLensFlareIntensity", cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity);
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity, 1.f, "BloomAndLensFlareIntensity", runtime);
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
          ImGui::SetTooltip("Note that this might not work on every scene");
       }
+      DrawResetButton(cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity, 1.f, "BloomAndLensFlareIntensity", runtime);
 
       if (cb_luma_global_settings.DisplayMode == 1)
       {
@@ -185,11 +185,11 @@ public:
          {
             reshade::set_config_value(runtime, NAME, "HDRBoostAmount", cb_luma_global_settings.GameSettings.HDRBoostAmount);
          }
-         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostAmount, 0.5f, "HDRBoostAmount", runtime);
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
          {
             ImGui::SetTooltip("Vanilla look at 0");
          }
+         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostAmount, 0.5f, "HDRBoostAmount", runtime);
       }
 
 #if DEVELOPMENT

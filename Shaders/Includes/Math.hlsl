@@ -67,7 +67,7 @@ float3 safeDivision(float3 quotient, float3 dividend, int fallbackMode = 0)
 // this is an actual forced check for it.
 bool IsNaN_Strict(float x)
 {
-#if 0 // float!=float is only true if the number is NaN
+#if 0 // float!=float is only true if the number is NaN. This doesn't always work, it's probably optimized away!
   return x.x != x.x;
 #else // This will cover all the possible nan cases
   uint bits = asuint(x);
@@ -76,30 +76,31 @@ bool IsNaN_Strict(float x)
 }
 bool2 IsNaN_Strict(float2 x)
 {
-  return bool2(x.x != x.x, x.y != x.y);
+  return bool2(IsNaN_Strict(x.x), IsNaN_Strict(x.y));
 }
 bool3 IsNaN_Strict(float3 x)
 {
-  return bool3(x.x != x.x, x.y != x.y, x.z != x.z);
+  return bool3(IsNaN_Strict(x.x), IsNaN_Strict(x.y), IsNaN_Strict(x.z));
 }
 bool4 IsNaN_Strict(float4 x)
 {
-  return bool4(x.x != x.x, x.y != x.y, x.z != x.z, x.w != x.w);
+  return bool4(IsNaN_Strict(x.x), IsNaN_Strict(x.y), IsNaN_Strict(x.z), IsNaN_Strict(x.w));
 }
 bool IsAnyNaN_Strict(float2 x)
 {
-  return x.x != x.x || x.y != x.y;
+  return IsNaN_Strict(x.x) || IsNaN_Strict(x.y);
 }
 bool IsAnyNaN_Strict(float3 x)
 {
-  return x.x != x.x || x.y != x.y || x.z != x.z;
+  return IsNaN_Strict(x.x) || IsNaN_Strict(x.y) || IsNaN_Strict(x.z);
 }
 bool IsAnyNaN_Strict(float4 x)
 {
-  return x.x != x.x || x.y != x.y || x.z != x.z || x.w != x.w;
+  return IsNaN_Strict(x.x) || IsNaN_Strict(x.y) || IsNaN_Strict(x.z) || IsNaN_Strict(x.w);
 }
 
-float inverseLerp(float a, float b, float value) {
+float inverseLerp(float a, float b, float value)
+{
   // Avoid division by zero
   if (a == b) {
     return 0.0;
