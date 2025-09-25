@@ -3,6 +3,24 @@
 // Forward declarations
 struct GameDeviceData;
 
+enum class ShaderReplaceDrawType
+{
+   None,
+   // Skips the pixel or compute shader (this might draw black or leave the previous target textures value persisting, occasionally it can crash if the engine does weird things)
+   Skip,
+   // Tries to draw purple (magenta) instead. Doesn't always work (it will probably skip the shader if it doesn't, and send some warnings due to pixel and vertex shader signatures not matching)
+   Purple,
+   // Needs to be last (see "allow_replace_draw_nans")
+   NaN,
+   // TODO: Add a way to draw on a black render target to see the raw difference? Add a way to only draw 1 on alpha or RGB? Not very needed.
+};
+enum class ShaderCustomDepthStencilType
+{
+   None,
+   IgnoreTestWriteDepth_IgnoreStencil,
+   IgnoreTestDepth_IgnoreStencil,
+};
+
 struct DrawDispatchData
 {
    // Vertex Shader
@@ -95,6 +113,7 @@ struct TraceDrawCallData
    float4 viewport_0 = {};
    // Already includes all the render targets
    D3D11_BLEND_DESC blend_desc = {};
+   FLOAT blend_factor[4] = { 1.f, 1.f, 1.f, 1.f };
 
    bool cbs[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {};
    std::string cb_hash[D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT] = {}; // Ptr hash (not content hash)
@@ -179,12 +198,15 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
 
    bool any_draw_done = false;
    bool any_dispatch_done = false;
+
+   ShaderCustomDepthStencilType temp_custom_depth_stencil = ShaderCustomDepthStencilType::None;
 #endif
 };
 
 struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 {
-   // Only for "swapchains", "back_buffers" and "upgraded_resources" (and related). Device object creation etc is usually single threaded anyway, except for the destructor.
+   // Only for "swapchains", "back_buffers" and "upgraded_resources" (and related) and "modified_shaders_byte_code".
+   // Device object creation etc is usually single threaded anyway, except for the destructor.
    std::shared_mutex mutex;
 
    std::thread thread_auto_loading;
@@ -194,6 +216,13 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 #if DEVELOPMENT
    std::unordered_map<uint64_t, reshade::api::format> original_upgraded_resources_formats; // These include the swapchain buffers too!
    std::unordered_map<uint64_t, std::pair<uint64_t, reshade::api::format>> original_upgraded_resource_views_formats; // All the views for upgraded resources, with the resource and the original resource view format
+#endif
+
+#if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
+   // Edited shaders byte code + size + MD5 hash by (original) shader hash.
+   // We cache these in memory forever just because with ReShade handling their destruction on the spot between the pipeline (shader) creation and init function isn't "possible",
+   // and it can be called from multiple threads so we need to protect it.
+   std::unordered_map<uint32_t, std::tuple<std::unique_ptr<std::byte[]>, size_t, Hash::MD5::Digest>> modified_shaders_byte_code;
 #endif
 
    std::unordered_set<reshade::api::swapchain*> swapchains;
@@ -218,10 +247,11 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 
    // Pipelines by handle. Multiple pipelines can target the same shader, and even have multiple shaders within themselves.
    // This contains all pipelines (from the game) that we can replace shaders of (e.g. pixel shaders, vertex shaders, ...).
+   // It's basically data we append (link) to pipelines, done manually because we have no other way.
    std::unordered_map<uint64_t, Shader::CachedPipeline*> pipeline_cache_by_pipeline_handle;
-   // Same as "pipeline_cache_by_pipeline_handle" but for cloned (custom) pipelines.
+   // Same as "pipeline_cache_by_pipeline_handle" but mapped to cloned (custom) pipeline handles.
    std::unordered_map<uint64_t, Shader::CachedPipeline*> pipeline_cache_by_pipeline_clone_handle;
-   // All the pipelines linked to a shader. By shader hash.
+   // All the pipelines linked to a shader. By original shader hash.
    std::unordered_map<uint32_t, std::unordered_set<Shader::CachedPipeline*>> pipeline_caches_by_shader_hash;
 
    std::unordered_set<uint64_t> pipelines_to_reload;
@@ -246,18 +276,20 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    float dlss_exposure_texture_value = 1.f;
 #endif // ENABLE_NGX
 
-   // Custom Shaders
-   bool created_custom_shaders = false;
+   // Native Shaders (from "native_shaders_definitions")
+   bool created_native_shaders = false;
+   std::unordered_map<uint32_t, com_ptr<ID3D11VertexShader>> native_vertex_shaders;
+#if GEOMETRY_SHADER_SUPPORT
+   std::unordered_map<uint32_t, com_ptr<ID3D11GeometryShader>> native_geometry_shaders;
+#endif
+   std::unordered_map<uint32_t, com_ptr<ID3D11PixelShader>> native_pixel_shaders;
+   std::unordered_map<uint32_t, com_ptr<ID3D11ComputeShader>> native_compute_shaders;
+
+   // Native Shaders Resources
    com_ptr<ID3D11Texture2D> temp_copy_source_texture;
    com_ptr<ID3D11Texture2D> temp_copy_target_texture;
    com_ptr<ID3D11Texture2D> display_composition_texture;
    com_ptr<ID3D11ShaderResourceView> display_composition_srv;
-   com_ptr<ID3D11VertexShader> copy_vertex_shader;
-   com_ptr<ID3D11PixelShader> copy_pixel_shader;
-   com_ptr<ID3D11PixelShader> display_composition_pixel_shader;
-   com_ptr<ID3D11PixelShader> draw_purple_pixel_shader;
-   com_ptr<ID3D11ComputeShader> draw_purple_compute_shader;
-   com_ptr<ID3D11ComputeShader> normalize_lut_3d_compute_shader;
 
    // CBuffers
    com_ptr<ID3D11Buffer> luma_global_settings;
@@ -272,14 +304,23 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11ShaderResourceView> ui_texture_srv;
 
    // Misc
-   com_ptr<ID3D11SamplerState> default_sampler_state; // Linear
+   com_ptr<ID3D11SamplerState> sampler_state_linear;
+   com_ptr<ID3D11SamplerState> sampler_state_point;
    com_ptr<ID3D11BlendState> default_blend_state; // No blend
    com_ptr<ID3D11DepthStencilState> default_depth_stencil_state; // Depth/Stencil disabled
+#if DEVELOPMENT
+   com_ptr<ID3D11DepthStencilState> depth_test_false_write_true_stencil_false_state;
+#endif
 
    // Pointer to the current DX buffer for the "global per view" cbuffer.
    com_ptr<ID3D11Buffer> cb_per_view_global_buffer;
 #if DEVELOPMENT
    std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers;
+   std::unordered_set<ID3D11Buffer*> cb_non_per_view_global_buffers;
+#endif
+#if GAME_PREY // TODO: temp
+   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers_confirmed;
+   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers_denied;
 #endif
    void* cb_per_view_global_buffer_map_data = nullptr;
 #if DEVELOPMENT
@@ -310,6 +351,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    std::atomic<float> dlss_render_resolution_scale = 1.f;
    std::atomic<bool> dlss_sr_suppressed = false;
 
+   // TODO: make changes thread safe
    float2 render_resolution = { 1, 1 };
    float2 previous_render_resolution = { 1, 1 };
    // Note: this is the "display"/swapchain res

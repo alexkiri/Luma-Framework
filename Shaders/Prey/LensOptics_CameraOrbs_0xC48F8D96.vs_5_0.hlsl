@@ -44,5 +44,4 @@ void main(
   r0.w = 1;
   r0.xyzw = v2.zyxw * r0.xyzw;
   o3.xyzw = dynamics.xxxx * r0.xyzw;
-  return;
 }

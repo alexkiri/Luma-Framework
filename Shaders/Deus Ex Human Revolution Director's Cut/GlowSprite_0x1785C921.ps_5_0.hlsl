@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -101,7 +103,7 @@ void main(
   r0.yzw = InstanceParams[5].xyz * r0.yyy;
   o0.xyz = r0.yzw * r0.xxx;
   o0.w = MaterialOpacity;
-  // Luma: fix artifacts in bloom sprites (this one doesn't seem to be necessary?)
-  if (MaterialOpacity != 0)
-    o0.rgb = saturate(o0.rgb * MaterialOpacity) / MaterialOpacity;
+  
+  // Luma: fix negative values creating outlines
+  o0 = max(o0, 0.0);
 }

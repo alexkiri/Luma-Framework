@@ -12,9 +12,6 @@
 
 #include "..\..\Core\core.hpp"
 
-// Hack: we need to include this cpp file here because it's part of the core library but we actually don't include it as a library, due to limitations (see the game template for more)
-#include "..\..\Core\dlss\DLSS.cpp"
-
 struct CBPerViewGlobals
 {
    float4 cb_alwaystweak;
@@ -876,17 +873,15 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
-      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
-         //system("start https://ko-fi.com/realpumbo");
          system("start https://buymeacoffee.com/realfiloppi");
       }
-      ImGui::SameLine();
-      static const std::string donation_link_musa = std::string("Buy Ersh a Coffee ") + std::string(ICON_FK_OK);
-      if (ImGui::Button(donation_link_musa.c_str()))
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str()))
       {
-         system("start https://ko-fi.com/musaqh");
+         system("start https://ko-fi.com/realpumbo");
       }
       ImGui::PopStyleColor(3);
 
@@ -895,7 +890,7 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, button_color);
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
-#if 0 //TODOFT: add nexus link here and below
+#if 0
       static const std::string mod_link = std::string("Nexus Mods Page ") + std::string(ICON_FK_SEARCH);
       if (ImGui::Button(mod_link.c_str()))
       {
@@ -1007,7 +1002,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       enable_ui_separation = false;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,

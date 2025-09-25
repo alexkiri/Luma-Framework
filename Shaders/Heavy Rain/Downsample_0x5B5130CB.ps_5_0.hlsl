@@ -30,7 +30,11 @@ void main(
   r0.xyzw = r1.xyzw + r0.xyzw;
   o0.xyzw = r0.xyzw / 4.0;
 
+#if LUMA_ENABLED
   o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz;
-  
-  FixColorGradingLUTNegativeLuminance(o0.xyz);
+
+  o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
+  FixColorGradingLUTNegativeLuminance(o0.rgb);
+  o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);
+#endif
 }

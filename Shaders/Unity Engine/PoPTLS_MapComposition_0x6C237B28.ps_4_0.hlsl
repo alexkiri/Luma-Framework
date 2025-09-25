@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 cbuffer cb0_buf : register(b0)
 {
     uint4 cb0_m[132] : packoffset(c0);
@@ -12,7 +14,7 @@ Texture2D<float4> t3 : register(t3);
 
 int cvt_f32_i32(precise float v)
 {
-    return isnan(v) ? 0 : ((v < (-2147483648.0f)) ? int(0x80000000) : ((v > 2147483520.0f) ? 2147483647 : int(v)));
+    return IsNaN_Strict(v) ? 0 : ((v < (-2147483648.0f)) ? int(0x80000000) : ((v > 2147483520.0f) ? 2147483647 : int(v)));
 }
 
 float dp4_f32(precise float4 a, precise float4 b)

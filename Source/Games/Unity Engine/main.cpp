@@ -12,12 +12,11 @@ namespace
    constexpr uint32_t GAME_VERTIGO = 3;
    constexpr uint32_t GAME_POPTLC = 4;
    constexpr uint32_t GAME_COCOON = 5;
-   constexpr uint32_t GAME_INSIDE = 6;
+   constexpr uint32_t GAME_REMOVED = 6; // TODO: replace with a new game when adding the first one
    constexpr uint32_t GAME_FAR_LONE_SAILS = 7;
    constexpr uint32_t GAME_FAR_CHANGING_TIDES = 8;
    constexpr uint32_t GAME_HOLLOW_KNIGHT_SILKSONG = 9;
    //TODOFT: add a way to add shader hashes name definitions hardcoded in code for debugging
-   // TODO: 0x2C49DEA4 draws the first pass of blur... Cut off negative values from it (INSIDE?)
    // TODO: PoP has a resource written by the CPU at the beginning
 
    // List of all the games this generic engine mod supports.
@@ -29,7 +28,7 @@ namespace
        { { "Vertigo.exe" }, MAKE_GAME_INFO("Vertigo", "VRTG", GAME_VERTIGO, { "Pumbo" }) },
        { { "TheLostCrown.exe", "TheLostCrown_plus.exe" }, MAKE_GAME_INFO("Prince of Persia: The Lost Crown", "PoPTLC", GAME_POPTLC, std::vector<std::string>({ "Ersh", "Pumbo" })), },
        { { "universe.exe" }, MAKE_GAME_INFO("COCOON", "COCN", GAME_COCOON, { "Pumbo" }) },
-       { { "INSIDE.exe" }, MAKE_GAME_INFO("INSIDE", "INSD", GAME_INSIDE, { "Pumbo" }) },
+       { { "???.exe" }, MAKE_GAME_INFO("REMOVED", "???", GAME_REMOVED, { "Pumbo" }) },
        { { "FarLoneSails.exe" }, MAKE_GAME_INFO("FAR: Lone Sails", "FLS", GAME_FAR_LONE_SAILS, { "Pumbo" }) },
        { { "FarChangingTides.exe" }, MAKE_GAME_INFO("FAR: Changing Tides", "FCT", GAME_FAR_CHANGING_TIDES, { "Pumbo" }) },
        { { "Hollow Knight Silksong.exe" }, MAKE_GAME_INFO("Hollow Knight: Silksong", "HKS", GAME_HOLLOW_KNIGHT_SILKSONG, { "Pumbo" }) },
@@ -52,16 +51,20 @@ namespace
    const GameInfo* game_info = nullptr;
    uint32_t game_id = GAME_UNITY_ENGINE_GENERIC;
 
-   ShaderHashesList shader_hashes_CharacterLight;
-   ShaderHashesList shader_hashes_UI_VideoDecode;
-   ShaderHashesList shader_hashes_UI_Sprite;
-   ShaderHashesList shader_hashes_Tonemap;
+   // HKS
+   namespace
+   {
+      ShaderHashesList shader_hashes_CharacterLight;
+      ShaderHashesList shader_hashes_UI_VideoDecode;
+      ShaderHashesList shader_hashes_UI_Sprite;
+      ShaderHashesList shader_hashes_Tonemap;
 
-   float fake_hdr_effect = 0.667f;
-   float expand_hdr_gamut = 0.1f;
-   float character_light_intensity = 1.f;
-   float character_light_radius = 1.f;
-   float character_light_smoothness = 1.f;
+      float fake_hdr_effect = 0.667f;
+      float expand_hdr_gamut = 0.1f;
+      float character_light_intensity = 1.f;
+      float character_light_radius = 1.f;
+      float character_light_smoothness = 1.f;
+   }
 }
 
 struct GameDeviceDataHollowKnightSilksong final : public GameDeviceData
@@ -138,7 +141,6 @@ public:
          texture_format_upgrades_2d_size_filters |= (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
          // Without further mods, these games (occasionally or always) internally render at 16:9 (including the UI), with a final copy to the swapchain adding black blacks
          if (game_id == GAME_COCOON // Main menu is 16:9
-            || game_id == GAME_INSIDE // Whole game is 16:9
             || game_id == GAME_POPTLC // Whole game is 16:9
             || game_id == GAME_FAR_CHANGING_TIDES // Whole game is 16:9
             )
@@ -176,84 +178,7 @@ public:
          shader_defines_data.append_range(game_shader_defines_data);
 
          GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
-         GetShaderDefineData(GAMUT_MAPPING_TYPE_HASH).SetDefaultValue('1'); // Needed in HDR 
-      }
-
-      // The entire game rendering pipeline was SDR
-      // It goes like this:
-      // -Render some kind of low res depth map
-      // -Render normal maps
-      //  Render some other kind of low res depth map
-      // -Render lighting (R10G10B10A2) (flipped, 1 is full shadow, without manual clamping shadow can go beyond 1 if render targets are float)
-      // -Render color scene (material albedo * lighting, pretty much)
-      // -Render additive lights
-      // -Draw motion vectors for dynamic objects (rest is calculated from the camera I think)
-      // -TAA
-      // -Bloom and emissive color
-      // -Tonemap
-      // -Swapchain output (possibly draws black bars)
-      if (game_id == GAME_INSIDE)
-      {
-         texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_typeless);
-         texture_upgrade_formats.emplace(reshade::api::format::r10g10b10a2_unorm);
-
-#if DEVELOPMENT // INSIDE
-         forced_shader_names.emplace(Shader::Hash_StrToNum("B8090FB7"), "Clear");
-
-         // Not inclusive list
-         forced_shader_names.emplace(Shader::Hash_StrToNum("82528FBE"), "Depth Prepass Stripe (Test and Write)");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("82528FBE"), "Depth Prepass Stripe (Test Only)");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("21047A13"), "Depth Prepass Stripe (Test Only)");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("0AAF0B02"), "Draw Motion Vectors");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("A6B71745"), "Downscale 1/2");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("2C49DEA4"), "Generate Bloom and Screen Space Light");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("E34B6A4A"), "Downscale Bloom");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("45D205FB"), "Downscale Screen Space Light");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("C41ACF9B"), "Downscale Screen Space Light");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("4EEFB466"), "Upscale Screen Space Light");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("10F78033"), "Mix Bloom and Screen Space Light");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("7980933D"), "Generate Shadow Map (depth)");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("6C37B1D6"), "Generate Shadow Map (depth)");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("B2662B89"), "Linearize and Downscale Depth");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("A77CBE7A"), "Linearize Depth");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("BBC7E546"), "Generate Light Shafts Mask");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("907C01ED"), "Generate Light Shafts");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("7BA896D6"), "Compose Light Shafts");
-
-         // Not inclusive list
-         forced_shader_names.emplace(Shader::Hash_StrToNum("00667169"), "Draw Lighting Buffer");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("D25D922C"), "Draw Lighting Buffer");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("A2D0F112"), "Draw Lighting Buffer");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("1D132483"), "Draw Lighting Buffer");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("FAD79F26"), "Draw Lighting Buffer");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("8CF70F59"), "Draw Lighting Buffer with Shadow Map");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("3E3BC12E"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("B6762984"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("8DE93667"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("51D367BC"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("CE21BEA0"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("F31113C3"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("25DB2618"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("DD83BF95"), "Draw Lighting Buffer Phase 2");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("6B79C71C"), "Draw Lighting Buffer Phase 2");
-
-         // Materials color draws (albedo * lighting)
-         forced_shader_names.emplace(Shader::Hash_StrToNum("0C957010"), "Geometry Emissive");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("CF09813F"), "Screen Space Light?");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("31DECB17"), "Generate DoF Phase 1");
-         forced_shader_names.emplace(Shader::Hash_StrToNum("AD7B753B"), "Generate DoF Phase 2");
-
-         forced_shader_names.emplace(Shader::Hash_StrToNum("8674BE1F"), "Swapchain Copy");
-
-         // TODO: set render resolution and upgrade AR
-#endif
+         GetShaderDefineData(GAMUT_MAPPING_TYPE_HASH).SetDefaultValue('1'); // Needed in HDR
       }
 
       if (game_id == GAME_FAR_LONE_SAILS)
@@ -285,23 +210,7 @@ public:
 
          GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
       }
-      if (game_id == GAME_INSIDE)
-      {
-         std::vector<ShaderDefineData> game_shader_defines_data = {
-            {"ENABLE_LUMA", '1', false, false, "Enables all Luma's post processing modifications, to improve the image and output HDR"},
-            {"ENABLE_FILM_GRAIN", '1', false, false, "Allow disabling the game's film grain effect"},
-            {"ENABLE_LENS_DISTORTION", '1', false, false, "Allow disabling the game's lens distortion effect"},
-            {"ENABLE_CHROMATIC_ABERRATION", '1', false, false, "Allow disabling the game's chromatic aberration effect"},
-            {"ENABLE_FAKE_HDR", '0', false, false, "Enable a \"Fake\" HDR boosting effect, as the game's highlight were fairly dim to begin with"},
-         };
-         shader_defines_data.append_range(game_shader_defines_data);
-
-         GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
-         // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning (likely as an extreme optimization)!
-         GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-         GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
-      }
-      else if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
       {
          GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
          // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning (likely as an extreme optimization)!
@@ -333,8 +242,7 @@ public:
    bool ForceVanillaSwapchainLinear() const override
    {
       // Most recent Unity games do the whole post processing, UI and swapchain presentation in linear (sRGB textures), even if the swapchain isn't sRGB.
-      // Inside was UNORM all along (no float in the rendering)
-      if (game_id == GAME_INSIDE || game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
+      if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
          return false;
       return true;
    }
@@ -342,19 +250,21 @@ public:
    void OnInitSwapchain(reshade::api::swapchain* swapchain) override
    {
       // The game is locked to a maximum aspect ratio of 2.3916666666666666666666666666667, at least without mods
-      // The video files, at least some, are in 1916x1080 and downscale through bloom
+      // The video files, at least some (e.g. the opening video), are in 1916x1080 and downscale through bloom
       if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
       {
          auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
 
          float output_aspect_ratio = device_data.output_resolution.x / device_data.output_resolution.y;
+
+         const std::unique_lock lock_texture_upgrades(s_mutex_texture_upgrades);
          texture_format_upgrades_2d_custom_aspect_ratios = { 16.f / 9.f, 1916.f / 1080.f, min(output_aspect_ratio, 2.3916666666666666666666666666667f) };
       }
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
-      // TODO: make a subclass for this game?
+      // TODO: make a subclass for these games?
       if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
       {
          auto& game_device_data = *static_cast<GameDeviceDataHollowKnightSilksong*>(device_data.game);
@@ -402,6 +312,8 @@ public:
 
          if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_Tonemap))
          {
+            device_data.has_drawn_main_post_processing = true;
+
             uint custom_data_1 = game_device_data.video_playing; // AutoHDR on videos in the tonemap pass
             float custom_data_3 = fake_hdr_effect; // Note that this will apply over some black screens with UI too, and Menus, because they pass through tonemapping (and it's cool that they do!)
             float custom_data_4 = expand_hdr_gamut / 4.0; // From 0-1 to 0-0.25, which in shader becomes from 1-1.25
@@ -580,7 +492,6 @@ public:
       {
          system("start https://ko-fi.com/realpumbo");
       }
-
       ImGui::PopStyleColor(3);
 
       ImGui::NewLine();
@@ -643,7 +554,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_data_cbuffer_index = 12;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution;
       // PoPTLC only requires r8g8b8a8_typeless but will work with others regardless
@@ -654,10 +565,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r11g11b10_float,
       };
 
-      redirected_shader_hashes["INSD_Tonemap"] = { "2FE2C060", "BEC46939", "90337E76", "8DEE69CB", "BA96FA20", "2D6B78F6", "A5777313", "0AE21975", "519DF6E7", "C5DABDD4", "9D414A70", "BFAB5215", "C4065BE1", "F0503978" };
-
 #if !DEVELOPMENT
-      old_shader_file_names.emplace("INSD_TAA_0xA141EA3E.ps_4_0.hlsl");
+      // Delete inside files even if the mod moved because they were overly long!
       old_shader_file_names.emplace("INSD_Tonemap_0x2FE2C060_0xBEC46939_0x90337E76_0x8DEE69CB_0xBA96FA20_0x2D6B78F6_0xA5777313_0x0AE21975_0x519DF6E7_0xC5DABDD4_0x9D414A70_0xBFAB5215_0xC4065BE1 _0xF0503978.ps_4_0.hlsl");
       old_shader_file_names.emplace("INSD_Tonemap_0x2FE2C060_0xBEC46939_0x90337E76_0x8DEE69CB_0xBA96FA20_0x2D6B78F6_0xA5777313_0x0AE21975_0x519DF6E7_0xC5DABDD4_0x9D414A70_0xBFAB5215_0xC4065BE1_0xF0503978.ps_4_0.hlsl");
 #endif

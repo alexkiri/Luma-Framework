@@ -601,7 +601,7 @@
   <ItemGroup>
     <ClCompile Include="dlss\DLSS.cpp" />
     <ClCompile Include="core.hpp" />
-    <ClCompile Include="utils\system.hpp" />
+    <ClCompile Include="utils\system.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dlss\DLSS.h" />
@@ -609,6 +609,7 @@
     <ClInclude Include="includes\debug.h" />
     <ClInclude Include="includes\game.h" />
     <ClInclude Include="includes\globals.h" />
+    <ClInclude Include="includes\hash.h" />
     <ClInclude Include="includes\instance_data.h" />
     <ClInclude Include="includes\math.h" />
     <ClInclude Include="includes\matrix.h" />
@@ -622,6 +623,7 @@
     <ClInclude Include="utils\pipeline.hpp" />
     <ClInclude Include="utils\resource.hpp" />
     <ClInclude Include="utils\shader_compiler.hpp" />
+    <ClInclude Include="utils\system.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

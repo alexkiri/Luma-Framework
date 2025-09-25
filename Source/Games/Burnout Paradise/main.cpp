@@ -14,6 +14,10 @@ public:
       luma_data_cbuffer_index = 12;
 
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
+
+      // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning to the end.
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
    }
 
    void PrintImGuiAbout() override
@@ -30,7 +34,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // ### Check which of these are needed and remove the rest ###
       texture_upgrade_formats = {

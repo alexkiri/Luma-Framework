@@ -321,6 +321,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Core\unity_build.cpp" />
     <ClCompile Include="native plugin\Hooks.cpp" />
     <ClCompile Include="native plugin\NativePlugin.cpp" />
     <ClCompile Include="native plugin\RE.cpp" />

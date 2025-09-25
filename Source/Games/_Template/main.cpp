@@ -127,7 +127,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // The following can be toggled in the dev settings (it generally only fully applies after changing the game's resolution).
       // Default these to "false" for the mod to not do "anything" that might cause issues with the game by default.
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // Texture upgrades (8 bit unorm and 11 bit float etc to 16 bit float)
       texture_upgrade_formats = {

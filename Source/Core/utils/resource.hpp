@@ -46,10 +46,13 @@ uint32_t GetTextureMaxMipLevels(uint32_t width /*>= 1*/, uint32_t height = 0, ui
    return static_cast<uint32_t>(std::floor(std::log2(max_dimension))) + 1;
 }
 
+// The base level is 0
 UINT GetTextureMipSize(UINT base_size, UINT mip_level)
 {
-   // Shift down by mip level, clamp to at least 1
-   return max(min(base_size, 1), base_size >> mip_level);
+   if (base_size == 0)
+      return 0;
+   // Shift down by mip level, clamp to at least 1, unless the base size was already 0
+   return max(1, base_size >> mip_level);
 }
 
 uint3 GetTextureMipSize(uint3 base_size, UINT mip_level)
@@ -306,20 +309,20 @@ void GetResourceInfo(ID3D11View* view, uint4& size, DXGI_FORMAT& format, std::st
 }
 
 // Note: this is a bit approximate!
-bool AreResourcesEqual(ID3D11Resource* resource1, ID3D11Resource* resource2, bool check_format = true)
+bool AreResourcesEqual(ID3D11Resource* resource1, ID3D11Resource* resource2, bool check_format = true, bool check_samples_count = true)
 {
 	uint4 size1, size2;
 	DXGI_FORMAT format1, format2;
 	GetResourceInfo(resource1, size1, format1);
 	GetResourceInfo(resource2, size2, format2);
-	return size1 == size2 && (!check_format || format1 == format2);
+	return (check_samples_count ? (size1 == size2) : (size1.x == size2.x && size1.y == size2.y && size1.z == size2.z)) && (!check_format || format1 == format2);
 }
 
 template<typename T>
 using D3D11_RESOURCE_DESC = std::conditional_t<typeid(T) == typeid(ID3D11Texture2D), D3D11_TEXTURE2D_DESC, std::conditional_t<typeid(T) == typeid(ID3D11Texture3D), D3D11_TEXTURE3D_DESC, D3D11_TEXTURE1D_DESC>>;
 
 template<typename T = ID3D11Resource>
-com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_resource, DXGI_FORMAT overridden_format = DXGI_FORMAT_UNKNOWN, UINT add_bind_flags = (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET), UINT remove_bind_flags = 0, bool black_initial_data = false, bool copy_data = true, ID3D11DeviceContext* native_device_context = nullptr)
+com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_resource, DXGI_FORMAT overridden_format = DXGI_FORMAT_UNKNOWN, UINT add_bind_flags = (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET), UINT remove_bind_flags = 0, bool black_initial_data = false, bool copy_data = true, ID3D11DeviceContext* native_device_context = nullptr, UINT overridden_mip_levels = -1, UINT overridden_samples_count = -1)
 {
    com_ptr<T> cloned_resource;
    ASSERT_ONCE(texture_resource);
@@ -343,8 +346,19 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
          {
             texture_desc.Format = overridden_format;
          }
+         if (overridden_mip_levels != -1)
+         {
+            texture_desc.MipLevels = overridden_mip_levels;
+         }
          texture_desc.BindFlags |= add_bind_flags;
          texture_desc.BindFlags &= ~remove_bind_flags;
+         if constexpr (std::is_same_v<T, ID3D11Texture2D>)
+         {
+            if (overridden_samples_count != -1)
+            {
+               texture_desc.SampleDesc.Count = overridden_samples_count;
+            }
+         }
          // Hack to clear unwanted flags, we likely don't need any CPU write
          if ((add_bind_flags & (D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET)) != 0)
          {

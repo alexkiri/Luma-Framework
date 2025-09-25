@@ -42,8 +42,13 @@ void main(
     o0.xyzw = r0.xxxx * r2.xyzw + r1.xyzw;
   }
   
+#if LUMA_ENABLED
   // The game has some minor nans and invalid colors (due to subtractive blending).
   // AA is the first fullscreen pass where we can fix them.
   o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz;
-  FixColorGradingLUTNegativeLuminance(o0.xyz);
+
+  o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
+  FixColorGradingLUTNegativeLuminance(o0.rgb);
+  o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);
+#endif
 }

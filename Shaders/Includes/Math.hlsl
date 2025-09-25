@@ -1,8 +1,13 @@
 #ifndef SRC_MATH_HLSL
 #define SRC_MATH_HLSL
 
-#define FLT_MIN	asfloat(0x00800000)  //1.175494351e-38f
-#define FLT_MAX	asfloat(0x7F7FFFFF)  //3.402823466e+38f
+#define FLT_MIN	asfloat(0x00800000)  // 1.175494351e-38f
+#define FLT_MAX	asfloat(0x7F7FFFFF)  // 3.402823466e+38f
+#define FLT_QNAN_POS asfloat(0x7FC00000) // +qNaN
+#define FLT_QNAN_NEG asfloat(0xFFC00000) // -qNaN
+#define FLT_SNAN_POS asfloat(0x7FA00000) // +sNaN
+#define FLT_SNAN_NEG asfloat(0xFFA00000) // -sNaN
+#define FLT_NAN	FLT_QNAN_POS
 #define FLT_EPSILON	1.192092896e-07 // Smallest positive number, such that 1.0 + FLT_EPSILON != 1.0
 #define FLT10_MAX 64512.f
 #define FLT11_MAX 65024.f
@@ -60,42 +65,42 @@ float3 safeDivision(float3 quotient, float3 dividend, int fallbackMode = 0)
 
 // Depending on the compiler settings, DX claims to strip away "isnan" checks as "NaN" can't happen in shaders (which isn't true...),
 // this is an actual forced check for it.
-// float!=float is only true if the number is NaN.
 bool IsNaN_Strict(float x)
 {
-#if 1
+#if 0 // float!=float is only true if the number is NaN. This doesn't always work, it's probably optimized away!
   return x.x != x.x;
-#else
+#else // This will cover all the possible nan cases
   uint bits = asuint(x);
   return ((bits & 0x7F800000u) == 0x7F800000u) && ((bits & 0x007FFFFFu) != 0);
 #endif
 }
 bool2 IsNaN_Strict(float2 x)
 {
-  return bool2(x.x != x.x, x.y != x.y);
+  return bool2(IsNaN_Strict(x.x), IsNaN_Strict(x.y));
 }
 bool3 IsNaN_Strict(float3 x)
 {
-  return bool3(x.x != x.x, x.y != x.y, x.z != x.z);
+  return bool3(IsNaN_Strict(x.x), IsNaN_Strict(x.y), IsNaN_Strict(x.z));
 }
 bool4 IsNaN_Strict(float4 x)
 {
-  return bool4(x.x != x.x, x.y != x.y, x.z != x.z, x.w != x.w);
+  return bool4(IsNaN_Strict(x.x), IsNaN_Strict(x.y), IsNaN_Strict(x.z), IsNaN_Strict(x.w));
 }
 bool IsAnyNaN_Strict(float2 x)
 {
-  return x.x != x.x || x.y != x.y;
+  return IsNaN_Strict(x.x) || IsNaN_Strict(x.y);
 }
 bool IsAnyNaN_Strict(float3 x)
 {
-  return x.x != x.x || x.y != x.y || x.z != x.z;
+  return IsNaN_Strict(x.x) || IsNaN_Strict(x.y) || IsNaN_Strict(x.z);
 }
 bool IsAnyNaN_Strict(float4 x)
 {
-  return x.x != x.x || x.y != x.y || x.z != x.z || x.w != x.w;
+  return IsNaN_Strict(x.x) || IsNaN_Strict(x.y) || IsNaN_Strict(x.z) || IsNaN_Strict(x.w);
 }
 
-float inverseLerp(float a, float b, float value) {
+float inverseLerp(float a, float b, float value)
+{
   // Avoid division by zero
   if (a == b) {
     return 0.0;

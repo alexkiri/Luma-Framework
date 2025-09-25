@@ -33,6 +33,7 @@ public:
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
 
       luma_settings_cbuffer_index = 10;
+      luma_data_cbuffer_index = 9;
    }
 
    void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
@@ -65,7 +66,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,

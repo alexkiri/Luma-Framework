@@ -43,7 +43,7 @@ public:
          {"ENABLE_VIGNETTE", '1', false, false, "Set to 0 to disable vanilla vignette"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1'); // TODO: set this to 1???? Also fix TAA.
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
@@ -134,10 +134,15 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
-      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
          system("start https://buymeacoffee.com/realfiloppi");
+      }
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str()))
+      {
+         system("start https://ko-fi.com/realpumbo");
       }
       ImGui::PopStyleColor(3);
 
@@ -204,7 +209,7 @@ public:
          game_device_data.drew_tonemap = true;
 
          // If we upgrade all R10G10B10A2 textures, there's no need to do this live texture format swap
-         if (enable_swapchain_upgrade && swapchain_upgrade_type == 1 && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r10g10b10a2_unorm)))
+         if (enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::scRGB && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r10g10b10a2_unorm)))
          {
             // We manually upgrade the R10G10B10A2 texture that is used as tonemapper output and sharpening input (after which the game uses the swapchain as RT).
             // If we upgrade all R10G10B10A2 the game can crash.
@@ -369,7 +374,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // DLSS wouldn't have done that gamma correction (it misses it, so it outputs gamma 2.0). It also probably misses the "HDR" flag and thus would interpret colors as sRGB gamma space, which is not what LUMA does.
       // That said, if DLSS ever was upgraded to support negative scRGB colors without clipping them, we could use "DLSSTweaks" to force the HDR flag on and run it in HDR (we could even force DLAA).
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
 
       cb_luma_global_settings.GameSettings.HDRHighlights = default_hdr_highlights;
       cb_luma_global_settings.GameSettings.HDRDesaturation = default_hdr_desaturation;

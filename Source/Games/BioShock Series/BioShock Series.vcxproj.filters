@@ -5,6 +5,7 @@
     <ClCompile Include="BS2_CrashFix\BS2_CrashFix.cpp">
       <Filter>BS2_CrashFix</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Core\unity_build.cpp" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="BS2_CrashFix">
@@ -15,5 +16,8 @@
     <ClInclude Include="BS2_CrashFix\BS2_CrashFix.h">
       <Filter>BS2_CrashFix</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="vcpkg.json" />
   </ItemGroup>
 </Project>

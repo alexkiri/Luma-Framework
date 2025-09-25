@@ -77,7 +77,7 @@ struct DICESettings
 
   // For "Type == DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" and "DICE_TYPE_BY_LUMINANCE_PQ_WITH_BY_CHANNEL_CHROMINANCE_PLUS_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" only:
   // The sum of these needs to be <= 1, both within 0 and 1.
-  // The closer the sum is to 1, the more each color channel will be containted within its peak range.
+  // The closer the sum is to 1, the more each color channel will be contained within its peak range.
   float DesaturationAmount;
   float DarkeningAmount;
 };

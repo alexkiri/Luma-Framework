@@ -5,7 +5,7 @@
     <ClCompile Include="dlss\DLSS.cpp">
       <Filter>DLSS</Filter>
     </ClCompile>
-    <ClCompile Include="utils\system.hpp">
+    <ClCompile Include="utils\system.cpp">
       <Filter>Utils</Filter>
     </ClCompile>
   </ItemGroup>
@@ -73,6 +73,12 @@
       <Filter>Includes</Filter>
     </ClInclude>
     <ClInclude Include="includes\shader_types.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="utils\system.h">
+      <Filter>Utils</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\hash.h">
       <Filter>Includes</Filter>
     </ClInclude>
   </ItemGroup>

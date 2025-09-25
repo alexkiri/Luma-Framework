@@ -24,6 +24,11 @@ void main(
   float4 r0,r1;
   
   float2 uv = v3.xy / v3.w;
+#if 0 // TODO: test reducing the larger light around the character (which is actually an absence of darkness)
+  float ndc = (uv.x - 0.5) * 2.0;
+  ndc *= DVS1 * 4.0;
+  uv.x = (ndc / 2.0) + 0.5;
+#endif
 
   float w, h;
   t1.GetDimensions(w, h);

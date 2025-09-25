@@ -8,97 +8,10 @@
 #include <vector>
 #include <ShlObj_core.h> // winnt
 
-// TODO: use this instead of our local copy...
-//#include "..\..\Core\utils\system.hpp"
+#include "..\..\Core\utils\system.h"
 
 // Unfinished and unnecessary trampoline path, given that we can successfully allocate the target float within 2GB anyway
 #define USE_TRAMPOLINE 0
-
-namespace System
-{
-std::vector<std::byte*> ScanMemoryForPattern2(std::byte* base, size_t size, const std::vector<std::byte>& pattern)
-{
-   std::vector<std::byte*> matches;
-   for (size_t i = 0; i <= size - pattern.size(); ++i) {
-      if (std::memcmp(base + i, pattern.data(), pattern.size()) == 0) {
-         matches.push_back(base + i);
-      }
-   }
-   return matches;
-}
-
-// Allocate within +/-2GB to make it reachable by 32 bit offsets
-void* VirtualAllocNear2(void* target, size_t size, DWORD protect = PAGE_EXECUTE_READWRITE)
-{
-   // Avoid messes with ReShade redefining min/max
-   auto localMin = [](auto a, auto b) { return (a < b) ? a : b; };
-   auto localMax = [](auto a, auto b) { return (a > b) ? a : b; };
-
-   SYSTEM_INFO sys_info;
-   GetSystemInfo(&sys_info);
-
-   constexpr uintptr_t two_gb = 0x80000000ull;
-   
-   uintptr_t start_addr = reinterpret_cast<uintptr_t>(target);
-   uintptr_t min_addr = localMax(reinterpret_cast<uintptr_t>(sys_info.lpMinimumApplicationAddress), (start_addr > two_gb) ? (start_addr - two_gb) : 0); // The start of valid address, including this one
-   uintptr_t max_addr = localMin(reinterpret_cast<uintptr_t>(sys_info.lpMaximumApplicationAddress), start_addr + two_gb); // This address is not allocatable, the last valid one is the one before
-   // If memory is executable, remove the allocated size from the max searchable range, because all the memory we allocation should be within 2GB of the starting point (e.g. so we can jump pack to the original point).
-   // This should be optional but whatever.
-   constexpr DWORD execute_mask = PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-   if ((protect & execute_mask) != 0)
-      max_addr -= size - 1;
-
-   MEMORY_BASIC_INFORMATION mbi{};
-   uintptr_t addr = min_addr;
-
-   while (addr < max_addr)
-   {
-      if (VirtualQuery(reinterpret_cast<LPCVOID>(addr), &mbi, sizeof(mbi)) != sizeof(mbi))
-         break;
-
-      uintptr_t block_start = reinterpret_cast<uintptr_t>(mbi.BaseAddress);
-      uintptr_t block_end = block_start + mbi.RegionSize;
-
-      if (mbi.State == MEM_FREE)
-      {
-         // Even if the whole memory region is available, simply allocate at the start of it (or anyway the first valid point that is valid)
-         addr = localMax(block_start, min_addr);
-         do
-         {
-            if (addr + size <= localMin(block_end, max_addr))
-            {
-               // Try to allocate at this region's base address. This can fail for any reason.
-               // It also doesn't exactly allocate where we say so it needs to be tested.
-               void* ptr = VirtualAlloc(reinterpret_cast<LPVOID>(addr), size, MEM_RESERVE | MEM_COMMIT, protect);
-               if (ptr)
-               {
-                  if (reinterpret_cast<uintptr_t>(ptr) >= min_addr && reinterpret_cast<uintptr_t>(ptr) < max_addr)
-                  {
-                     // Theoretically this test can't fail, but we do it anyway for extra safety
-                     int64_t offset_test = reinterpret_cast<uintptr_t>(ptr) - start_addr;
-                     if (offset_test >= INT32_MIN && offset_test <= INT32_MAX) // TODO: I'm not 100% these tests match with the "two_gb" limits, but I guess so
-                        return ptr; // good
-                  }
-                  addr = reinterpret_cast<uintptr_t>(ptr);
-                  VirtualFree(ptr, 0, MEM_RELEASE); // bad
-                  break; // This could cause infinite loops given that VirtualAlloc() rounds down
-               }
-               addr += 1; // Slow but best chances of finding a match (I think)
-            }
-            else
-            {
-               break;
-            }
-         } while (true);
-      }
-
-      // Move to the next region
-      addr = block_end;
-   }
-
-   return nullptr; // No suitable block found
-}
-}
 
 namespace Patches
 {
@@ -127,35 +40,34 @@ namespace Patches
 
       assert(pattern_1_addresses.empty());
 
-      HMODULE hModule = GetModuleHandle(nullptr); // handle to the current executable
-      auto dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(hModule);
-      auto ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(
-         reinterpret_cast<std::byte*>(hModule) + dosHeader->e_lfanew);
+      HMODULE module_handle = GetModuleHandle(nullptr); // Handle to the current executable
+      auto dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(module_handle);
+      auto nt_headers = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<std::byte*>(module_handle) + dos_header->e_lfanew);
 
-      std::byte* base = reinterpret_cast<std::byte*>(hModule);
-      std::size_t sectionSize = ntHeaders->OptionalHeader.SizeOfImage; // imageSize
+      std::byte* base = reinterpret_cast<std::byte*>(module_handle);
+      std::size_t section_size = nt_headers->OptionalHeader.SizeOfImage;
 
       std::vector<std::byte> pattern;
       
       // There seems to be only one of these
       // This seems to be in the "rdata" section
       pattern = { std::byte{0x38}, std::byte{0x8E}, std::byte{0xE3}, std::byte{0x3F} }; // Just 16.f/9.f in memory
-      pattern_1_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_1_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
 
       // TODO: try to patch the other 0x39 version too?
       pattern = { std::byte{0x39}, std::byte{0x8E}, std::byte{0xE3}, std::byte{0x3F} };
       static std::vector<std::byte*> pattern_1b_addresses;
-      pattern_1b_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_1b_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
 
       // There seems to be only one of these
       // This is probably also in the the "rdata" section
       pattern = { std::byte{0x00}, std::byte{0x00}, std::byte{0x10}, std::byte{0x41}, std::byte{0x00}, std::byte{0x00}, std::byte{0x20}, std::byte{0x41}, std::byte{0x00}, std::byte{0x00}, std::byte{0x50} }; // Projection matrix aspect ratio dependent stuff? 9, 10, ... in float
-      pattern_2_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_2_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
 
       // There seems to be only one of these
       // This is probably also in the the "text" (code) section
       pattern = { std::byte{0xF3}, std::byte{0x0F}, std::byte{0x10}, std::byte{0xB0}, std::byte{0x08}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0xE8} };
-      pattern_3_addresses = System::ScanMemoryForPattern2(base, sectionSize, pattern);
+      pattern_3_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
    }
    
    void AllocateData()
@@ -168,7 +80,7 @@ namespace Patches
 #if !USE_TRAMPOLINE
          auto pattern_address = pattern_3_addresses[0];
 
-         aspect_ratio_float_ptr = static_cast<float*>((System::VirtualAllocNear2(pattern_address + pattern_3_instruction_set_length, sizeof(float), PAGE_READWRITE)));
+         aspect_ratio_float_ptr = static_cast<float*>((System::VirtualAllocNear(pattern_address + pattern_3_instruction_set_length, sizeof(float), PAGE_READWRITE)));
          assert(aspect_ratio_float_ptr);
 
          uintptr_t rip_after = reinterpret_cast<uintptr_t>(pattern_address) + pattern_3_instruction_set_length;
@@ -181,7 +93,7 @@ namespace Patches
 
          // Allocate trampoline
          constexpr size_t trampoline_size = 64; // 16 bytes is enough // TODO: reduce
-         pattern_3_trampoline = static_cast<std::byte*>(System::VirtualAllocNear2(pattern_address + 5, trampoline_size, PAGE_EXECUTE_READWRITE));
+         pattern_3_trampoline = static_cast<std::byte*>(System::VirtualAllocNear(pattern_address + 5, trampoline_size, PAGE_EXECUTE_READWRITE));
          if (!pattern_3_trampoline)
          {
             assert(false);
@@ -229,8 +141,10 @@ namespace Patches
       }
    }
 
-   void Patch(float target_aspect_ratio = aspect_ratio, bool restore = false)
+   bool Patch(float target_aspect_ratio = aspect_ratio, bool restore = false)
    {
+      bool failed = pattern_1_addresses.empty() || pattern_2_addresses.empty() || pattern_3_addresses.empty();
+
       if (restore)
       {
          target_aspect_ratio = default_aspect_ratio;
@@ -239,26 +153,26 @@ namespace Patches
       for (auto pattern_address : pattern_1_addresses)
       {
          DWORD old_protect;
-         BOOL success = VirtualProtect(pattern_address, sizeof(float), PAGE_EXECUTE_READWRITE, std::addressof(old_protect));
-         if (!success) continue;
+         BOOL success = VirtualProtect(pattern_address, sizeof(float), PAGE_EXECUTE_READWRITE, &old_protect);
+         if (!success) { failed = true; continue; }
 
          std::memcpy(pattern_address, &target_aspect_ratio, sizeof(float));
          DWORD temp_protect;
-         VirtualProtect(pattern_address, sizeof(float), old_protect, std::addressof(temp_protect));
+         VirtualProtect(pattern_address, sizeof(float), old_protect, &temp_protect);
       }
 
       for (auto pattern_address : pattern_2_addresses)
       {
          DWORD old_protect;
-         BOOL success = VirtualProtect(pattern_address, sizeof(float), PAGE_EXECUTE_READWRITE, std::addressof(old_protect));
-         if (!success) continue;
+         BOOL success = VirtualProtect(pattern_address, sizeof(float), PAGE_EXECUTE_READWRITE, &old_protect);
+         if (!success) { failed = true; continue; }
 
          constexpr float original_value = 9.f; // Likely just the height of the default aspect ratio (16:9)
          const float custom_value = original_value * default_aspect_ratio / target_aspect_ratio; // This controls the size of the composition/viewport
 
          std::memcpy(pattern_address, &custom_value, sizeof(float)); // We only replace the first float of the pattern
          DWORD temp_protect;
-         VirtualProtect(pattern_address, sizeof(float), old_protect, std::addressof(temp_protect));
+         VirtualProtect(pattern_address, sizeof(float), old_protect, &temp_protect);
       }
 
       // The field of view (directly affects it)
@@ -272,7 +186,7 @@ namespace Patches
 #if !USE_TRAMPOLINE
          DWORD old_protect;
          BOOL success = VirtualProtect(pattern_address, pattern_3_instruction_set_length, PAGE_EXECUTE_READWRITE, &old_protect);
-         if (!success) continue;
+         if (!success) { failed = true; continue; }
 
          std::vector<uint8_t> patch;
          // Build instructions
@@ -338,6 +252,8 @@ namespace Patches
          }
 #endif
       }
+
+      return !failed;
    }
 
    void Init(const char* name, uint32_t version)
@@ -382,11 +298,10 @@ namespace Patches
       if (new_aspect_ratio != aspect_ratio)
       {
          aspect_ratio = new_aspect_ratio;
-         if (!pattern_1_addresses.empty()) // Only apply if ready
+         if (!pattern_1_addresses.empty()) // Only apply if ready or anyway found successfully
          {
-            Patch(aspect_ratio);
+            return Patch(aspect_ratio);
          }
-         return true;
       }
       return false;
    }

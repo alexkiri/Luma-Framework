@@ -1,9 +1,21 @@
 #pragma once
 
+#include "shader_define.h"
+
+// Forward declarations
+enum class ShaderReplaceDrawType;
+enum class ShaderCustomDepthStencilType;
+
 namespace Shader
 {
    constexpr uint8_t meta_version = 2;
 
+   static const std::string template_geometry_shader_name = "gs_";
+   static const std::string template_vertex_shader_name = "vs_";
+   static const std::string template_pixel_shader_name = "ps_";
+   static const std::string template_compute_shader_name = "cs_";
+
+   // Mostly hardcoded to match a shader object, but it can work for other ReShade pipelines as well
    struct CachedPipeline
    {
       // Original pipeline (in DX9/10/11 it's just a ptr to a shader object, in DX12 to a PSO). Lifetime not handled by us.
@@ -33,17 +45,11 @@ namespace Shader
       // Custom temp identifier for faster tracking
       std::string custom_name;
 
-      enum class ShaderSkipType
-      {
-         None,
-         // Skips the pixel or compute shader (this might draw black or leave the previous target textures value persisting, occasionally it can crash if the engine does weird things)
-         Skip,
-         // Tries to draw purple instead. Doesn't always work (it will probably skip the shader if it doesn't, and send some warnings due to pixel and vertex shader signatures not matching)
-         Purple,
-         // TODO: add (draw) NaN to see how they'd spread etc. Add a way to skip testing depth. Add a way to draw on a black render target to see the raw difference? Add a way to only draw 1 on alpha or RGB?
-      };
-      static constexpr const char* shader_skip_type_names[] = { "None", "Skip", "Draw Purple" };
-      ShaderSkipType skip_type = ShaderSkipType::None;
+      static constexpr const char* shader_replace_draw_type_names[] = { "None", "Skip Draw", "Draw Purple", "Draw NaN" };
+      ShaderReplaceDrawType replace_draw_type = ShaderReplaceDrawType(0); // Pixel and Compute Shaders only
+
+      static constexpr const char* shader_custom_depth_stencil_type_names[] = { "None", "Depth Test/Write Disabled + Stencil Disabled", "Depth Test Disabled Write Enabled + Stencil Disabled" };
+      ShaderCustomDepthStencilType custom_depth_stencil = ShaderCustomDepthStencilType(0); // Pixel Shader only
 
       struct RedirectData
       {
@@ -111,6 +117,9 @@ namespace Shader
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
       std::string type_and_version;
       std::string disasm;
+#if DEVELOPMENT
+      std::string live_patched_disasm; // Only valid if "live_patched_data" also is
+#endif
 #endif
 
 #if DEVELOPMENT
@@ -126,6 +135,9 @@ namespace Shader
       bool srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
       // Unordered Access Views
       bool uavs[D3D11_1_UAV_SLOT_COUNT] = {};
+
+      const void* live_patched_data = nullptr; // Usually nullptr. Valid if we edited the byte code of the shader live when it was created (the data in here should be the original, not the patched one)
+      size_t live_patched_size = 0;
 #endif
 
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
@@ -135,6 +147,16 @@ namespace Shader
          data = nullptr;
       }
 #endif
+   };
+
+   // Defines a "permutation" of a luma native shader we load and compile from disk
+   struct ShaderDefinition
+   {
+      const char* file_name = nullptr; // What shader code file to load from disk
+      reshade::api::pipeline_subobject_type type = reshade::api::pipeline_subobject_type::unknown; // pixel, vertex etc shader
+      const char* shader_target_version = nullptr; // E.g. "5_0" (do not include "ps_" or "cs_" etc). Defaults to the most appropriate version for the current API.
+      const char* function_name = nullptr; // Will fall back to (e.g.) "main" if not specified
+      std::vector<SimplerShaderDefine> defines_data; // Extra defines data this shader can have on top of the global ones
    };
 
    struct CachedCustomShader
@@ -148,6 +170,10 @@ namespace Shader
 #if DEVELOPMENT || TEST
       bool compilation_error;
       std::string preprocessed_code;
+      std::string disasm;
+#if DEVELOPMENT
+      ShaderDefinition definition; // Might be empty in non luma native shaders
+#endif
 #endif
    };
 
@@ -340,30 +366,63 @@ namespace Shader
       uint32_t hash;
    };
 
-   reshade::api::pipeline_subobject_type ShaderIdentifierToType(const std::string& identifier)
+   // For "target" we mean a version identifier
+   reshade::api::pipeline_subobject_type ShaderTargetToType(const std::string& target)
    {
-      static const std::string template_geometry_shader_name = "gs_";
-      static const std::string template_vertex_shader_name = "vs_";
-      static const std::string template_pixel_shader_name = "ps_";
-      static const std::string template_compute_shader_name = "cs_";
-
-      if (identifier.starts_with(template_pixel_shader_name))
+      if (target.starts_with(template_pixel_shader_name))
       {
          return reshade::api::pipeline_subobject_type::pixel_shader;
       }
-      else if (identifier.starts_with(template_vertex_shader_name))
+      else if (target.starts_with(template_vertex_shader_name))
       {
          return reshade::api::pipeline_subobject_type::vertex_shader;
       }
-      else if (identifier.starts_with(template_compute_shader_name))
+      else if (target.starts_with(template_compute_shader_name))
       {
          return reshade::api::pipeline_subobject_type::compute_shader;
       }
-      else if (identifier.starts_with(template_geometry_shader_name))
+#if GEOMETRY_SHADER_SUPPORT
+      else if (target.starts_with(template_geometry_shader_name))
       {
          return reshade::api::pipeline_subobject_type::geometry_shader;
       }
+#endif
       ASSERT_ONCE(false);
       return reshade::api::pipeline_subobject_type::unknown;
+   }
+
+   // Doesn't return the version, just the shader model part, including "_" after it (e.g. "ps_")
+   std::string_view ShaderTypeToTarget(reshade::api::pipeline_subobject_type type)
+   {
+      std::string_view template_shader_name;
+      switch (type)
+      {
+      case reshade::api::pipeline_subobject_type::vertex_shader:
+      {
+         template_shader_name = template_vertex_shader_name;
+         break;
+      }
+      case reshade::api::pipeline_subobject_type::geometry_shader:
+      {
+         template_shader_name = template_geometry_shader_name;
+         break;
+      }
+      case reshade::api::pipeline_subobject_type::pixel_shader:
+      {
+         template_shader_name = template_pixel_shader_name;
+         break;
+      }
+      case reshade::api::pipeline_subobject_type::compute_shader:
+      {
+         template_shader_name = template_compute_shader_name;
+         break;
+      }
+      default:
+      {
+         template_shader_name = "xs_"; // Unknown
+         break;
+      }
+      }
+      return template_shader_name;
    }
 }

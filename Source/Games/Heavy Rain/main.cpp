@@ -25,6 +25,20 @@ public:
       return *static_cast<GameDeviceDataHeavyRain*>(device_data.game);
    }
 
+   void OnLoad(std::filesystem::path& file_path, bool failed) override
+   {
+      if (!failed)
+      {
+         if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) != NULL) {
+            if (MessageBoxA(NULL, "This mod only works on the Steam and GOG versions of the game.\nUltrawide fixes will also work on the Epic Store version, but custom shaders might not all load, as that's an older version of the game.", "Incompatible Game Version", MB_OK | MB_SETFOREGROUND) == IDOK) {
+               // Just continue for now
+            }
+         }
+
+         Patches::Init(NAME, Globals::VERSION); // This might already try to patch the executably but likely not as it's still got the default aspect ratio (we don't know the window AR yet)
+      }
+   }
+
    void OnInit(bool async) override
    {
       std::vector<ShaderDefineData> game_shader_defines_data = {
@@ -49,32 +63,29 @@ public:
 #if 1 // Default to the display aspect ratio, so we apply the patch as early as possible, reducing the possible "damage" it does (it still doesn't prevent users from force toggling fullscreen and borderless once for the changes to take effect)
       int screen_width = GetSystemMetrics(SM_CXSCREEN);
       int screen_height = GetSystemMetrics(SM_CYSCREEN);
-      pending_swapchain_resize = Patches::SetOutputResolution(screen_width, screen_height);
-#endif
-   }
-
-   void OnLoad(std::filesystem::path& file_path, bool failed) override
-   {
-      if (GetModuleHandle(TEXT("eossdk-win64-shipping.dll")) == NULL) {
-         if (MessageBoxA(NULL, "This mod only works on the Steam and GOG versions of the game.\nUltrawide fixes will also work on the Epic Store version, but custom shaders might not all load, as that's an older version of the game.", "Incompatible Game Version", MB_OK | MB_SETFOREGROUND) == IDOK) {
-            // Just continue for now
-         }
-      }
-
-      if (!failed)
+      bool patched = Patches::SetOutputResolution(screen_width, screen_height);
+      pending_swapchain_resize |= patched;
+      if (!patched)
       {
-         Patches::Init(NAME, Globals::VERSION);
+         reshade::log::message(reshade::log::level::warning, "Heavy Rain Luma failed to patch for Ultrawide compatibility.\nIf you have already patched the executable, restore the original.\nSteam and GOG versions of the game should work.");
       }
+#endif
    }
 
    void OnInitSwapchain(reshade::api::swapchain* swapchain) override
    {
       auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
 
-      pending_swapchain_resize |= Patches::SetOutputResolution(device_data.output_resolution.x + 0.5f, device_data.output_resolution.y + 0.5f);
+      bool patched = Patches::SetOutputResolution(device_data.output_resolution.x + 0.5f, device_data.output_resolution.y + 0.5f);
+      if (!patched)
+      {
+         reshade::log::message(reshade::log::level::warning, "Heavy Rain Luma failed to patch for Ultrawide compatibility.\nIf you have already patched the executable, restore the original.\nSteam and GOG versions of the game should work.");
+      }
+      pending_swapchain_resize |= patched;
 
-      cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.render_resolution.x;
-      cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.render_resolution.y;
+      // Assume it's the output resolution until proven otherwise
+      cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.output_resolution.x;
+      cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.output_resolution.y;
       device_data.cb_luma_global_settings_dirty = true;
    }
 
@@ -135,6 +146,8 @@ public:
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {
       cb_luma_global_settings.GameSettings.DrewTonemap = false;
+      cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.render_resolution.x;
+      cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.render_resolution.y;
       device_data.cb_luma_global_settings_dirty = true;
    }
 
@@ -155,7 +168,7 @@ public:
       if (pending_swapchain_resize)
       {
          ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255)); // yellow/orange
-         ImGui::TextUnformatted("Warning: Your resolution isn't 16:9, for Luma to correctly patch in support for your aspect ratio,\nplease go to the game graphics settings and swap between fullscreen, borderless or windowed (any will do).\nThis message might also appear after you change resolution again, please ignroe it if everything is fine.");
+         ImGui::TextUnformatted("Warning: Your resolution isn't 16:9, for Luma to correctly patch in support for your aspect ratio,\nplease go to the game graphics settings and swap between fullscreen, borderless or windowed (any will do).\nThis message might also appear after you change resolution again, please ignore it if everything is fine.");
          ImGui::PopStyleColor();
       }
 
@@ -163,11 +176,11 @@ public:
       {
          reshade::set_config_value(runtime, NAME, "BloomAndLensFlareIntensity", cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity);
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity, 1.f, "BloomAndLensFlareIntensity", runtime);
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
          ImGui::SetTooltip("Note that this might not work on every scene");
       }
+      DrawResetButton(cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity, 1.f, "BloomAndLensFlareIntensity", runtime);
 
       if (cb_luma_global_settings.DisplayMode == 1)
       {
@@ -175,11 +188,11 @@ public:
          {
             reshade::set_config_value(runtime, NAME, "HDRBoostAmount", cb_luma_global_settings.GameSettings.HDRBoostAmount);
          }
-         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostAmount, 0.5f, "HDRBoostAmount", runtime);
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
          {
             ImGui::SetTooltip("Vanilla look at 0");
          }
+         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostAmount, 0.5f, "HDRBoostAmount", runtime);
       }
 
 #if DEVELOPMENT
@@ -218,6 +231,7 @@ public:
       }
       ImGui::PopStyleColor(3);
 
+      ImGui::NewLine();
       // Make the Rose button ~purple for consistency with their style
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(128, 0, 128, 255)); // purple
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(192, 0, 192, 255)); // lighter purple / pinkish
@@ -289,7 +303,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::VERSION = 1;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // Most of these are probably not needed, the game always uses B8G8R8A8_UNORM, with no SRGB views etc
       texture_upgrade_formats = {

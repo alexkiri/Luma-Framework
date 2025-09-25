@@ -25,6 +25,7 @@ void main(
   r0.xyzw = r0.xyzw * InstanceParams[5].xyzw + InstanceParams[6].xyzw;
   o0.w = MaterialOpacity * r0.w;
   o0.xyz = r0.xyz;
-  // Luma: fixed subtractive alpha creating negative colors
-  o0.w = max(o0.w, 0.0);
+  // Luma: fixed subtractive alpha creating negative colors (this matches UNORM blends behaviour)
+  o0.xyz = max(o0.xyz, 0.0);
+  o0.w = saturate(o0.w);
 }

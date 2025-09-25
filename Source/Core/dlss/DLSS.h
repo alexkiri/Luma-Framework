@@ -1,8 +1,13 @@
 #pragma once
 
+#if defined(_WIN64) && __has_include("nvsdk_ngx.h")
 #ifndef ENABLE_NGX
 #define ENABLE_NGX 1
 #endif // ENABLE_NGX
+#else
+#undef ENABLE_NGX
+#define ENABLE_NGX 0
+#endif
 
 #if ENABLE_NGX
 

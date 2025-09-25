@@ -24,9 +24,9 @@ void main(
   float2 scale = 1.0;
 
   if (targetAspectRatio >= sourceAspectRatio)
-      scale.x = targetAspectRatio / sourceAspectRatio;
+    scale.x = targetAspectRatio / sourceAspectRatio;
   else
-      scale.y = sourceAspectRatio / targetAspectRatio;
+    scale.y = sourceAspectRatio / targetAspectRatio;
 
   // Center the UVs before scaling them
   uv = (uv - 0.5) * scale + 0.5;

@@ -7,6 +7,8 @@
 
 #include "BS2_CrashFix\BS2_CrashFix.h"
 
+#include <MinHook.h>
+
 namespace
 {
    ShaderHashesList pixel_shader_hashes_Bloom;
@@ -37,6 +39,89 @@ namespace
    CB::LumaGameSettings default_game_settings;
 
    bool crash_fix_applied = false;
+
+   // Original from pcgw. Unknown author.
+   // New version from Ersh.
+   const std::vector<uint8_t> bs2_weapon_fov_pattern = { 0xD9, 0x80, 0x88, 0x04, 0x00, 0x00, 0xD9, 0x5C, 0x24, 0x10 };
+   std::vector<std::byte*> bs2_weapon_fov_matches;
+   constexpr float bs2_default_fov = 75.f; // Common/default value...
+   float bs2_last_written_fov = bs2_default_fov;
+
+   // TODO: do this with a trampoline that reads the original value and converts it on the fly in code,
+   // instead of reading the original value every frame and constantly changing the code to scale properly.
+   // Remove minhook if this isn't done.
+   void PatchBS2Ultrawide(float target_aspect_ratio)
+   {
+      // The game's weapon (first person model) scaled Vert- instead of Hor+.
+      // The code was reading a game's global CVAR for the weapon FoV that was
+      // often changed by gameplay (e.g. when aiming down sight).
+      // Early mods replaced the default FoV of 75 with a fixed matching scaled FoV for your aspect ratio, however that's not ideal,
+      // given that the scaling wouldn't match anymore when aiming down sight and the base value changes.
+      // Note that this might be one frame late, however only the scaling distance from the current FoV to 75 is one frame late, and won't be a problem.
+      // We only patch beyond 16:9 as below it should already look correct.
+      if (bs2_weapon_fov_matches.size() == 1)
+      {
+         // Read the value
+         float current_fov = bs2_default_fov;
+
+#if 0 // TODO: finish this... the FoV float cvar offset is relative to the current EAX, which we have no access to from here (it'd depend on the thread etc apparently), this might not be a problem with a trampoline? For now fall back to a fixed patching method (we could actually do this in the swapchain resize function...)
+         // Offset is little-endian dword at address + 2
+         uint32_t offset;
+         std::memcpy(&offset, bs2_weapon_fov_matches[0] + 2, sizeof(offset));
+
+         // Compute address of float
+         HMODULE module_handle = GetModuleHandle(nullptr); // Handle to the current executable
+         std::byte* base = reinterpret_cast<std::byte*>(module_handle);
+         float* fov_ptr = reinterpret_cast<float*>(base + offset);
+
+         // Optionally check memory protection if you want to be safe
+         MEMORY_BASIC_INFORMATION mbi;
+         if (VirtualQuery(fov_ptr, &mbi, sizeof(mbi)) != sizeof(mbi) || !(mbi.Protect & (PAGE_READWRITE | PAGE_READONLY | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE))) return;
+
+         current_fov = *fov_ptr;
+
+         current_fov = std::clamp(current_fov, 0.01f, 179.99f); // Extra safety against garbage values or in case the game had not set the cvar
+#endif
+
+         // Don't patch below 16:9
+         float adjusted_fov = ScaleHorizontalFOV(current_fov, false, 16.f / 9.f, max(target_aspect_ratio, 16.f / 9.f));
+
+#if DEVELOPMENT // Just for test, no need to expose this to users unless they massively increased the scene fov
+         static float fov_scale = 1.f;
+#else
+         constexpr float fov_scale = 1.f;
+#endif
+         if (fov_scale != 1.f)
+            adjusted_fov = ScaleHorizontalFOV(adjusted_fov, false, 1.f, fov_scale);
+
+         // Nothing to do, avoid re-writing the memory when not needed
+         if (adjusted_fov == bs2_last_written_fov) return;
+
+         bs2_last_written_fov = adjusted_fov; // Do so even if we failed to write below, given there wouldn't be much point in trying again
+
+         std::vector<uint8_t> bs2_weapon_fov_patch = { 0xC7, 0x44, 0x24, 0x10, 0x00, 0x00, 0x96, 0x42, 0x90, 0x90 }; // Defaults to 75
+
+         // Write the new fov in the float part
+         std::memcpy(&bs2_weapon_fov_patch[4], &adjusted_fov, sizeof(adjusted_fov));
+
+         // Restore the original Vert- code below 16:9 given that's how it should be
+         if (target_aspect_ratio <= (16.f / 9.f))
+         {
+            bs2_weapon_fov_patch = bs2_weapon_fov_pattern;
+         }
+
+         DWORD old_protect;
+         BOOL success = VirtualProtect(bs2_weapon_fov_matches[0], bs2_weapon_fov_patch.size(), PAGE_EXECUTE_READWRITE, &old_protect);
+         if (success)
+         {
+            std::memcpy(bs2_weapon_fov_matches[0], bs2_weapon_fov_patch.data(), bs2_weapon_fov_patch.size());
+
+            DWORD temp_protect;
+            VirtualProtect(bs2_weapon_fov_matches[0], bs2_weapon_fov_patch.size(), old_protect, &temp_protect);
+         }
+         ASSERT_ONCE(success);
+      }
+   }
 }
 
 struct GameDeviceDataBioshockSeries final : public GameDeviceData
@@ -86,6 +171,7 @@ public:
       if (bioshock_game != BioShockGame::BioShock_2_Remastered)
       {
          GetShaderDefineData(char_ptr_crc32("LUT_SAMPLING_ERROR_EMULATION_MODE")).SetDefaultValue('0');
+         GetShaderDefineData(char_ptr_crc32("LUT_SAMPLING_ERROR_EMULATION_MODE")).SetValueFixed(true);
       }
       GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
@@ -94,6 +180,29 @@ public:
       GetShaderDefineData(GAMUT_MAPPING_TYPE_HASH).SetDefaultValue('1'); // Enable it, especially given the fog correction generating wild colors
 
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1'); // The game just clipped, so HDR is an extension of SDR (except for some shaders that we adjust)
+   }
+
+   void OnLoad(std::filesystem::path& file_path, bool failed) override
+   {
+      if (!failed)
+      {
+         if (bioshock_game == BioShockGame::BioShock_2_Remastered)
+         {
+            HMODULE module_handle = GetModuleHandle(nullptr); // Handle to the current executable
+            auto dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(module_handle);
+            auto nt_headers = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<std::byte*>(module_handle) + dos_header->e_lfanew);
+
+            std::byte* base = reinterpret_cast<std::byte*>(module_handle);
+            std::size_t section_size = nt_headers->OptionalHeader.SizeOfImage;
+
+            bs2_weapon_fov_matches = System::ScanMemoryForPattern(base, section_size, bs2_weapon_fov_pattern);
+
+            if (bs2_weapon_fov_matches.size() != 1)
+            {
+               reshade::log::message(reshade::log::level::warning, "BioShock 2 Remastered Luma failed to patch for Ultrawide compatibility. If you have already patched the executable, restore the original for proper dynamic Hor+ FoV on Weapons");
+            }
+         }
+      }
    }
 
    void LoadConfigs() override
@@ -114,7 +223,31 @@ public:
 
       if (bioshock_game == BioShockGame::BioShock_2_Remastered)
       {
-         // TODO: re-implement Fog fixes in BS1 after fixing the fog shader errrors
+         if (allow_disabling_gamma_ramp)
+         {
+            HDC hDC = GetDC(game_window); // Pass NULL to get the DC for the entire screen (NULL = desktop, primary display, the gamma ramp only ever applies to that apparently)
+            WORD gamma_ramp[3][256];
+            bool neutral_gamma_ramp = true;
+            if (GetDeviceGammaRamp(hDC, gamma_ramp) == TRUE)
+            {
+               for (int i = 1; i < 255; i++)
+                  neutral_gamma_ramp &= (gamma_ramp[0][i] == i * 257) && (gamma_ramp[1][i] == i * 257) && (gamma_ramp[2][i] == i * 257);
+            }
+            ReleaseDC(game_window, hDC);
+
+            if (!neutral_gamma_ramp)
+            {
+               ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 200, 0, 255)); // yellow/orange
+               ImGui::TextUnformatted("Warning: The game uses an old Windows XP library to change the image gamma. This doesn't work well in HDR and only causes issues.\n"
+                  "Either press the \"Reset Gamma Ramp\" button here every time the game window goes in focus, or set your GPU driver settings to force reference mode (if available by your GPU vendor).\n"
+                  "The best alternative is to set \"Gamma\" to \"1\" in the \"Bioshock2SP.ini\" config file, under the \"ShockGame.ShockUserSettings\" section.\n"
+                  "The mod is intended to be played with a neutral gamma as it's designed around that assumption.");
+               ImGui::PopStyleColor();
+               ImGui::NewLine();
+            }
+         }
+
+         // TODO: re-implement Fog fixes in BS1 after fixing the fog shader errors
          if (ImGui::SliderFloat("Fog Correction Intensity", &cb_luma_global_settings.GameSettings.FogCorrectionIntensity, 0.f, 1.f))
             reshade::set_config_value(runtime, NAME, "FogCorrectionIntensity", cb_luma_global_settings.GameSettings.FogCorrectionIntensity);
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -186,7 +319,7 @@ public:
    void PrintImGuiAbout() override
    {
       ImGui::Text("Luma for \"BioShock Remastered\", \"BioShock 2 Remastered\" and \"BioShock Infinite\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.\n"
-         "The \2BioShock 2 Remastered\" mod comes bundled with the Crash Fix mod by gir489, which fixes multiple crashes with the game.", "");
+         "The \"BioShock 2 Remastered\" mod comes bundled with the \"Crash Fix\" mod by \"gir489\", which fixes multiple crashes with the game, and with an Ultrawide FoV fix for the first person models.", "");
 
       const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
       const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
@@ -194,10 +327,15 @@ public:
       ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
       ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
-      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee ") + std::string(ICON_FK_OK);
+      static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
       if (ImGui::Button(donation_link_pumbo.c_str()))
       {
          system("start https://buymeacoffee.com/realfiloppi");
+      }
+      static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+      if (ImGui::Button(donation_link_pumbo_2.c_str()))
+      {
+         system("start https://ko-fi.com/realpumbo");
       }
       ImGui::PopStyleColor(3);
 
@@ -231,6 +369,9 @@ public:
       ImGui::Text("Credits:"
          "\n\nMain:"
          "\nPumbo"
+
+         "\n\nContributors:"
+         "\nErsh"
 
          "\n\nThird Party:"
          "\nReShade"
@@ -316,8 +457,8 @@ public:
       if (is_custom_pass && !game_device_data.drew_tonemap && original_shader_hashes.Contains(pixel_shader_hashes_Bloom) && fix_bloom_samplers)
       {
          // Bloom used a nearest neighbor sampler, which made no sense and made it pixelated
-         ID3D11SamplerState* const linear_sampler_state = device_data.default_sampler_state.get();
-         native_device_context->PSSetSamplers(0, 1, &linear_sampler_state);
+         ID3D11SamplerState* const sampler_state_linear = device_data.sampler_state_linear.get();
+         native_device_context->PSSetSamplers(0, 1, &sampler_state_linear);
 
          return false;
       }
@@ -352,6 +493,15 @@ public:
       game_device_data.drew_tonemap = false;
       game_device_data.drew_aa = false;
 
+      if (bioshock_game == BioShockGame::BioShock_2_Remastered)
+      {
+         // Do it on present as this is almost guaranteed to be a place where the render thread has stopped and isn't reading that code,
+         // which presumably was only related to projection matrices so read while building the command lists.
+         // ReShade addons are loaded and unloaded multiple times on boot by the game, but present is only called after the final load.
+         float target_aspect_ratio = device_data.output_resolution.x / device_data.output_resolution.y;
+         PatchBS2Ultrawide(target_aspect_ratio);
+      }
+
       if (!crash_fix_applied)
       {
          crash_fix_applied = true; // Apply, or try to apply, once
@@ -385,22 +535,25 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       if (executable_name == "BioshockHD.exe")
       {
          bioshock_game = BioShockGame::BioShock_Remastered;
+         sub_game_shaders_appendix = "BS";
       }
       else if (executable_name == "Bioshock2HD.exe")
       {
          bioshock_game = BioShockGame::BioShock_2_Remastered;
+         sub_game_shaders_appendix = "BS2";
       }
       // Steam and Epic Store versions respectively
       else if (executable_name == "BioShockInfinite.exe" || executable_name == "ShippingPC-XGame.exe")
       {
          bioshock_game = BioShockGame::BioShock_Infinite;
+         sub_game_shaders_appendix = "BSI";
       }
       else
       {
          // TODO: handle case and serialzie the answer next to the exe name to avoid re-showing it?
          MessageBoxA(NULL, "Unknown BioShock game", NAME, MB_SETFOREGROUND);
 #if 0 // Won't work with either dynamic or static loading
-         // "#pragma comment(lib, "Comctl32.lib") // Makes ReShade fail to load the addon
+         //#pragma comment(lib, "Comctl32.lib") // Makes ReShade fail to load the addon
          TASKDIALOG_BUTTON buttons[] =
          {
              { 1, L"BioShock Remastered" },
@@ -435,7 +588,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_data_cbuffer_index = 12;
 
       enable_swapchain_upgrade = true;
-      swapchain_upgrade_type = 1;
+      swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
       enable_texture_format_upgrades = true;
       // TODO: check if BSI need R11G11B10F to R16G16B16A16F upgrades. BS(1) needs 8bit etc?. Mix the mods in BFI? UseLowPrecisionColorBuffer=False FloatingPointRenderTargets=True
       texture_upgrade_formats = {
@@ -459,7 +612,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // The game does very funky stuff when trying to go FSE, even if we block it (it re-creates a lot of shaders and textures)
       force_borderless = true;
 
-      allow_disabling_gamma_ramp = true; // For Bioshock 2 // TODO: call this every frame or anyway when alt tabbing in, as the game constantly resets it. Or when we get window focus, or go FSE
+      allow_disabling_gamma_ramp = true; // For Bioshock 2 // TODO: call this every frame or anyway when alt tabbing in, as the game constantly resets it. Or when we get window focus, or go FSE. Or just patch the function out...
 
       // Default values
       default_game_settings.FogCorrectionIntensity = 1.f; // 0 is vanilla. Values between 0.75 and 1 as great defaults.

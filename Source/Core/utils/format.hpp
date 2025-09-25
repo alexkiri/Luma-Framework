@@ -521,6 +521,23 @@ namespace
       return false;
    }
 
+   // Depth formats are ignored.
+   bool IsSignedFloatFormat(DXGI_FORMAT format)
+   {
+      switch (format)
+      {
+      case DXGI_FORMAT_R16_FLOAT:
+      case DXGI_FORMAT_R16G16_FLOAT:
+      case DXGI_FORMAT_R16G16B16A16_FLOAT:
+      case DXGI_FORMAT_R32_FLOAT:
+      case DXGI_FORMAT_R32G32_FLOAT:
+      case DXGI_FORMAT_R32G32B32_FLOAT:
+      case DXGI_FORMAT_R32G32B32A32_FLOAT:
+         return true;
+      }
+      return false;
+   }
+
    // If channels have a different bit size, it returns the overall one.
    bool GetFormatSizeInfo(DXGI_FORMAT format, uint8_t& channels, uint8_t& bits_per_channel)
    {

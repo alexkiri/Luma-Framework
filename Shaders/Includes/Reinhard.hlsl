@@ -21,6 +21,7 @@ namespace Reinhard
   // This is useful to compress back an HDR display mapped image to SDR, or any other color that needs to left intact below a certain threshold, and has a peak value different from ~infinite.
   // 
   // Don't pre-offset inputs by the shoulder start.
+  // TODO: this can actually cause the output color to be greater if the in peak was low, so maybe prevent that?
   float3 ReinhardRange(float3 Color, float ShoulderStart = MidGray, float In_Peak = -1.0, float Out_Peak = 1.0, bool ClampOutput = false)
   {
     const float3 compressableColor = Color - ShoulderStart;
