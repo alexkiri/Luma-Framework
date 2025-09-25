@@ -1,3 +1,6 @@
+#ifndef SRC_ACES_HLSL
+#define SRC_ACES_HLSL
+
 #include "Math.hlsl"
 #include "ColorGradingLUT.hlsl"
 
@@ -584,6 +587,14 @@ namespace ACES
        return output_color;
    }
 
+   float3 RRTAndODT(float3 color, float min_y, float max_y, float3x3 odt_matrix = AP1_TO_BT709_MAT) 
+   {
+        color = mul(BT709_TO_AP0_MAT, color);
+        color = RRT(color);
+        color = ODT(color, min_y, max_y, odt_matrix);
+        return color;
+   }
+
    // ACES 1.3 for Scene-Linear BT.709 (by default) with:
    // Reference Gamut Compression
    // Reference Rendering Transform
@@ -598,8 +609,8 @@ namespace ACES
        color = mul(AP1_TO_AP0_MAT, color);           // AP1 => AP0
        color = RRT(color);                           // RRT + AP0 => AP1
        color = ODT(color, min_y, max_y, dark_to_dim, legacy_desat, ap1_to_output_matrix); // ODT AP1 => Output
-       return color;
-    }
+      return color;
+  }
 }
 
 struct ACESSettings
@@ -650,3 +661,4 @@ float3 ACESTonemap(float3 color, float paper_white, float peak_white, ACESSettin
 
 	return color;
 }
+#endif

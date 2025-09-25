@@ -45,7 +45,7 @@ void main(
   r0.zw = float2(-0.5,-0.5) + cb0[19].zw;
   r0.xy = min(r0.xy, r0.zw);
   r0.xy = cb0[1].zw * r0.xy;
-  r0.xyz = t1.Sample(s1_s, r0.xy).xyz;
+  r0.xyz = t1.Sample(s1_s, r0.xy).xyz * LumaSettings.GameSettings.custom_bloom;
   r0.w = max(0.00100000005, cb0[20].y);
   r0.w = rcp(r0.w);
   r1.z = v1.z * r0.w;
@@ -59,7 +59,7 @@ void main(
   r0.w = max(0, r0.w);
   r1.xyz = t0.SampleLevel(s0_s, v0.xy, 0).xyz;
   r2.xyz = r1.xyz * r0.www;
-  r3.xy = float2(1,1) + -cb0[18].yz;
+  r3.xy = float2(1,1) + -cb0[18].yz * LumaSettings.GameSettings.custom_vignette;
   r3.xzw = r3.xxx * r2.xyz;
   r0.xyz = r3.xzw * r3.yyy + r0.xyz;
   r0.xyz = -r1.xyz * r0.www + r0.xyz;

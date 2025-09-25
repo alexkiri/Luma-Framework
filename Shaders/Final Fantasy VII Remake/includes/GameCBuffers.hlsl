@@ -9,9 +9,15 @@ namespace CB
 {
 	struct LumaGameSettings
 	{
-		uint Sharpen;
+		float graphics_white_nits;
+		float custom_lut_strength;
+		float custom_bloom;
+		float custom_vignette;
+		float custom_film_grain_strength;
+		float custom_hdr_videos;
+		float custom_random;
 	};
-	
+
 	struct LumaGameData
 	{
         float4 RenderResolution;
