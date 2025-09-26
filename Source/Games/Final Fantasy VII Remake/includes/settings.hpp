@@ -7,8 +7,8 @@
 
 #define ICON_FK_UNDO reinterpret_cast<const char*>(u8"\uf0e2")
 
-namespace luma {
-namespace settings
+namespace Luma {
+namespace Settings
 {
     extern "C" __declspec(dllexport) const char* const NAME;
 
@@ -52,7 +52,9 @@ namespace settings
             switch (this->type) {
                 case SettingValueType::BOOLEAN: return static_cast<float>(this->value_as_int);
                 case SettingValueType::INTEGER: return static_cast<float>(this->value_as_int);
-                case SettingValueType::FLOAT: return this->value;
+                case SettingValueType::FLOAT: 
+                default:
+                    return this->value;
             }
         }
 

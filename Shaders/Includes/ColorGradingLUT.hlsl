@@ -134,6 +134,8 @@ void FixColorGradingLUTNegativeLuminance(inout float3 col, uint type = 1, uint c
 // The strength sweet spot for a strong hue restoration seems to be 0.75, while for chrominance, going up to 1 is ok.
 float3 RestoreHueAndChrominance(float3 targetColor, float3 sourceColor, float hueStrength = 0.75, float chrominanceStrength = 1.0, float minChrominanceChange = 0.0, float maxChrominanceChange = FLT_MAX, float lightnessStrength = 0.0, uint colorSpace = CS_DEFAULT)
 {
+  if (colorSpace == CS_AP1)
+    return float3(1, 0, 1); // Unsupported (return purple)
 	if (hueStrength == 0.0 && chrominanceStrength == 0.0 && lightnessStrength == 0.0) // Static optimization (useful if the param is const)
 		return targetColor;
 

@@ -13,14 +13,14 @@
 
 namespace
 {
-	luma::settings::Settings settings = {
-		new luma::settings::Section{
+	Luma::Settings::Settings settings = {
+		new Luma::Settings::Section{
 			.label = "Advanced Settings",
 			.settings = {
-				new luma::settings::Setting{
+				new Luma::Settings::Setting{
 					.key = "FXBloom",
 					.binding = &cb_luma_global_settings.GameSettings.custom_bloom,
-					.type = luma::settings::SettingValueType::FLOAT,
+					.type = Luma::Settings::SettingValueType::FLOAT,
 					.default_value = 50.f,
 					.can_reset = true,
 					.label = "Bloom",
@@ -29,10 +29,10 @@ namespace
 					.max = 100.f,
 					.parse = [](float value) { return value * 0.02f; } // Scale down to 0.0-2.0 for the shader
 				},
-				new luma::settings::Setting{
+				new Luma::Settings::Setting{
 					.key = "FXVignette",
 					.binding = &cb_luma_global_settings.GameSettings.custom_vignette,
-					.type = luma::settings::SettingValueType::FLOAT,
+					.type = Luma::Settings::SettingValueType::FLOAT,
 					.default_value = 50.f,
 					.can_reset = true,
 					.label = "Vignette",
@@ -41,10 +41,10 @@ namespace
 					.max = 100.f,
 					.parse = [](float value) { return value * 0.02f; }
 				},
-				new luma::settings::Setting{
+				new Luma::Settings::Setting{
 					.key = "FXFilmGrain",
 					.binding = &cb_luma_global_settings.GameSettings.custom_film_grain_strength,
-					.type = luma::settings::SettingValueType::FLOAT,
+					.type = Luma::Settings::SettingValueType::FLOAT,
 					.default_value = 50.f,
 					.can_reset = true,
 					.label = "Film Grain",
@@ -54,10 +54,10 @@ namespace
 					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
 					.parse = [](float value) { return value * 0.02f; }
 				},
-				new luma::settings::Setting{
+				new Luma::Settings::Setting{
 					.key = "CustomLUTStrength",
 					.binding = &cb_luma_global_settings.GameSettings.custom_lut_strength,
-					.type = luma::settings::SettingValueType::FLOAT,
+					.type = Luma::Settings::SettingValueType::FLOAT,
 					.default_value = 100.f,
 					.can_reset = true,
 					.label = "LUT Strength",
@@ -67,10 +67,10 @@ namespace
 					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
 					.parse = [](float value) { return value * 0.01f; }
 				},
-				new luma::settings::Setting{
+				new Luma::Settings::Setting{
 					.key = "FXHDRVideos",
 					.binding = &cb_luma_global_settings.GameSettings.custom_hdr_videos,
-					.type = luma::settings::SettingValueType::BOOLEAN,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
 					.default_value = 1,
 					.can_reset = true,
 					.label = "HDR Videos",
@@ -805,12 +805,12 @@ public:
 
 	void LoadConfigs() override
 	{
-		luma::settings::LoadSettings();
+		Luma::Settings::LoadSettings();
 	}
 
 	void DrawImGuiSettings(DeviceData& device_data) override
 	{
-		luma::settings::DrawSettings();
+		Luma::Settings::DrawSettings();
 	}
 };
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
@@ -884,7 +884,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
 
-		luma::settings::Initialize(&settings);
+		Luma::Settings::Initialize(&settings);
 
 		game = new FF7Remake();
 	}
