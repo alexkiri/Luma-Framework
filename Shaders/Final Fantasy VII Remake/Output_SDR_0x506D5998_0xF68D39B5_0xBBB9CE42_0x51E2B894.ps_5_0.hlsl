@@ -117,20 +117,20 @@ float3 SampleVideoTexture(float2 pos)
       r4.xyz = cb0[27].xxx * r4.xyz;
       color.xyz = exp2(r4.xyz);
     }
-    if (LumaSettings.GameSettings.custom_film_grain_strength != 0) {
-      color.xyz = renodx::effects::ApplyFilmGrain(
-          color.xyz,
-          pos.xy,
-          LumaSettings.GameSettings.custom_random,
-          LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
-          1.f);
-    }
+    // if (LumaSettings.GameSettings.custom_film_grain_strength != 0) {
+    //   color.xyz = renodx::effects::ApplyFilmGrain(
+    //       color.xyz,
+    //       pos.xy,
+    //       LumaSettings.GameSettings.custom_random,
+    //       LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
+    //       1.f);
+    // }
     return color.xyz;
 }
 #endif
 
 #if _506D5998
-float SampleNoiseTexture(float3 color, float2 pos)
+float SampleNoiseTexture(float3 color, float4 v0)
 {
   float4 r0,r1,r2,r3,r4,r5;
   r0.w = cb0[34].z + -cb0[34].x;
@@ -138,7 +138,7 @@ float SampleNoiseTexture(float3 color, float2 pos)
   r0.w = 0.00026041668 * r0.w;
   r0.w = min(1, r0.w);
   r1.z = saturate(cb0[29].x);
-  r3.xy = trunc(pos);
+  r3.xy = trunc(v0.xy);
   r3.yz = float2(0.618034005,0.618034005) * r3.xy;
   r1.w = dot(r3.yz, r3.yz);
   r1.w = sqrt(r1.w);
@@ -246,17 +246,15 @@ void main(
     r0.w = cmp(0 < cb0[38].x);
     r2.xyz = r0.www ? r2.xyz : r3.xyz;
 
-    if (LumaSettings.GameSettings.custom_film_grain_strength != 0.f)
-    {
-      // float3 color_bt709 = BT2020_To_BT709(r2.xyz);
-      r2.xyz = renodx::effects::ApplyFilmGrain(
-          r2.xyz,
-          pixelPos.xy,
-          LumaSettings.GameSettings.custom_random,
-          LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
-          1.f);
-      // r2.xyz = BT709_To_BT2020(color_bt709);
-    }
+    // if (LumaSettings.GameSettings.custom_film_grain_strength != 0.f)
+    // {
+    //   r2.xyz = renodx::effects::ApplyFilmGrain(
+    //       r2.xyz,
+    //       pixelPos.xy,
+    //       LumaSettings.GameSettings.custom_random,
+    //       LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
+    //       1.f);
+    // }
 
     float3 gradedColor = r2.xyz;
 
@@ -272,9 +270,8 @@ void main(
     r2.xyz = cb0[27].xxx * r2.xyz;
     r2.xyz = exp2(r2.xyz);
     r3.xyz = r2.xyz;
-
     r0.w = 1;
-
+    
 #if _BBB9CE42
     float2 vignetteUV = cb0[21].xy * pixelPos.xy;
     vignetteUV = max(cb0[22].xy, vignetteUV);
@@ -288,6 +285,7 @@ void main(
     r0.w = r1.z * r0.w;
     vignetteSample.xyz = vignetteSample.xyz * r0.www;
     r3.xyz = saturate(r2.xyz * vignetteSample.www + vignetteSample.xyz);
+    r2.xyz = r3.xyz;
     r0.w = 1;
 #endif
 
@@ -301,9 +299,10 @@ void main(
 #endif
 
 #if _506D5998
-    float noise = SampleNoiseTexture(r3.xyz, pixelPos);
+    float noise = SampleNoiseTexture(r3.xyz, v0);
     r0.w = noise;
-    r3.xyz = r2.xyz * noise;
+    r3.xyz = r2.xyz * r0.www;
+    // r0.w = 1;
 #endif
 
     r1.xyzw = uiTex.SampleLevel(uiSampler, pixelPos, 0).xyzw;
@@ -320,7 +319,7 @@ void main(
     r1.xyz = r1.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
     r1.xyz = r2.xyz ? r3.xyz : r1.xyz;
     float3 color = r1.xyz;
-    if (LumaSettings.GameSettings.custom_film_grain_strength == 0.f)
+    // if (LumaSettings.GameSettings.custom_film_grain_strength == 0.f)
     {
       r0.z = asuint(cb1[139].z) << 3;
       r0.xyz = (int3)r0.xyz & int3(63,63,63);

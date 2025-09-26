@@ -48,9 +48,10 @@ namespace
 					.default_value = 50.f,
 					.can_reset = true,
 					.label = "Film Grain",
-					.tooltip = "Film grain strength multiplier. Default is 50.",
+					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
 					.parse = [](float value) { return value * 0.02f; }
 				},
 				new luma::settings::Setting{
@@ -141,11 +142,11 @@ public:
 
 	void OnInit(bool async) override
 	{
-		GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+		GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
 		GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('1');
 		GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
 		GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('1');
 
 		native_shaders_definitions.emplace(CompileTimeStringHash("Decode MVs"), ShaderDefinition{ "Luma_MotionVec_UE4_Decode", reshade::api::pipeline_subobject_type::pixel_shader });
 
@@ -568,12 +569,88 @@ public:
 		device_data.cb_luma_global_settings_dirty = true;
 		static std::mt19937 random_generator(std::chrono::system_clock::now().time_since_epoch().count());
 		static auto random_range = static_cast<float>((std::mt19937::max)() - (std::mt19937::min)());
-		cb_luma_global_settings.GameSettings.custom_random =  static_cast<float>(random_generator() + (std::mt19937::min)()) / random_range;
+		cb_luma_global_settings.GameSettings.custom_random = static_cast<float>(random_generator() + (std::mt19937::min)()) / random_range;
 	}
 
 	void PrintImGuiAbout() override
 	{
-		ImGui::Text("Final Fantasy VII Remake Luma mod - by Izueh and Pumbo", ""); // TODO
+      	ImGui::PushTextWrapPos(0.0f); 
+		ImGui::Text("Luma for \"Final Fantasy VII Remake\" is developed by Izueh and Pumbo and is open source and free.\n"
+         "It adds DLSS and improved HDR tonemapping.\n"
+		 "Additional thanks to ShortFuse and Musa from the RenoDX team and their HDR mods for Remake and Rebirth which served as reference.\n",
+         "If you enjoy it, consider donating to any of the contributors.", "");
+		ImGui::PopTextWrapPos();
+			
+		ImGui::NewLine();
+
+		const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+		const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+		const auto button_active_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(30, 136, 124, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(17, 149, 134, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(57, 133, 111, 255));
+		static const std::string donation_link_izueh = std::string("Buy Izueh a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+		if (ImGui::Button(donation_link_izueh.c_str()))
+		{
+			system("start https://ko-fi.com/izueh");
+		}
+		ImGui::PopStyleColor(3);
+		ImGui::NewLine();
+
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
+
+		static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
+		if (ImGui::Button(donation_link_pumbo.c_str()))
+		{
+			system("start https://buymeacoffee.com/realfiloppi");
+		}
+		static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+		if (ImGui::Button(donation_link_pumbo_2.c_str()))
+		{
+			system("start https://ko-fi.com/realpumbo");
+		}
+		ImGui::PopStyleColor(3);
+
+		ImGui::NewLine();
+		// Restore the previous color, otherwise the state we set would persist even if we popped it
+		ImGui::PushStyleColor(ImGuiCol_Button, button_color);
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
+		static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);
+		if (ImGui::Button(social_link.c_str()))
+		{
+			// Unique link for Luma by Pumbo (to track the origin of people joining), do not share for other purposes
+			static const std::string obfuscated_link = std::string("start https://discord.gg/J9fM") + std::string("3EVuEZ");
+			system(obfuscated_link.c_str());
+		}
+		static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
+		if (ImGui::Button(contributing_link.c_str()))
+		{
+			system("start https://github.com/Filoppi/Luma-Framework");
+		}
+		ImGui::PopStyleColor(3);
+
+		ImGui::NewLine();
+		ImGui::Text("Credits:"
+			"\n\nMain:"
+			"\nIzueh"
+			"\nPumbo"
+
+			"\n\nAcknowledgments:"
+			"\nShortFuse"
+			"\nMusa"
+
+			"\n\nThird Party:"
+			"\nReShade"
+			"\nImGui"
+			"\nRenoDX"
+			"\n3Dmigoto"
+			"\nOklab"
+			"\nDICE (HDR tonemapper)"
+			, "");
 	}
 
 	void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override

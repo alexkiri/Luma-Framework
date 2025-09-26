@@ -23,7 +23,7 @@ void main(
   float2 resolution;
 
   if (LumaData.GameData.DrewUpscaling){
-    resolution = LumaData.GameData.OutputResolution;
+    resolution = LumaData.GameData.OutputResolution.xy;
   } else {
     resolution = cb0[20].zw;
   }

@@ -114,6 +114,9 @@ namespace settings
                     break;
                 }
             }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !this->tooltip.empty()) {
+                ImGui::SetTooltip("%s", this->tooltip.c_str());
+            }
             ImGui::SameLine();
             if (this->can_reset && this->value != this->default_value) {
                 if (ImGui::SmallButton(ICON_FK_UNDO)) {
@@ -125,9 +128,6 @@ namespace settings
                 size.x += style.FramePadding.x;
                 size.y += style.FramePadding.y;
                 ImGui::InvisibleButton("", ImVec2(size.x, size.y));
-            }
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !this->tooltip.empty()) {
-                ImGui::SetTooltip("%s", this->tooltip.c_str());
             }
 
             ImGui::EndDisabled();
