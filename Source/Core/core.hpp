@@ -2766,6 +2766,8 @@ namespace
                   last_live_patched_shader_hash = uint32_t(shader_hash);
 
                   // Recalculate and set the hash, otherwise the shader might fail to load (or be used later on anyway)
+                  // Official implementation is here: https://github.com/doitsujin/dxbc-spirv/blob/32866c0d0a0236b93681d25405e57a3e9d6868d3/dxbc/dxbc_container.cpp#L11
+                  // this one should match
                   Hash::MD5::Digest md5_digest = pre_patched_code_hash ? *pre_patched_code_hash : Shader::CalcDXBCHash(patched_code, shader_header->file_size);
                   memcpy(shader_header->hash, &md5_digest.data, DXBCHeader::hash_size);
 
