@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 constexpr float srgb_white_level = 80;
-constexpr float default_paper_white = 203; // ITU White Level
+static float default_paper_white = 203; // ITU White Level
 constexpr float default_peak_white = 1000;
 
 namespace Globals

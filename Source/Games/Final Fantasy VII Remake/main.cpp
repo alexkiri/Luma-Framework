@@ -3,13 +3,86 @@
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 1
 #ifdef NDEBUG
-#define ALLOW_SHADERS_DUMPING 0
+#define ALLOW_SHADERS_DUMPING 1
 #endif
 
+#include <chrono>
+#include <random>
+#include "includes\settings.hpp"
 #include "..\..\Core\core.hpp"
 
 namespace
 {
+	Luma::Settings::Settings settings = {
+		new Luma::Settings::Section{
+			.label = "Advanced Settings",
+			.settings = {
+				new Luma::Settings::Setting{
+					.key = "FXBloom",
+					.binding = &cb_luma_global_settings.GameSettings.custom_bloom,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 50.f,
+					.can_reset = true,
+					.label = "Bloom",
+					.tooltip = "Bloom strength multiplier. Default is 50.",
+					.min = 0.f,
+					.max = 100.f,
+					.parse = [](float value) { return value * 0.02f; } // Scale down to 0.0-2.0 for the shader
+				},
+				new Luma::Settings::Setting{
+					.key = "FXVignette",
+					.binding = &cb_luma_global_settings.GameSettings.custom_vignette,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 50.f,
+					.can_reset = true,
+					.label = "Vignette",
+					.tooltip = "Vignette strength multiplier. Default is 50.",
+					.min = 0.f,
+					.max = 100.f,
+					.parse = [](float value) { return value * 0.02f; }
+				},
+				new Luma::Settings::Setting{
+					.key = "FXFilmGrain",
+					.binding = &cb_luma_global_settings.GameSettings.custom_film_grain_strength,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 50.f,
+					.can_reset = true,
+					.label = "Film Grain",
+					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
+					.min = 0.f,
+					.max = 100.f,
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					.parse = [](float value) { return value * 0.02f; }
+				},
+				new Luma::Settings::Setting{
+					.key = "CustomLUTStrength",
+					.binding = &cb_luma_global_settings.GameSettings.custom_lut_strength,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 100.f,
+					.can_reset = true,
+					.label = "LUT Strength",
+					.tooltip = "LUT strength multiplier. Default is 100.",
+					.min = 0.f,
+					.max = 100.f,
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					.parse = [](float value) { return value * 0.01f; }
+				},
+				new Luma::Settings::Setting{
+					.key = "FXHDRVideos",
+					.binding = &cb_luma_global_settings.GameSettings.custom_hdr_videos,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.default_value = 1,
+					.can_reset = true,
+					.label = "HDR Videos",
+					.tooltip = "Enable or disable HDR video playback. Default is On.",
+					.min = 0,
+					.max = 1,
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
+				}
+			}
+		}
+	};
+
 	float2 projection_jitters = { 0, 0 };
 	std::unique_ptr<float4[]> downsample_buffer_data;
 	std::unique_ptr<float4[]> upsample_buffer_data;
@@ -25,6 +98,7 @@ namespace
 	ShaderHashesList shader_hashes_Velocity_Flatten;
 	ShaderHashesList shader_hashes_Velocity_Gather;
 	const uint32_t CBPerViewGlobal_buffer_size = 4096;
+	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
 {
@@ -68,11 +142,11 @@ public:
 
 	void OnInit(bool async) override
 	{
-		GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
-		GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('0');
-		GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
+		GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
+		GetShaderDefineData(EARLY_DISPLAY_ENCODING_HASH).SetDefaultValue('1');
+		GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
 		GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
-		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+		GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('1');
 
 		native_shaders_definitions.emplace(CompileTimeStringHash("Decode MVs"), ShaderDefinition{ "Luma_MotionVec_UE4_Decode", reshade::api::pipeline_subobject_type::pixel_shader });
 
@@ -404,6 +478,9 @@ public:
 					}
 
 					float dlss_pre_exposure = 0.f;
+#if DEVELOPMENT
+					dlss_pre_exposure = dlss_custom_pre_exposure;
+#endif
 					bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), nullptr, dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
 					if (dlss_succeeded)
 					{
@@ -489,11 +566,91 @@ public:
 		device_data.taa_detected = false;
 		device_data.has_drawn_dlss_sr = false;
 		game_device_data.found_per_view_globals = false;
+		device_data.cb_luma_global_settings_dirty = true;
+		static std::mt19937 random_generator(std::chrono::system_clock::now().time_since_epoch().count());
+		static auto random_range = static_cast<float>((std::mt19937::max)() - (std::mt19937::min)());
+		cb_luma_global_settings.GameSettings.custom_random = static_cast<float>(random_generator() + (std::mt19937::min)()) / random_range;
 	}
 
 	void PrintImGuiAbout() override
 	{
-		ImGui::Text("Final Fantasy VII Remake Luma mod - by Izueh and Pumbo", ""); // TODO
+      	ImGui::PushTextWrapPos(0.0f); 
+		ImGui::Text("Luma for \"Final Fantasy VII Remake\" is developed by Izueh and Pumbo and is open source and free.\n"
+         "It adds DLSS and improved HDR tonemapping.\n"
+		 "Additional thanks to ShortFuse and Musa from the RenoDX team and their HDR mods for Remake and Rebirth which served as reference.\n",
+         "If you enjoy it, consider donating to any of the contributors.", "");
+		ImGui::PopTextWrapPos();
+			
+		ImGui::NewLine();
+
+		const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+		const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+		const auto button_active_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(30, 136, 124, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(17, 149, 134, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(57, 133, 111, 255));
+		static const std::string donation_link_izueh = std::string("Buy Izueh a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+		if (ImGui::Button(donation_link_izueh.c_str()))
+		{
+			system("start https://ko-fi.com/izueh");
+		}
+		ImGui::PopStyleColor(3);
+		ImGui::NewLine();
+
+		ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(70, 134, 0, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(70 + 9, 134 + 9, 0, 255));
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(70 + 18, 134 + 18, 0, 255));
+
+		static const std::string donation_link_pumbo = std::string("Buy Pumbo a Coffee on buymeacoffee ") + std::string(ICON_FK_OK);
+		if (ImGui::Button(donation_link_pumbo.c_str()))
+		{
+			system("start https://buymeacoffee.com/realfiloppi");
+		}
+		static const std::string donation_link_pumbo_2 = std::string("Buy Pumbo a Coffee on ko-fi ") + std::string(ICON_FK_OK);
+		if (ImGui::Button(donation_link_pumbo_2.c_str()))
+		{
+			system("start https://ko-fi.com/realpumbo");
+		}
+		ImGui::PopStyleColor(3);
+
+		ImGui::NewLine();
+		// Restore the previous color, otherwise the state we set would persist even if we popped it
+		ImGui::PushStyleColor(ImGuiCol_Button, button_color);
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
+		static const std::string social_link = std::string("Join our \"HDR Den\" Discord ") + std::string(ICON_FK_SEARCH);
+		if (ImGui::Button(social_link.c_str()))
+		{
+			// Unique link for Luma by Pumbo (to track the origin of people joining), do not share for other purposes
+			static const std::string obfuscated_link = std::string("start https://discord.gg/J9fM") + std::string("3EVuEZ");
+			system(obfuscated_link.c_str());
+		}
+		static const std::string contributing_link = std::string("Contribute on Github ") + std::string(ICON_FK_FILE_CODE);
+		if (ImGui::Button(contributing_link.c_str()))
+		{
+			system("start https://github.com/Filoppi/Luma-Framework");
+		}
+		ImGui::PopStyleColor(3);
+
+		ImGui::NewLine();
+		ImGui::Text("Credits:"
+			"\n\nMain:"
+			"\nIzueh"
+			"\nPumbo"
+
+			"\n\nAcknowledgments:"
+			"\nShortFuse"
+			"\nMusa"
+
+			"\n\nThird Party:"
+			"\nReShade"
+			"\nImGui"
+			"\nRenoDX"
+			"\n3Dmigoto"
+			"\nOklab"
+			"\nDICE (HDR tonemapper)"
+			, "");
 	}
 
 	void UpdateLumaInstanceDataCB(CB::LumaInstanceDataPadded& data, CommandListData& cmd_list_data, DeviceData& device_data) override
@@ -595,6 +752,9 @@ public:
 				// Extract jitter from constant buffer 1
 				projection_jitters.x = float_data[118].x;
 				projection_jitters.y = float_data[118].y;
+#if 1 // Just a guess, needs testing
+				dlss_custom_pre_exposure = float_data[128].x * 100.0f; 
+#endif
 			}
 			device_data.cb_per_view_global_buffer_map_data = nullptr;
 			device_data.cb_per_view_global_buffer = nullptr;
@@ -603,42 +763,61 @@ public:
 
 	static bool OnUpdateBufferRegion(reshade::api::device* device, const void* data, reshade::api::resource resource, uint64_t offset, uint64_t size)
 	{
-		ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-		DeviceData& device_data = *device->get_private_data<DeviceData>();
-		auto& game_device_data = GetGameDeviceData(device_data);
+		 ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+		 DeviceData& device_data = *device->get_private_data<DeviceData>();
+		 auto& game_device_data = GetGameDeviceData(device_data);
 
-		if (device_data.has_drawn_dlss_sr && size == 512) {
-			// It's not very nice to const cast, but we know for a fact this is dynamic memory, so it's probably fine to edit it (ReShade doesn't offer an interface for replacing it easily, and doesn't pass in the command list)
-			float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
-			const float4* float_data = reinterpret_cast<const float4*>(data);
-			if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y)
-			{
-				//if (stop_type == 16) return false;
-				mutable_float_data[20].z = game_device_data.upscaled_render_resolution.x;
-				mutable_float_data[20].w = game_device_data.upscaled_render_resolution.y;
-			}
-		}
-		else if (device_data.has_drawn_dlss_sr && size == 1024) {
-			float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
-			const float4* float_data = reinterpret_cast<const float4*>(data);
-			//float_data[30].zw and [31].xy have render_res
-			if (float_data[30].z == device_data.render_resolution.x && float_data[30].w == device_data.render_resolution.y && float_data[31].x == device_data.render_resolution.x && float_data[31].y == device_data.render_resolution.y)
-			{
-				//if (stop_type == 15) return false;
-				mutable_float_data[30].z = game_device_data.upscaled_render_resolution.x;
-				mutable_float_data[30].w = game_device_data.upscaled_render_resolution.y;
-				mutable_float_data[31].x = game_device_data.upscaled_render_resolution.x;
-				mutable_float_data[31].y = game_device_data.upscaled_render_resolution.y;
-			}
-		}
+		 if (device_data.has_drawn_dlss_sr && size == 512) {
+		 	// It's not very nice to const cast, but we know for a fact this is dynamic memory, so it's probably fine to edit it (ReShade doesn't offer an interface for replacing it easily, and doesn't pass in the command list)
+		 	float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
+		 	const float4* float_data = reinterpret_cast<const float4*>(data);
+		 	if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y)
+		 	{
+		 		mutable_float_data[20].z = game_device_data.upscaled_render_resolution.x;
+		 		mutable_float_data[20].w = game_device_data.upscaled_render_resolution.y;
+		 	}
+		 }
+		 else if (device_data.has_drawn_dlss_sr && size == 1024) {
+		 	float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
+		 	const float4* float_data = reinterpret_cast<const float4*>(data);
+		 	//float_data[30].zw and [31].xy have render_res
+		 	if (float_data[30].z == device_data.render_resolution.x && float_data[30].w == device_data.render_resolution.y && float_data[31].x == device_data.render_resolution.x && float_data[31].y == device_data.render_resolution.y)
+		 	{
+		 		mutable_float_data[30].z = game_device_data.upscaled_render_resolution.x;
+		 		mutable_float_data[30].w = game_device_data.upscaled_render_resolution.y;
+		 		mutable_float_data[31].x = game_device_data.upscaled_render_resolution.x;
+		 		mutable_float_data[31].y = game_device_data.upscaled_render_resolution.y;
+		 	}
+		 }
 		return false;
 	}
-};
 
+#if DEVELOPMENT
+	void DrawImGuiDevSettings(DeviceData& device_data) override
+	{
+#if ENABLE_NGX
+		ImGui::NewLine();
+		//ImGui::SliderFloat("DLSS Custom Exposure", &dlss_custom_exposure, 0.0, 10.0);
+		ImGui::SliderFloat("DLSS Custom Pre-Exposure", &dlss_custom_pre_exposure, 0.0, 10.0);
+#endif // ENABLE_NGX
+	}
+#endif // DEVELOPMENT
+
+	void LoadConfigs() override
+	{
+		Luma::Settings::LoadSettings();
+	}
+
+	void DrawImGuiSettings(DeviceData& device_data) override
+	{
+		Luma::Settings::DrawSettings();
+	}
+};
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
 	if (ul_reason_for_call == DLL_PROCESS_ATTACH)
 	{
+		default_paper_white = 250.f;
 		Globals::SetGlobals(PROJECT_NAME, "Final Fantasy VII Remake Luma mod");
 		Globals::VERSION = 1;
 
@@ -704,6 +883,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		// LUT is 3D 32x
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
+
+		Luma::Settings::Initialize(&settings);
 
 		game = new FF7Remake();
 	}

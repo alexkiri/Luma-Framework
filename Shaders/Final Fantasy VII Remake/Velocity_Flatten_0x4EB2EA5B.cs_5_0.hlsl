@@ -1,267 +1,304 @@
 #include "includes/Common.hlsl"
 
-#define THREADGROUP_SIZEX		16
-#define THREADGROUP_SIZEY		16
-#define THREADGROUP_TOTALSIZE	(THREADGROUP_SIZEX * THREADGROUP_SIZEY)
-
-groupshared float4 g0[THREADGROUP_TOTALSIZE];
-
-cbuffer cb2 : register(b2)
+struct _36
 {
-  float4 cb2[5];
+    uint _m0;
+    uint _m1;
+    uint _m2;
+    uint _m3;
+};
+
+static const _36 _655 = { 0u, 0u, 0u, 0u };
+static const _36 _39[256] = { { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u }, { 0u, 0u, 0u, 0u } };
+
+cbuffer cb0_buf : register(b0)
+{
+    uint4 cb0_m0 : packoffset(c0);
+    uint4 cb0_m1 : packoffset(c1);
+    uint4 cb0_m2 : packoffset(c2);
+    uint4 cb0_m3 : packoffset(c3);
+    uint4 cb0_m4 : packoffset(c4);
+    uint4 cb0_m5 : packoffset(c5);
+    uint4 cb0_m6 : packoffset(c6);
+    uint4 cb0_m7 : packoffset(c7);
+    uint4 cb0_m8 : packoffset(c8);
+    uint4 cb0_m9 : packoffset(c9);
+    uint4 cb0_m10 : packoffset(c10);
+    uint4 cb0_m11 : packoffset(c11);
+    uint4 cb0_m12 : packoffset(c12);
+    uint4 cb0_m13 : packoffset(c13);
+    uint4 cb0_m14 : packoffset(c14);
+    uint2 cb0_m15 : packoffset(c15);
+    uint2 cb0_m16 : packoffset(c15.z);
+    uint4 cb0_m17 : packoffset(c16);
+    uint4 cb0_m18 : packoffset(c17);
+    float4 cb0_m19 : packoffset(c18);
+    float4 cb0_m20 : packoffset(c19);
+};
+
+cbuffer cb1_buf : register(b1)
+{
+    uint4 cb1_m[58] : packoffset(c0);
+};
+
+cbuffer cb2_buf : register(b2)
+{
+    float3 cb2_m0 : packoffset(c0);
+    float cb2_m1 : packoffset(c0.w);
+    float4 cb2_m2 : packoffset(c1);
+    float4 cb2_m3 : packoffset(c2);
+    float4 cb2_m4 : packoffset(c3);
+    float4 cb2_m5 : packoffset(c4);
+};
+
+Texture2D<float4> t0 : register(t0);
+Texture2D<float4> t1 : register(t1);
+RWTexture2D<float4> u0 : register(u0);
+RWTexture2D<float4> u1 : register(u1);
+
+static uint3 gl_WorkGroupID;
+static uint3 gl_GlobalInvocationID;
+static uint gl_LocalInvocationIndex;
+struct SPIRV_Cross_Input
+{
+    uint3 gl_WorkGroupID : SV_GroupID;
+    uint3 gl_GlobalInvocationID : SV_DispatchThreadID;
+    uint gl_LocalInvocationIndex : SV_GroupIndex;
+};
+
+groupshared _36 g0[256];
+
+float dp3_f32(float3 a, float3 b)
+{
+    precise float _118 = a.x * b.x;
+    return mad(a.z, b.z, mad(a.y, b.y, _118));
 }
 
-cbuffer cb1 : register(b1)
+float dp2_f32(float2 a, float2 b)
 {
-  float4 cb1[58];
+    precise float _106 = a.x * b.x;
+    return mad(a.y, b.y, _106);
 }
 
-cbuffer cb0 : register(b0)
+void comp_main()
 {
-  float4 cb0[20];
-}
-
-Texture2D<float4> t0 : register(t0);  // PostprocessInput0
-Texture2D<float4> t1 : register(t1);  // PostprocessInput1
-
-RWTexture2D<float4> u0 : register(u0);  // OutVelocityFlat
-RWTexture2D<float4> u1 : register(u1);  // OutMaxTileVelocity
-
-#define cmp -
-
-[numthreads(THREADGROUP_SIZEX, THREADGROUP_SIZEY, 1)]
-void main(
-    uint3 vThreadGroupID : SV_GroupID,
-    uint3 vThreadID : SV_DispatchThreadID,
-    uint3 vThreadIDInGroup : SV_GroupThreadID,
-    uint vThreadIDInGroupFlattened : SV_GroupIndex)
-{
-    float4 r0, r1, r2, r3, r4;
-    float4 viewportSize;
+    uint4 viewportSize;
     float resolutionScale;
     if (LumaData.GameData.DrewUpscaling) {
-        // viewportSize = LumaData.GameData.OutputResolution;
         viewportSize = LumaData.GameData.ViewportRect;
         resolutionScale = LumaData.GameData.ResolutionScale.x;
     }
     else {
-        viewportSize = asint(cb0[15]); 
+        viewportSize = uint4(cb0_m15, cb0_m16); 
         resolutionScale = 1.0f;
     }
-
-    // // Calculate pixel position
-    
-    r0.xy = vThreadID.xy * resolutionScale + viewportSize.xy + 0.5;
-    r0.zw = 0.0;
-    
-    // Sample velocity and depth
-    r1.xy = t0.Load(r0.xyw).xy;
-    r2.z = t1.Load(r0.xyz).x;
-    
-    // Calculate screen UV
-    r0.zw = vThreadID.xy + 0.5;
-    r0.zw *= resolutionScale;
-    r1.zw = viewportSize.zw - viewportSize.xy;
-    r1.zw = (uint2)r1.zw;
-    r2.xy = r0.zw / r1.zw;
-    
-    // Camera motion calculation
-    r0.z = dot(r2.xyz, cb2[0].xyz);
-    r0.z = cb2[0].w + r0.z;
-    r0.z = rcp(r0.z);
-    
-    r1.zw = cb2[1].xw * r2.yy;
-    r0.w = cb2[1].y * r2.z + r1.z;
-    r0.w = cb2[1].z + r0.w;
-    r0.w = r2.x * r0.w + r1.w;
-    r1.zw = r2.xy * r2.xy;
-    r0.w = r1.z * cb2[2].x + r0.w;
-    r0.w = cb2[2].y * r2.z + r0.w;
-    r0.w = cb2[2].z + r0.w;
-    r3.x = -2.0 * r0.w;  // Fixed: multiply by -2.0 for velocity.x calculation
-    
-    r2.xw = cb2[3].xw * r2.xx;
-    r0.w = cb2[3].y * r2.z + r2.x;
-    r0.w = cb2[3].z + r0.w;
-    r0.w = r2.y * r0.w + r2.w;
-    r0.w = r1.w * cb2[4].x + r0.w;
-    r0.w = cb2[4].y * r2.z + r0.w;
-    r3.y = 2.0 * (cb2[4].z + r0.w);  // Fixed: multiply by 2.0 for velocity.y calculation
-    
-    r0.zw = r3.xy * r0.zz;
-    r3.xy = r0.zw;  // Fixed: don't double the camera motion velocity
-    
-    // Check if velocity is encoded (velocity.x > 0.0)
-    r0.z = dot(r1.xy, r1.xy);
-    r0.z = cmp(0 < r0.z);
-    
-    // Decode velocity (DecodeVelocityFromTexture equivalent)
-    r1.xy = float2(-0.499992371, -0.499992371) + r1.xy;
-    r4.xy = float2(4.00801611, 4.00801611) * r1.xy;
-    r4.zw = float2(0, 0);  // Fixed: camera motion velocity should go to zw when not encoded
-    r1.xyzw = r0.zzzz ? r4.xyzw : r3.xyzw;  // Fixed: proper velocity selection
-    
-    // Apply aspect ratio (negative for Y)
-    r1.y = -cb0[18].x * r1.y;  // Fixed: only apply negative aspect ratio to Y (may need to multiply by resolution scale)
-    r1.x = cb0[18].x * r1.x;   // Fixed: apply aspect ratio to X without negation (may need to multiply by resolution scale)
-    
-    // Calculate polar coordinates (atan2Fast implementation)
-    r0.zw = max(float2(9.99999975e-05, 9.99999975e-05), abs(r1.xy));
-    r2.x = min(r0.z, r0.w);
-    r2.y = max(r0.z, r0.w);
-    r2.x = r2.x / r2.y;
-    r2.y = r2.x * r2.x;
-    r2.w = r2.y * -0.0464964733 + 0.159314215;
-    r2.w = r2.w * r2.y + -0.327622771;
-    r2.y = r2.w * r2.y + 1;
-    r2.w = r2.y * r2.x;
-    r0.z = cmp(r0.z < r0.w);
-    r0.w = -r2.y * r2.x + 1.57079637;
-    r0.z = r0.z ? r0.w : r2.w;
-    r0.w = cmp(r1.y < 0);  // Fixed: check r1.y instead of r1.z
-    r2.x = 3.14159274 + -r0.z;
-    r0.z = r0.w ? r2.x : r0.z;
-    r0.w = cmp(r1.x < 0);
-    r3.y = r0.ww ? -r0.z : r0.z;  // Fixed: angle goes to r3.y
-    r3.w = r3.y;
-    
-    // Calculate velocity length
-    r0.z = length(r1.xy);  // Fixed: use proper length calculation
-    r3.x = r0.z;  // Fixed: velocity length goes to r3.x
-    
-    // Handle NaN case
-    if (any(isnan(r3.xy)))
+    uint _138 = gl_GlobalInvocationID.x * resolutionScale + viewportSize.x;
+    uint _139 = gl_GlobalInvocationID.y * resolutionScale + viewportSize.y;
+    uint2 _141 = uint2(_138, _139);
+    float4 _142 = t0.Load(int3(_141, 0u));
+    float _143 = _142.x;
+    float4 _146 = t1.Load(int3(_141, 0u));
+    float _147 = _146.x;
+    float _160 = (float(gl_GlobalInvocationID.x) + 0.5f) * resolutionScale / float(viewportSize.z - viewportSize.x);
+    float _161 = (float(gl_GlobalInvocationID.y) + 0.5f) * resolutionScale / float(viewportSize.w - viewportSize.y);
+    float _172 = 1.0f / (cb2_m1 + dp3_f32(float3(_160, _161, _147), cb2_m0));
+    float _223 = _172 * (mad(_147, cb2_m3.y, mad(_160 * _160, cb2_m3.x, (_160 * (((cb2_m2.x * _161) + (_147 * cb2_m2.y)) + cb2_m2.z)) + (cb2_m2.w * _161))) + cb2_m3.z);
+    float _224 = _172 * (mad(_147, cb2_m5.y, mad(_161 * _161, cb2_m5.x, ((((_160 * cb2_m4.x) + (_147 * cb2_m4.y)) + cb2_m4.z) * _161) + (_160 * cb2_m4.w))) + cb2_m5.z);
+    float _225 = _223 + _223;
+    float _227 = _224 + _224;
+    float2 _228 = float2(_143, _142.y);
+    bool _230 = dp2_f32(_228, _228) > 0.0f;
+    float _232 = _143 - 0.49999237060546875f;
+    float _233 = _142.y - 0.49999237060546875f;
+    float _241 = _230 ? (_232 * 4.008016109466552734375f) : (-_225);
+    float _245 = cb0_m19.x * (_230 ? (_233 * 4.008016109466552734375f) : _227);
+    float _246 = -_245;
+    float _251 = max(abs(_241), 9.9999997473787516355514526367188e-05f);
+    float _252 = max(abs(_245), 9.9999997473787516355514526367188e-05f);
+    float _255 = min(_252, _251) / max(_252, _251);
+    float _256 = _255 * _255;
+    float _259 = mad(_256, mad(_256, mad(_256, -0.046496473252773284912109375f, 0.159314215183258056640625f), -0.32762277126312255859375f), 1.0f);
+    float _260 = _255 * _259;
+    bool _261 = _252 > _251;
+    float _263 = mad(-_255, _259, 1.57079637050628662109375f);
+    float _264 = _261 ? _263 : _260;
+    bool _265 = _241 < 0.0f;
+    float _266 = 3.1415927410125732421875f - _264;
+    uint _276 = (_246 < 0.0f) ? asuint(-(_265 ? _266 : _264)) : (_265 ? asuint(_266) : (_261 ? asuint(_263) : asuint(_260)));
+    float2 _277 = float2(_246, _241);
+    float2 _279 = float2(-(cb0_m19.x * (_230 ? mad(_233, 4.008016109466552734375f, -_227) : 0.0f)), _230 ? mad(_232, 4.008016109466552734375f, _225) : 0.0f);
+    float _281 = sqrt(dp2_f32(_277, _277));
+    float _287 = mad(cb0_m20.w, min(_281, sqrt(dp2_f32(_279, _279))) - _281, _281);
+    bool _290 = (viewportSize.z > _138) && (viewportSize.w > _139);
+    if (_290)
     {
-        r3.xy = float2(0.0, 0.0);
+        u0[_141] = float4(_287, mad(_147, asfloat(cb1_m[57u].x), asfloat(cb1_m[57u].y)) + (1.0f / mad(_147, asfloat(cb1_m[57u].z), -asfloat(cb1_m[57u].w))), 0.0f, 0.0f);
     }
-    
-    // Viewport bounds check
-    r0.zw = cmp((uint2)r0.xy < asint(viewportSize.zw));
-    r0.z = r0.w ? r0.z : 0;
-    
-    // Output velocity if inside viewport
-    if (r0.z != 0) {
-        r0.w = r2.z * cb1[57].x + cb1[57].y;
-        r2.x = r2.z * cb1[57].z + -cb1[57].w;
-        r2.x = rcp(r2.x);
-        r1.y = r2.x + r0.w;
-        r1.x = r3.y * (0.5 / 3.14159265359) + 0.5;  // Fixed: encode angle properly
-        r1.zw = float2(0, 0);
-        u0[r0.xy] = float4(r3.x, r1.x, r1.y, 0);  // Fixed: proper encoding order
-    }
-    
-    // Limit velocity
-    r0.x = cb0[18].w / cb0[18].y;
-    r0.x = min(r3.x, r0.x);  // Fixed: limit the velocity length
-    r3.xz = r0.z ? float2(r0.x, r0.x) : float2(2, 0);  // Fixed: proper min/max setup
-    
-    // Store in shared memory
-    g0[vThreadIDInGroupFlattened] = r3;
+    float _319 = min(_287, cb0_m19.w / cb0_m19.y);
+    uint _321 = asuint(_319);
+    uint _322 = _290 ? _321 : 1073741824u;
+    uint _324 = _290 ? _321 : 0u;
+    g0[gl_LocalInvocationIndex]._m0 = _322;
+    g0[gl_LocalInvocationIndex]._m1 = _276;
+    g0[gl_LocalInvocationIndex]._m2 = _324;
+    g0[gl_LocalInvocationIndex]._m3 = _276;
     GroupMemoryBarrierWithGroupSync();
-    
-    // Parallel reduction (MinMaxLengthPolar)
-    r0.xyzw = cmp((uint4)vThreadIDInGroupFlattened.xxxx < int4(128, 64, 32, 16));
-    
-    if (r0.x != 0) {
-        r0.x = (int)vThreadIDInGroupFlattened + 128;
-        r1 = g0[r0.x];
-        r0.x = cmp(r3.x < r1.x);
-        r2.xy = r0.xx ? r3.xy : r1.xy;
-        r0.x = cmp(r1.z < r3.z);
-        r2.zw = r0.xx ? r3.zw : r1.zw;
-        g0[vThreadIDInGroupFlattened] = r2;
-        r3 = r2;  // Fixed: update r3 with new values
+    if (gl_LocalInvocationIndex < 128u)
+    {
+        uint _342 = gl_LocalInvocationIndex + 128u;
+        uint _345 = g0[_342]._m0;
+        uint _348 = g0[_342]._m1;
+        uint _351 = g0[_342]._m2;
+        uint _354 = g0[_342]._m3;
+        bool _356 = asfloat(_345) > (_290 ? _319 : 2.0f);
+        bool _360 = asfloat(_351) < (_290 ? _319 : 0.0f);
+        g0[gl_LocalInvocationIndex]._m0 = _356 ? _322 : _345;
+        g0[gl_LocalInvocationIndex]._m1 = _356 ? _276 : _348;
+        g0[gl_LocalInvocationIndex]._m2 = _360 ? _324 : _351;
+        g0[gl_LocalInvocationIndex]._m3 = _360 ? _276 : _354;
     }
     GroupMemoryBarrierWithGroupSync();
-    
-    if (r0.y != 0) {
-        r1 = g0[vThreadIDInGroupFlattened];
-        r0.x = (int)vThreadIDInGroupFlattened + 64;
-        r2 = g0[r0.x];
-        r0.x = cmp(r1.x < r2.x);
-        r3.xy = r0.xx ? r1.xy : r2.xy;
-        r0.x = cmp(r2.z < r1.z);
-        r3.zw = r0.xx ? r1.zw : r2.zw;
-        g0[vThreadIDInGroupFlattened] = r3;
+    if (gl_LocalInvocationIndex < 64u)
+    {
+        uint _370 = g0[gl_LocalInvocationIndex]._m0;
+        uint _372 = g0[gl_LocalInvocationIndex]._m1;
+        uint _374 = g0[gl_LocalInvocationIndex]._m2;
+        uint _376 = g0[gl_LocalInvocationIndex]._m3;
+        uint _377 = gl_LocalInvocationIndex + 64u;
+        uint _380 = g0[_377]._m0;
+        uint _383 = g0[_377]._m1;
+        uint _386 = g0[_377]._m2;
+        uint _389 = g0[_377]._m3;
+        bool _392 = asfloat(_370) < asfloat(_380);
+        bool _397 = asfloat(_386) < asfloat(_374);
+        g0[gl_LocalInvocationIndex]._m0 = _392 ? _370 : _380;
+        g0[gl_LocalInvocationIndex]._m1 = _392 ? _372 : _383;
+        g0[gl_LocalInvocationIndex]._m2 = _397 ? _374 : _386;
+        g0[gl_LocalInvocationIndex]._m3 = _397 ? _376 : _389;
     }
     GroupMemoryBarrierWithGroupSync();
-    
-    if (r0.z != 0) {
-        r1 = g0[vThreadIDInGroupFlattened];
-        r0.x = (int)vThreadIDInGroupFlattened + 32;
-        r2 = g0[r0.x];
-        r0.x = cmp(r1.x < r2.x);
-        r3.xy = r0.xx ? r1.xy : r2.xy;
-        r0.x = cmp(r2.z < r1.z);
-        r3.zw = r0.xx ? r1.zw : r2.zw;
-        g0[vThreadIDInGroupFlattened] = r3;
+    if (gl_LocalInvocationIndex < 32u)
+    {
+        uint _407 = g0[gl_LocalInvocationIndex]._m0;
+        uint _409 = g0[gl_LocalInvocationIndex]._m1;
+        uint _411 = g0[gl_LocalInvocationIndex]._m2;
+        uint _413 = g0[gl_LocalInvocationIndex]._m3;
+        uint _414 = gl_LocalInvocationIndex + 32u;
+        uint _417 = g0[_414]._m0;
+        uint _420 = g0[_414]._m1;
+        uint _423 = g0[_414]._m2;
+        uint _426 = g0[_414]._m3;
+        bool _429 = asfloat(_407) < asfloat(_417);
+        bool _434 = asfloat(_423) < asfloat(_411);
+        g0[gl_LocalInvocationIndex]._m0 = _429 ? _407 : _417;
+        g0[gl_LocalInvocationIndex]._m1 = _429 ? _409 : _420;
+        g0[gl_LocalInvocationIndex]._m2 = _434 ? _411 : _423;
+        g0[gl_LocalInvocationIndex]._m3 = _434 ? _413 : _426;
     }
-    
-    if (r0.w != 0) {
-        r0 = g0[vThreadIDInGroupFlattened];
-        r1.x = (int)vThreadIDInGroupFlattened + 16;
-        r1 = g0[r1.x];
-        r2.x = cmp(r0.x < r1.x);
-        r2.xy = r2.xx ? r0.xy : r1.xy;
-        r0.x = cmp(r1.z < r0.z);
-        r2.zw = r0.xx ? r0.zw : r1.zw;
-        g0[vThreadIDInGroupFlattened] = r2;
-        r3 = r2;  // Fixed: update r3
+    if (gl_LocalInvocationIndex < 16u)
+    {
+        uint _444 = g0[gl_LocalInvocationIndex]._m0;
+        uint _446 = g0[gl_LocalInvocationIndex]._m1;
+        uint _448 = g0[gl_LocalInvocationIndex]._m2;
+        uint _450 = g0[gl_LocalInvocationIndex]._m3;
+        uint _451 = gl_LocalInvocationIndex + 16u;
+        uint _454 = g0[_451]._m0;
+        uint _457 = g0[_451]._m1;
+        uint _460 = g0[_451]._m2;
+        uint _463 = g0[_451]._m3;
+        bool _466 = asfloat(_444) < asfloat(_454);
+        bool _471 = asfloat(_460) < asfloat(_448);
+        g0[gl_LocalInvocationIndex]._m0 = _466 ? _444 : _454;
+        g0[gl_LocalInvocationIndex]._m1 = _466 ? _446 : _457;
+        g0[gl_LocalInvocationIndex]._m2 = _471 ? _448 : _460;
+        g0[gl_LocalInvocationIndex]._m3 = _471 ? _450 : _463;
     }
-    
-    r0.xyzw = cmp((uint4)vThreadIDInGroupFlattened.xxxx < int4(8, 4, 2, 1));
-    
-    if (r0.x != 0) {
-        r1 = g0[vThreadIDInGroupFlattened];
-        r0.x = (int)vThreadIDInGroupFlattened + 8;
-        r2 = g0[r0.x];
-        r0.x = cmp(r1.x < r2.x);
-        r3.xy = r0.xx ? r1.xy : r2.xy;
-        r0.x = cmp(r2.z < r1.z);
-        r3.zw = r0.xx ? r1.zw : r2.zw;
-        g0[vThreadIDInGroupFlattened] = r3;
+    if (gl_LocalInvocationIndex < 8u)
+    {
+        uint _485 = g0[gl_LocalInvocationIndex]._m0;
+        uint _487 = g0[gl_LocalInvocationIndex]._m1;
+        uint _489 = g0[gl_LocalInvocationIndex]._m2;
+        uint _491 = g0[gl_LocalInvocationIndex]._m3;
+        uint _492 = gl_LocalInvocationIndex + 8u;
+        uint _495 = g0[_492]._m0;
+        uint _498 = g0[_492]._m1;
+        uint _501 = g0[_492]._m2;
+        uint _504 = g0[_492]._m3;
+        bool _507 = asfloat(_485) < asfloat(_495);
+        bool _512 = asfloat(_501) < asfloat(_489);
+        g0[gl_LocalInvocationIndex]._m0 = _507 ? _485 : _495;
+        g0[gl_LocalInvocationIndex]._m1 = _507 ? _487 : _498;
+        g0[gl_LocalInvocationIndex]._m2 = _512 ? _489 : _501;
+        g0[gl_LocalInvocationIndex]._m3 = _512 ? _491 : _504;
     }
-    
-    if (r0.y != 0) {
-        r1 = g0[vThreadIDInGroupFlattened];
-        r0.x = (int)vThreadIDInGroupFlattened + 4;
-        r2 = g0[r0.x];
-        r0.x = cmp(r1.x < r2.x);
-        r3.xy = r0.xx ? r1.xy : r2.xy;
-        r0.x = cmp(r2.z < r1.z);
-        r3.zw = r0.xx ? r1.zw : r2.zw;
-        g0[vThreadIDInGroupFlattened] = r3;
+    if (gl_LocalInvocationIndex < 4u)
+    {
+        uint _522 = g0[gl_LocalInvocationIndex]._m0;
+        uint _524 = g0[gl_LocalInvocationIndex]._m1;
+        uint _526 = g0[gl_LocalInvocationIndex]._m2;
+        uint _528 = g0[gl_LocalInvocationIndex]._m3;
+        uint _529 = gl_LocalInvocationIndex + 4u;
+        uint _532 = g0[_529]._m0;
+        uint _535 = g0[_529]._m1;
+        uint _538 = g0[_529]._m2;
+        uint _541 = g0[_529]._m3;
+        bool _544 = asfloat(_522) < asfloat(_532);
+        bool _549 = asfloat(_538) < asfloat(_526);
+        g0[gl_LocalInvocationIndex]._m0 = _544 ? _522 : _532;
+        g0[gl_LocalInvocationIndex]._m1 = _544 ? _524 : _535;
+        g0[gl_LocalInvocationIndex]._m2 = _549 ? _526 : _538;
+        g0[gl_LocalInvocationIndex]._m3 = _549 ? _528 : _541;
     }
-    
-    if (r0.z != 0) {
-        r1 = g0[vThreadIDInGroupFlattened];
-        r0.x = (int)vThreadIDInGroupFlattened + 2;
-        r2 = g0[r0.x];
-        r0.x = cmp(r1.x < r2.x);
-        r3.xy = r0.xx ? r1.xy : r2.xy;
-        r0.x = cmp(r2.z < r1.z);
-        r3.zw = r0.xx ? r1.zw : r2.zw;
-        g0[vThreadIDInGroupFlattened] = r3;
+    if (gl_LocalInvocationIndex < 2u)
+    {
+        uint _559 = g0[gl_LocalInvocationIndex]._m0;
+        uint _561 = g0[gl_LocalInvocationIndex]._m1;
+        uint _563 = g0[gl_LocalInvocationIndex]._m2;
+        uint _565 = g0[gl_LocalInvocationIndex]._m3;
+        uint _566 = gl_LocalInvocationIndex + 2u;
+        uint _569 = g0[_566]._m0;
+        uint _572 = g0[_566]._m1;
+        uint _575 = g0[_566]._m2;
+        uint _578 = g0[_566]._m3;
+        bool _581 = asfloat(_559) < asfloat(_569);
+        bool _586 = asfloat(_575) < asfloat(_563);
+        g0[gl_LocalInvocationIndex]._m0 = _581 ? _559 : _569;
+        g0[gl_LocalInvocationIndex]._m1 = _581 ? _561 : _572;
+        g0[gl_LocalInvocationIndex]._m2 = _586 ? _563 : _575;
+        g0[gl_LocalInvocationIndex]._m3 = _586 ? _565 : _578;
     }
-    
-    if (r0.w != 0) {
-        r0 = g0[0];
-        r1 = g0[1];
-        r2.x = cmp(r0.x < r1.x);
-        r2.xy = r2.xx ? r0.xy : r1.xy;
-        r0.x = cmp(r1.z < r0.z);
-        r2.zw = r0.xx ? r0.zw : r1.zw;
-        g0[0] = r2;
+    if (gl_LocalInvocationIndex < 1u)
+    {
+        uint _596 = g0[0u]._m0;
+        uint _598 = g0[0u]._m1;
+        uint _600 = g0[0u]._m2;
+        uint _602 = g0[0u]._m3;
+        uint _604 = g0[1u]._m0;
+        uint _606 = g0[1u]._m1;
+        uint _608 = g0[1u]._m2;
+        uint _610 = g0[1u]._m3;
+        bool _613 = asfloat(_596) < asfloat(_604);
+        bool _618 = asfloat(_608) < asfloat(_600);
+        g0[0u]._m0 = _613 ? _596 : _604;
+        g0[0u]._m1 = _613 ? _598 : _606;
+        g0[0u]._m2 = _618 ? _600 : _608;
+        g0[0u]._m3 = _618 ? _602 : _610;
     }
-    
-    if (vThreadIDInGroupFlattened == 0) {
-        r0 = g0[0];
-        // PolarToCartesian for min velocity
-        sincos(r0.y, r1.y, r1.x);
-        r1.xy = r1.xy * r0.x;
-        // PolarToCartesian for max velocity  
-        sincos(r0.w, r2.y, r2.x);
-        r1.zw = r2.xy * r0.z;
-        u1[vThreadGroupID.xy] = r1;
+    if (gl_LocalInvocationIndex == 0u)
+    {
+        float _636 = asfloat(g0[0u]._m1);
+        float _639 = asfloat(g0[0u]._m0);
+        float _642 = asfloat(g0[0u]._m3);
+        float _645 = asfloat(g0[0u]._m2);
+        u1[uint2(gl_WorkGroupID.x, gl_WorkGroupID.y)] = float4(cos(_636) * _639, sin(_636) * _639, cos(_642) * _645, sin(_642) * _645);
     }
+}
+
+[numthreads(16, 16, 1)]
+void main(SPIRV_Cross_Input stage_input)
+{
+    gl_WorkGroupID = stage_input.gl_WorkGroupID;
+    gl_GlobalInvocationID = stage_input.gl_GlobalInvocationID;
+    gl_LocalInvocationIndex = stage_input.gl_LocalInvocationIndex;
+    comp_main();
 }

@@ -12,6 +12,7 @@ static const float MidGray = 0.18f;
 static const float DefaultGamma = 2.2f;
 static const float3 Rec709_Luminance = float3(0.2126f, 0.7152f, 0.0722f);
 static const float3 Rec2020_Luminance = float3(0.2627066f, 0.6779996f, 0.0592938f);
+static const float3 AP1_Luminance = float3(0.2722287168f, 0.6740817658f, 0.0536895174f);
 static const float HDR10_MaxWhiteNits = 10000.0f;
 static const float ITU_WhiteLevelNits = 203.0f;
 static const float Rec709_WhiteLevelNits = 100.0f;
@@ -38,6 +39,7 @@ static const float3x3 BT709_2_XYZ = float3x3
 
 #define CS_BT709 0
 #define CS_BT2020 1
+#define CS_AP1 2
 
 #define CS_DEFAULT CS_BT709
 
@@ -46,6 +48,10 @@ float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 	if (colorSpace == CS_BT2020)
 	{
 		return dot(color, Rec2020_Luminance);
+	} else if (colorSpace == CS_AP1)
+	{
+		// AP1 is basically DCI-P3 with a D65 white point
+		return dot(color, AP1_Luminance);
 	}
 	return dot(color, Rec709_Luminance);
 }
@@ -141,7 +147,7 @@ float3 CorrectOutOfRangeColor(float3 Color, bool FixNegatives = true, bool FixPo
 	  float3 positiveColorRestoredLuminance = RestoreLuminance(positiveColor, colorLuminance, true, ColorSpace);
 	  Color = lerp(lerp(Color, positiveColorRestoredLuminance, sqrt(DesaturationAmount)), colorLuminance, negativePositiveLuminanceRatio * sqrt(DesaturationAmount));
 #else // This should look better and be faster
-	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : Rec709_Luminance;
+	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : ColorSpace == CS_AP1 ? AP1_Luminance : Rec709_Luminance;
 	  float3 negativePositiveLuminanceRatio = -(negativeColor / luminanceRatio) / (positiveLuminance / luminanceRatio);
 	  Color = lerp(Color, colorLuminance, negativePositiveLuminanceRatio * DesaturationAmount);
 #endif
@@ -524,6 +530,50 @@ float3 HueToRGB(float h, bool hideWhite = false)
     
     // Blend between current and next combination
     return lerp(combos[i], combos[next], localT);
+}
+
+// With Bradford
+static const float3x3 BT709_TO_AP1_MAT = float3x3(
+    0.6130974024, 0.3395231462, 0.0473794514,
+    0.0701937225, 0.9163538791, 0.0134523985,
+    0.0206155929, 0.1095697729, 0.8698146342);
+
+// With Bradford
+static const float3x3 BT2020_TO_AP1_MAT = float3x3(
+    0.9748949779f, 0.0195991086f, 0.0055059134f,
+    0.0021795628f, 0.9955354689f, 0.0022849683f,
+    0.0047972397f, 0.0245320166f, 0.9706707437f);
+
+// With Bradford
+static const float3x3 AP1_TO_BT709_MAT = float3x3(
+    1.7050509927, -0.6217921207, -0.0832588720,
+    -0.1302564175, 1.1408047366, -0.0105483191,
+    -0.0240033568, -0.1289689761, 1.1529723329);
+
+// With Bradford
+static const float3x3 AP1_TO_BT2020_MAT = float3x3(
+    1.0258247477f, -0.0200531908f, -0.0057715568f,
+    -0.0022343695f, 1.0045865019f, -0.0023521324f,
+    -0.0050133515f, -0.0252900718f, 1.0303034233f);
+
+float3 BT709_To_AP1(float3 color)
+{
+	return mul(BT709_TO_AP1_MAT, color);
+}
+
+float3 AP1_To_BT709(float3 color)
+{
+	return mul(AP1_TO_BT709_MAT, color);
+}
+
+float3 BT2020_To_AP1(float3 color)
+{
+	return mul(BT2020_TO_AP1_MAT, color);
+}
+
+float3 AP1_To_BT2020(float3 color)
+{
+	return mul(AP1_TO_BT2020_MAT, color);
 }
 
 #endif // SRC_COLOR_HLSL

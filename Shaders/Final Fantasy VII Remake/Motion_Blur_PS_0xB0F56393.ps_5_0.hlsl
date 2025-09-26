@@ -1,312 +1,248 @@
 #include "includes/Common.hlsl"
 
-Texture2D<float4> t2 : register(t2);
+cbuffer cb0_buf : register(b0)
+{
+    uint4 cb0_m0 : packoffset(c0);
+    uint4 cb0_m1 : packoffset(c1);
+    uint4 cb0_m2 : packoffset(c2);
+    uint4 cb0_m3 : packoffset(c3);
+    uint4 cb0_m4 : packoffset(c4);
+    uint4 cb0_m5 : packoffset(c5);
+    uint4 cb0_m6 : packoffset(c6);
+    uint4 cb0_m7 : packoffset(c7);
+    uint4 cb0_m8 : packoffset(c8);
+    uint4 cb0_m9 : packoffset(c9);
+    uint4 cb0_m10 : packoffset(c10);
+    uint4 cb0_m11 : packoffset(c11);
+    uint4 cb0_m12 : packoffset(c12);
+    uint4 cb0_m13 : packoffset(c13);
+    uint4 cb0_m14 : packoffset(c14);
+    uint4 cb0_m15 : packoffset(c15);
+    uint4 cb0_m16 : packoffset(c16);
+    uint4 cb0_m17 : packoffset(c17);
+    float4 cb0_m18 : packoffset(c18);
+};
 
-Texture2D<float4> t1 : register(t1);
+cbuffer cb1_buf : register(b1)
+{
+    uint4 cb1_m[123] : packoffset(c0);
+};
 
 Texture2D<float4> t0 : register(t0);
+Texture2D<float4> t1 : register(t1);
+Texture2D<float4> t2 : register(t2);
 
-cbuffer cb1 : register(b1)
+static float4 gl_FragCoord;
+static float4 SV_Target;
+
+struct SPIRV_Cross_Input
 {
-  float4 cb1[123];
+    float4 gl_FragCoord : SV_Position;
+};
+
+struct SPIRV_Cross_Output
+{
+    float4 SV_Target : SV_Target0;
+};
+
+int cvt_f32_i32(float v)
+{
+    return isnan(v) ? 0 : ((v < (-2147483648.0f)) ? int(0x80000000) : ((v > 2147483520.0f) ? 2147483647 : int(v)));
 }
 
-cbuffer cb0 : register(b0)
+float dp2_f32(float2 a, float2 b)
 {
-  float4 cb0[19];
+    precise float _68 = a.x * b.x;
+    return mad(a.y, b.y, _68);
 }
 
-// 3Dmigoto declarations
-#define cmp -
-
-void main(
-  float4 v0 : TEXCOORD0,
-  float4 v1 : SV_Position0,
-  out float4 o0 : SV_Target0)
+void frag_main()
 {
-  float4 r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-  float4 resolution;
-  if (LumaData.GameData.DrewUpscaling){
-    resolution = LumaData.GameData.OutputResolution;
-  } else {
-    resolution = cb1[122];
-  }
-  r0.xyzw = floor(v1.xyxy);
-  r1.xy = (int2)r0.zw;
-  r2.x = dot(r0.zw, float2(0.0671105608,0.00583714992));
-  r2.x = frac(r2.x);
-  r2.x = 52.9829178 * r2.x;
-  r2.xz = frac(r2.xx);
-  r0.xyzw = float4(32.6650009,11.8149996,0.5,0.5) + r0.xyzw;
-  r0.x = dot(r0.xy, float2(0.0671105608,0.00583714992));
-  r0.x = frac(r0.x);
-  r0.x = 52.9829178 * r0.x;
-  r2.yw = frac(r0.xx);
-  r0.xy = r2.zw * float2(0.5,0.5) + float2(-0.25,-0.25);
-  r3.xy = -cb1[121].xy + r0.zw;
-  r0.xy = r3.xy * float2(0.0625,0.0625) + r0.xy;
-  r0.xy = floor(r0.xy);
-  r0.xy = (int2)r0.xy;
-  r3.xy = float2(15,15) + resolution.xy;
-  r3.xy = float2(0.0625,0.0625) * r3.xy;
-  r3.xy = (int2)r3.xy;
-  r0.xy = max(int2(0,0), (int2)r0.xy);
-  r3.xy = min((int2)r0.xy, (int2)r3.xy);
-  r3.zw = float2(0,0);
-  r3.xyzw = t2.Load(r3.xyz).xyzw;
-  r4.xyzw = cb0[18].yyyy * r3.zwzw;
-  r0.x = dot(r4.zw, r4.zw);
-  r1.zw = float2(0,0);
-  r5.xyz = t0.Load(r1.xyw).xyz;
-  r0.y = cmp(r0.x < 0.25);
-  if (r0.y == 0) {
-    r3.xy = cb0[18].yy * r3.xy;
-    r0.y = dot(r3.xy, r3.xy);
-    r3.xy = resolution.xy + cb1[121].xy;
-    r3.xy = float2(-1,-1) + r3.xy;
-    r3.zw = (int2)cb1[121].xy;
-    r3.xy = (int2)r3.xy;
-    r5.w = 0.5 * r0.x;
-    r0.y = cmp(r5.w < r0.y);
-    if (r0.y != 0) {
-      r6.xyzw = float4(1,1,2,2) + -r2.zwzw;
-      r6.xyzw = float4(0.224999994,0.224999994,0.224999994,0.224999994) * r6.xyzw;
-      r7.xy = r6.xx * r4.zw + r0.zw;
-      r7.xy = floor(r7.xy);
-      r7.xy = (int2)r7.xy;
-      r7.xy = max((int2)r7.xy, (int2)r3.zw);
-      r7.xy = min((int2)r7.xy, (int2)r3.xy);
-      r6.xy = -r6.yy * r4.zw + r0.zw;
-      r6.xy = floor(r6.xy);
-      r6.xy = (int2)r6.xy;
-      r6.xy = max((int2)r6.xy, (int2)r3.zw);
-      r8.xy = min((int2)r6.xy, (int2)r3.xy);
-      r7.zw = float2(0,0);
-      r7.xyz = t0.Load(r7.xyz).xyz;
-      r8.zw = float2(0,0);
-      r8.xyz = t0.Load(r8.xyz).xyz;
-      r7.xyz = r8.xyz + r7.xyz;
-      r6.xy = r6.zz * r4.zw + r0.zw;
-      r6.xy = floor(r6.xy);
-      r6.xy = (int2)r6.xy;
-      r6.xy = max((int2)r6.xy, (int2)r3.zw);
-      r8.xy = min((int2)r6.xy, (int2)r3.xy);
-      r6.xy = -r6.ww * r4.zw + r0.zw;
-      r6.xy = floor(r6.xy);
-      r6.xy = (int2)r6.xy;
-      r6.xy = max((int2)r6.xy, (int2)r3.zw);
-      r6.xy = min((int2)r6.xy, (int2)r3.xy);
-      r8.zw = float2(0,0);
-      r8.xyz = t0.Load(r8.xyz).xyz;
-      r7.xyz = r8.xyz + r7.xyz;
-      r6.zw = float2(0,0);
-      r6.xyz = t0.Load(r6.xyz).xyz;
-      r6.xyz = r7.xyz + r6.xyz;
-      r7.xyzw = float4(3,3,4,4) + -r2.zwzw;
-      r7.xyzw = float4(0.224999994,0.224999994,0.224999994,0.224999994) * r7.xyzw;
-      r8.xy = r7.xx * r4.zw + r0.zw;
-      r8.xy = floor(r8.xy);
-      r8.xy = (int2)r8.xy;
-      r8.xy = max((int2)r8.xy, (int2)r3.zw);
-      r8.xy = min((int2)r8.xy, (int2)r3.xy);
-      r7.xy = -r7.yy * r4.zw + r0.zw;
-      r7.xy = floor(r7.xy);
-      r7.xy = (int2)r7.xy;
-      r7.xy = max((int2)r7.xy, (int2)r3.zw);
-      r9.xy = min((int2)r7.xy, (int2)r3.xy);
-      r8.zw = float2(0,0);
-      r8.xyz = t0.Load(r8.xyz).xyz;
-      r6.xyz = r8.xyz + r6.xyz;
-      r9.zw = float2(0,0);
-      r8.xyz = t0.Load(r9.xyz).xyz;
-      r6.xyz = r8.xyz + r6.xyz;
-      r7.xy = r7.zz * r4.zw + r0.zw;
-      r7.xy = floor(r7.xy);
-      r7.xy = (int2)r7.xy;
-      r7.xy = max((int2)r7.xy, (int2)r3.zw);
-      r8.xy = min((int2)r7.xy, (int2)r3.xy);
-      r7.xy = -r7.ww * r4.zw + r0.zw;
-      r7.xy = floor(r7.xy);
-      r7.xy = (int2)r7.xy;
-      r7.xy = max((int2)r7.xy, (int2)r3.zw);
-      r7.xy = min((int2)r7.xy, (int2)r3.xy);
-      r8.zw = float2(0,0);
-      r8.xyz = t0.Load(r8.xyz).xyz;
-      r6.xyz = r8.xyz + r6.xyz;
-      r7.zw = float2(0,0);
-      r7.xyz = t0.Load(r7.xyz).xyz;
-      r6.xyz = r7.xyz + r6.xyz;
-      r5.xyz = float3(0.125,0.125,0.125) * r6.xyz;
-    } else {
-      r0.x = rsqrt(r0.x);
-      r0.x = 4 * r0.x;
-      r1.xy = t1.Load(r1.xyz).xy;
-      r0.y = cb0[18].y * r1.x;
-      r6.y = min(cb0[18].w, r0.y);
-      r7.xyzw = float4(1,1,2,2) + -r2.zwzw;
-      r8.xyzw = float4(0.224999994,0.224999994,0.224999994,0.224999994) * r7.xyzw;
-      r1.xz = r8.xx * r4.zw + r0.zw;
-      r1.xz = floor(r1.xz);
-      r1.xz = (int2)r1.xz;
-      r1.xz = max((int2)r1.xz, (int2)r3.zw);
-      r9.xy = min((int2)r1.xz, (int2)r3.xy);
-      r1.xz = -r8.yy * r4.zw + r0.zw;
-      r1.xz = floor(r1.xz);
-      r1.xz = (int2)r1.xz;
-      r1.xz = max((int2)r1.xz, (int2)r3.zw);
-      r10.xy = min((int2)r1.xz, (int2)r3.xy);
-      r9.zw = float2(0,0);
-      r1.xz = t1.Load(r9.xyw).xy;
-      r9.xyz = t0.Load(r9.xyz).xyz;
-      r0.y = cb0[18].y * r1.x;
-      r6.x = min(cb0[18].w, r0.y);
-      r0.y = r1.z + -r1.y;
-      r1.xw = saturate(r0.yy * float2(1,-1) + float2(0.5,0.5));
-      r7.yw = saturate(r6.yx * r0.xx);
-      r0.y = dot(r1.xw, r7.yw);
-      r10.zw = float2(0,0);
-      r1.xw = t1.Load(r10.xyw).xy;
-      r10.xyz = t0.Load(r10.xyz).xyz;
-      r1.x = cb0[18].y * r1.x;
-      r6.z = min(cb0[18].w, r1.x);
-      r1.x = r1.w + -r1.y;
-      r7.yw = saturate(r1.xx * float2(1,-1) + float2(0.5,0.5));
-      r8.xy = saturate(r6.yz * r0.xx);
-      r1.x = dot(r7.yw, r8.xy);
-      r1.z = cmp(r1.w < r1.z);
-      r1.w = cmp(r6.x < r6.z);
-      r5.w = r1.w ? r1.z : 0;
-      r5.w = r5.w ? r1.x : r0.y;
-      r1.z = (int)r1.w | (int)r1.z;
-      r0.y = r1.z ? r1.x : r0.y;
-      r1.xzw = r0.yyy * r10.xyz;
-      r1.xzw = r5.www * r9.xyz + r1.xzw;
-      r0.y = r5.w + r0.y;
-      r7.yw = r8.zz * r4.zw + r0.zw;
-      r7.yw = floor(r7.yw);
-      r7.yw = (int2)r7.yw;
-      r7.yw = max((int2)r7.yw, (int2)r3.zw);
-      r9.xy = min((int2)r7.yw, (int2)r3.xy);
-      r7.yw = -r8.ww * r4.zw + r0.zw;
-      r7.yw = floor(r7.yw);
-      r7.yw = (int2)r7.yw;
-      r7.yw = max((int2)r7.yw, (int2)r3.zw);
-      r8.xy = min((int2)r7.yw, (int2)r3.xy);
-      r9.zw = float2(0,0);
-      r7.yw = t1.Load(r9.xyw).xy;
-      r9.xyz = t0.Load(r9.xyz).xyz;
-      r5.w = cb0[18].y * r7.y;
-      r6.w = min(cb0[18].w, r5.w);
-      r5.w = r7.w + -r1.y;
-      r10.xy = saturate(r5.ww * float2(1,-1) + float2(0.5,0.5));
-      r10.zw = saturate(r0.xx * r6.yw + -r7.xx);
-      r5.w = dot(r10.xy, r10.zw);
-      r8.zw = float2(0,0);
-      r10.xy = t1.Load(r8.xyw).xy;
-      r8.xyz = t0.Load(r8.xyz).xyz;
-      r7.y = cb0[18].y * r10.x;
-      r6.x = min(cb0[18].w, r7.y);
-      r7.y = r10.y + -r1.y;
-      r10.xz = saturate(r7.yy * float2(1,-1) + float2(0.5,0.5));
-      r7.xy = saturate(r0.xx * r6.yx + -r7.xx);
-      r7.x = dot(r10.xz, r7.xy);
-      r7.y = cmp(r10.y < r7.w);
-      r7.w = cmp(r6.w < r6.x);
-      r8.w = r7.w ? r7.y : 0;
-      r8.w = r8.w ? r7.x : r5.w;
-      r7.y = (int)r7.w | (int)r7.y;
-      r5.w = r7.y ? r7.x : r5.w;
-      r1.xzw = r8.www * r9.xyz + r1.xzw;
-      r1.xzw = r5.www * r8.xyz + r1.xzw;
-      r0.y = r8.w + r0.y;
-      r0.y = r0.y + r5.w;
-      r2.xyzw = float4(3,3,4,4) + -r2.xyzw;
-      r8.xyzw = float4(0.224999994,0.224999994,0.224999994,0.224999994) * r2.xyzw;
-      r2.yz = r8.xx * r4.zw + r0.zw;
-      r2.yz = floor(r2.yz);
-      r2.yz = (int2)r2.yz;
-      r2.yz = max((int2)r2.yz, (int2)r3.zw);
-      r9.xy = min((int2)r2.yz, (int2)r3.xy);
-      r2.yz = -r8.yy * r4.zw + r0.zw;
-      r2.yz = floor(r2.yz);
-      r2.yz = (int2)r2.yz;
-      r2.yz = max((int2)r2.yz, (int2)r3.zw);
-      r10.xy = min((int2)r2.yz, (int2)r3.xy);
-      r9.zw = float2(0,0);
-      r2.yz = t1.Load(r9.xyw).xy;
-      r7.xyw = t0.Load(r9.xyz).xyz;
-      r2.y = cb0[18].y * r2.y;
-      r6.z = min(cb0[18].w, r2.y);
-      r2.y = r2.z + -r1.y;
-      r2.yw = saturate(r2.yy * float2(1,-1) + float2(0.5,0.5));
-      r8.xy = saturate(r0.xx * r6.yz + -r7.zz);
-      r2.y = dot(r2.yw, r8.xy);
-      r10.zw = float2(0,0);
-      r8.xy = t1.Load(r10.xyw).xy;
-      r9.xyz = t0.Load(r10.xyz).xyz;
-      r2.w = cb0[18].y * r8.x;
-      r6.w = min(cb0[18].w, r2.w);
-      r2.w = r8.y + -r1.y;
-      r10.xy = saturate(r2.ww * float2(1,-1) + float2(0.5,0.5));
-      r10.zw = saturate(r0.xx * r6.yw + -r7.zz);
-      r2.w = dot(r10.xy, r10.zw);
-      r2.z = cmp(r8.y < r2.z);
-      r5.w = cmp(r6.z < r6.w);
-      r6.w = r2.z ? r5.w : 0;
-      r6.w = r6.w ? r2.w : r2.y;
-      r2.z = (int)r2.z | (int)r5.w;
-      r2.y = r2.z ? r2.w : r2.y;
-      r1.xzw = r6.www * r7.xyw + r1.xzw;
-      r1.xzw = r2.yyy * r9.xyz + r1.xzw;
-      r0.y = r6.w + r0.y;
-      r0.y = r0.y + r2.y;
-      r2.yz = r8.zz * r4.xy + r0.zw;
-      r2.yz = floor(r2.yz);
-      r2.yz = (int2)r2.yz;
-      r2.yz = max((int2)r2.yz, (int2)r3.zw);
-      r7.xy = min((int2)r2.yz, (int2)r3.xy);
-      r0.zw = -r8.ww * r4.zw + r0.zw;
-      r0.zw = floor(r0.zw);
-      r0.zw = (int2)r0.zw;
-      r0.zw = max((int2)r0.zw, (int2)r3.zw);
-      r3.xy = min((int2)r0.zw, (int2)r3.xy);
-      r7.zw = float2(0,0);
-      r0.zw = t1.Load(r7.xyw).xy;
-      r2.yzw = t0.Load(r7.xyz).xyz;
-      r0.z = cb0[18].y * r0.z;
-      r6.x = min(cb0[18].w, r0.z);
-      r0.z = r0.w + -r1.y;
-      r4.xy = saturate(r0.zz * float2(1,-1) + float2(0.5,0.5));
-      r4.zw = saturate(r0.xx * r6.yx + -r2.xx);
-      r0.z = dot(r4.xy, r4.zw);
-      r3.zw = float2(0,0);
-      r4.xy = t1.Load(r3.xyw).xy;
-      r3.xyz = t0.Load(r3.xyz).xyz;
-      r3.w = cb0[18].y * r4.x;
-      r6.z = min(cb0[18].w, r3.w);
-      r1.y = r4.y + -r1.y;
-      r4.xz = saturate(r1.yy * float2(1,-1) + float2(0.5,0.5));
-      r6.yw = saturate(r0.xx * r6.yz + -r2.xx);
-      r0.x = dot(r4.xz, r6.yw);
-      r0.w = cmp(r4.y < r0.w);
-      r1.y = cmp(r6.x < r6.z);
-      r2.x = r0.w ? r1.y : 0;
-      r2.x = r2.x ? r0.x : r0.z;
-      r0.w = (int)r0.w | (int)r1.y;
-      r0.x = r0.w ? r0.x : r0.z;
-      r1.xyz = r2.xxx * r2.yzw + r1.xzw;
-      r1.xyz = r0.xxx * r3.xyz + r1.xyz;
-      r0.y = r2.x + r0.y;
-      r0.x = r0.y + r0.x;
-      r0.x = -r0.x * 0.125 + 1;
-      r0.x = max(0, r0.x);
-      r0.yzw = float3(0.125,0.125,0.125) * r1.xyz;
-      r5.xyz = r0.xxx * r5.xyz + r0.yzw;
+    float4 resolution;
+    float resolutionScale;
+    if (LumaData.GameData.DrewUpscaling) {
+        resolution = LumaData.GameData.OutputResolution;
+        resolutionScale = LumaData.GameData.ResolutionScale.x;
     }
-  }
-  o0.xyz = r5.xyz;
-  o0.w = 0;
-  return;
+    else {
+        resolution = cb1_m[122u]; 
+        resolutionScale = 1.0f;
+    }
+    float _93 = floor(gl_FragCoord.x);
+    float _94 = floor(gl_FragCoord.y);
+    float _101 = frac(frac(dp2_f32(float2(_93, _94), float2(0.067110560834407806396484375f, 0.005837149918079376220703125f))) * 52.98291778564453125f);
+    float _104 = _93 + 0.5f;
+    float _105 = _94 + 0.5f;
+    float _110 = frac(frac(dp2_f32(float2(_93 + 32.66500091552734375f, _94 + 11.81499958038330078125f), float2(0.067110560834407806396484375f, 0.005837149918079376220703125f))) * 52.98291778564453125f);
+    float _119 = asfloat(cb1_m[121u].x);
+    float _120 = asfloat(cb1_m[121u].y);
+    float _133 = asfloat(resolution.x);
+    float _134 = asfloat(resolution.y);
+    float4 _147 = t2.Load(int3(uint2(uint(clamp(cvt_f32_i32(floor(mad(_104 - _119, 0.0625f, mad(_101, 0.5f, -0.25f)))), 0, cvt_f32_i32((_133 + 15.0f) * 0.0625f))), uint(clamp(cvt_f32_i32(floor(mad(_105 - _120, 0.0625f, mad(_110, 0.5f, -0.25f)))), 0, cvt_f32_i32((_134 + 15.0f) * 0.0625f)))), 0u));
+    float _156 = _147.z * cb0_m18.y;
+    float _157 = _147.w * cb0_m18.y;
+    float2 _158 = float2(_156, _157);
+    float _159 = dp2_f32(_158, _158);
+    uint2 _163 = uint2(uint(cvt_f32_i32(_93)), uint(cvt_f32_i32(_94)));
+    float4 _164 = t0.Load(int3(_163, 0u));
+    float _165 = _164.x;
+    float _166 = _164.y;
+    float _167 = _164.z;
+    float _714;
+    float _715;
+    float _716;
+    if (!(_159 < 0.25f))
+    {
+        float2 _174 = float2(_147.x * cb0_m18.y, _147.y * cb0_m18.y);
+        int _180 = cvt_f32_i32(_119);
+        int _181 = cvt_f32_i32(_120);
+        int _182 = cvt_f32_i32((_119 + _133) - 1.0f);
+        int _183 = cvt_f32_i32((_120 + _134) - 1.0f);
+        float _711;
+        float _712;
+        float _713;
+        if (dp2_f32(_174, _174) > (_159 * 0.5f))
+        {
+            float _193 = (1.0f - _101) * 0.2249999940395355224609375f;
+            float _194 = (1.0f - _110) * 0.2249999940395355224609375f;
+            float _195 = (2.0f - _101) * 0.2249999940395355224609375f;
+            float _196 = (2.0f - _110) * 0.2249999940395355224609375f;
+            float4 _218 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _193, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_193, _157, _105))), _181, _183))), 0u));
+            float4 _225 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _194, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_194, _157, _105))), _181, _183))), 0u));
+            float4 _253 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _195, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_195, _157, _105))), _181, _183))), 0u));
+            float4 _263 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _196, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_196, _157, _105))), _181, _183))), 0u));
+            float _274 = (3.0f - _101) * 0.2249999940395355224609375f;
+            float _275 = (3.0f - _110) * 0.2249999940395355224609375f;
+            float _276 = (4.0f - _101) * 0.2249999940395355224609375f;
+            float _277 = (4.0f - _110) * 0.2249999940395355224609375f;
+            float4 _299 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _274, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_274, _157, _105))), _181, _183))), 0u));
+            float4 _309 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _275, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_275, _157, _105))), _181, _183))), 0u));
+            float4 _337 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _276, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_276, _157, _105))), _181, _183))), 0u));
+            float4 _347 = t0.Load(int3(uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _277, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_277, _157, _105))), _181, _183))), 0u));
+            _711 = (_347.z + (_337.z + (_309.z + (_299.z + (_263.z + (_253.z + (_218.z + _225.z))))))) * 0.125f;
+            _712 = (_347.y + (_337.y + (_309.y + (_299.y + (_263.y + (_253.y + (_218.y + _225.y))))))) * 0.125f;
+            _713 = (((((((_218.x + _225.x) + _253.x) + _263.x) + _299.x) + _309.x) + _337.x) + _347.x) * 0.125f;
+        }
+        else
+        {
+            float _358 = rsqrt(_159) * 4.0f;
+            float4 _360 = t1.Load(int3(_163, 0u));
+            float _362 = _360.y;
+            float _366 = min(_360.x * cb0_m18.y, cb0_m18.w);
+            float _371 = (1.0f - _101) * 0.2249999940395355224609375f;
+            float _372 = (1.0f - _110) * 0.2249999940395355224609375f;
+            float _373 = (2.0f - _101) * 0.2249999940395355224609375f;
+            float _374 = (2.0f - _110) * 0.2249999940395355224609375f;
+            uint2 _395 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _371, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_371, _157, _105))), _181, _183)));
+            float4 _396 = t1.Load(int3(_395, 0u));
+            float _398 = _396.y;
+            float4 _399 = t0.Load(int3(_395, 0u));
+            float _404 = min(_396.x * cb0_m18.y, cb0_m18.w);
+            float _405 = _398 - _362;
+            float _412 = clamp(_358 * _366, 0.0f, 1.0f);
+            float _416 = dp2_f32(float2(clamp(mad(_405, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_405, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_412, clamp(_358 * _404, 0.0f, 1.0f)));
+            uint2 _419 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _372, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_372, _157, _105))), _181, _183)));
+            float4 _420 = t1.Load(int3(_419, 0u));
+            float _422 = _420.y;
+            float4 _423 = t0.Load(int3(_419, 0u));
+            float _428 = min(_420.x * cb0_m18.y, cb0_m18.w);
+            float _429 = _422 - _362;
+            float _438 = dp2_f32(float2(clamp(mad(_429, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_429, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_412, clamp(_358 * _428, 0.0f, 1.0f)));
+            bool _439 = _398 > _422;
+            bool _440 = _404 < _428;
+            float _442 = (_439 && _440) ? _438 : _416;
+            float _444 = (_439 || _440) ? _438 : _416;
+            uint2 _475 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _373, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_373, _157, _105))), _181, _183)));
+            float4 _476 = t1.Load(int3(_475, 0u));
+            float _478 = _476.y;
+            float4 _479 = t0.Load(int3(_475, 0u));
+            float _484 = min(_476.x * cb0_m18.y, cb0_m18.w);
+            float _485 = _478 - _362;
+            float _490 = _101 - 1.0f;
+            float _493 = clamp(mad(_358, _366, _490), 0.0f, 1.0f);
+            float _497 = dp2_f32(float2(clamp(mad(_485, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_485, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_493, clamp(mad(_358, _484, _490), 0.0f, 1.0f)));
+            uint2 _500 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _374, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_374, _157, _105))), _181, _183)));
+            float4 _501 = t1.Load(int3(_500, 0u));
+            float _503 = _501.y;
+            float4 _504 = t0.Load(int3(_500, 0u));
+            float _509 = min(_501.x * cb0_m18.y, cb0_m18.w);
+            float _510 = _503 - _362;
+            float _519 = dp2_f32(float2(clamp(mad(_510, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_510, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_493, clamp(mad(_358, _509, _490), 0.0f, 1.0f)));
+            bool _520 = _478 > _503;
+            bool _521 = _484 < _509;
+            float _523 = (_520 && _521) ? _519 : _497;
+            float _525 = (_520 || _521) ? _519 : _497;
+            float _538 = (3.0f - _101) * 0.2249999940395355224609375f;
+            float _539 = (3.0f - _110) * 0.2249999940395355224609375f;
+            float _540 = (4.0f - _101) * 0.2249999940395355224609375f;
+            float _541 = (4.0f - _110) * 0.2249999940395355224609375f;
+            uint2 _562 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _538, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_538, _157, _105))), _181, _183)));
+            float4 _563 = t1.Load(int3(_562, 0u));
+            float _565 = _563.y;
+            float4 _566 = t0.Load(int3(_562, 0u));
+            float _571 = min(_563.x * cb0_m18.y, cb0_m18.w);
+            float _572 = _565 - _362;
+            float _577 = _101 - 2.0f;
+            float _580 = clamp(mad(_358, _366, _577), 0.0f, 1.0f);
+            float _584 = dp2_f32(float2(clamp(mad(_572, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_572, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_580, clamp(mad(_358, _571, _577), 0.0f, 1.0f)));
+            uint2 _587 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _539, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_539, _157, _105))), _181, _183)));
+            float4 _588 = t1.Load(int3(_587, 0u));
+            float _590 = _588.y;
+            float4 _591 = t0.Load(int3(_587, 0u));
+            float _596 = min(_588.x * cb0_m18.y, cb0_m18.w);
+            float _597 = _590 - _362;
+            float _606 = dp2_f32(float2(clamp(mad(_597, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_597, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_580, clamp(mad(_358, _596, _577), 0.0f, 1.0f)));
+            bool _607 = _565 > _590;
+            bool _608 = _571 < _596;
+            float _610 = (_607 && _608) ? _606 : _584;
+            float _612 = (_607 || _608) ? _606 : _584;
+            uint2 _641 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _540, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_540, _157, _105))), _181, _183)));
+            float4 _642 = t1.Load(int3(_641, 0u));
+            float _644 = _642.y;
+            float4 _645 = t0.Load(int3(_641, 0u));
+            float _650 = min(_642.x * cb0_m18.y, cb0_m18.w);
+            float _651 = _644 - _362;
+            float _656 = _101 - 3.0f;
+            float _659 = clamp(mad(_358, _366, _656), 0.0f, 1.0f);
+            float _663 = dp2_f32(float2(clamp(mad(_651, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_651, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_659, clamp(mad(_358, _650, _656), 0.0f, 1.0f)));
+            uint2 _666 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _541, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_541, _157, _105))), _181, _183)));
+            float4 _667 = t1.Load(int3(_666, 0u));
+            float _669 = _667.y;
+            float4 _670 = t0.Load(int3(_666, 0u));
+            float _675 = min(_667.x * cb0_m18.y, cb0_m18.w);
+            float _676 = _669 - _362;
+            float _685 = dp2_f32(float2(clamp(mad(_676, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_676, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_659, clamp(mad(_358, _675, _656), 0.0f, 1.0f)));
+            bool _686 = _644 > _669;
+            bool _687 = _650 < _675;
+            float _689 = (_686 && _687) ? _685 : _663;
+            float _691 = (_686 || _687) ? _685 : _663;
+            float _701 = max(mad(((((((_444 + _442) + _523) + _525) + _610) + _612) + _689) + _691, -0.125f, 1.0f), 0.0f);
+            _711 = (_167 * _701) + (mad(_670.z, _691, mad(_645.z, _689, mad(_591.z, _612, mad(_566.z, _610, mad(_504.z, _525, mad(_479.z, _523, (_399.z * _442) + (_423.z * _444))))))) * 0.125f);
+            _712 = (_166 * _701) + (mad(_670.y, _691, mad(_645.y, _689, mad(_591.y, _612, mad(_566.y, _610, mad(_504.y, _525, mad(_479.y, _523, (_399.y * _442) + (_423.y * _444))))))) * 0.125f);
+            _713 = (mad(_670.x, _691, mad(_645.x, _689, mad(_591.x, _612, mad(_566.x, _610, mad(_504.x, _525, mad(_479.x, _523, (_423.x * _444) + (_399.x * _442))))))) * 0.125f) + (_165 * _701);
+        }
+        _714 = _711;
+        _715 = _712;
+        _716 = _713;
+    }
+    else
+    {
+        _714 = _167;
+        _715 = _166;
+        _716 = _165;
+    }
+    SV_Target.x = _716;
+    SV_Target.y = _715;
+    SV_Target.z = _714;
+    SV_Target.w = 0.0f;
+}
+
+SPIRV_Cross_Output main(SPIRV_Cross_Input stage_input)
+{
+    gl_FragCoord = stage_input.gl_FragCoord;
+    gl_FragCoord.w = 1.0 / gl_FragCoord.w;
+    frag_main();
+    SPIRV_Cross_Output stage_output;
+    stage_output.SV_Target = SV_Target;
+    return stage_output;
 }
