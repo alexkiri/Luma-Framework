@@ -486,7 +486,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
             if ((cbs[i] != nullptr || (show_used_unbound_resources && cached_shader->cbs[i])) && (show_unused_bound_resources || cached_shader->cbs[i]))
             {
                trace_draw_call_data.cbs[i] = true;
-               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs->get()));
+               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs[i].get()));
             }
          }
 
@@ -561,7 +561,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
             if ((cbs[i] != nullptr || (show_used_unbound_resources && cached_shader->cbs[i])) && (show_unused_bound_resources || cached_shader->cbs[i]))
             {
                trace_draw_call_data.cbs[i] = true;
-               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs->get()));
+               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs[i].get()));
             }
          }
 
@@ -634,7 +634,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
             if ((cbs[i] != nullptr || (show_used_unbound_resources && cached_shader->cbs[i])) && (show_unused_bound_resources || cached_shader->cbs[i]))
             {
                trace_draw_call_data.cbs[i] = true;
-               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs->get()));
+               trace_draw_call_data.cb_hash[i] = std::to_string(std::hash<void*>{}(cbs[i].get()));
             }
          }
 

@@ -479,6 +479,7 @@ bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandL
 #if 0 // Disabled to avoid sharpening randomly coming back if users used old DLLs or NV restored it
 	evalParams.Feature.InSharpness = data->sharpness; // It's likely clamped between 0 and 1 internally, though a value of 0 might fall back to the internal default
 #endif
+	// MVs need to have positive values when moving towards the top left of the screen
 #if !GAME_PREY && !GAME_MAFIA_III
 	evalParams.InMVScaleX = flipMVsX ? -1.0 : 1.0;
 	evalParams.InMVScaleY = flipMVsY ? -1.0 : 1.0;
