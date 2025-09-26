@@ -131,9 +131,6 @@ float3 RestoreChrominance(float3 sourceColor, float3 targetColor, uint colorSpac
 // The closer the sum is to 1, the more each color channel will be containted within its peak range.
 float3 CorrectOutOfRangeColor(float3 Color, bool FixNegatives = true, bool FixPositives = true, float DesaturationAmount = 0.5, float DarkeningAmount = 0.5, float Peak = 1.0, uint ColorSpace = CS_DEFAULT)
 {
-  if (ColorSpace == CS_AP1)
-	return float3(1, 0, 1); // Unsupported (return purple)
-	
   if (FixNegatives && any(Color < 0.0)) // Optional "optimization" branch
   {
     float colorLuminance = GetLuminance(Color, ColorSpace);
@@ -150,7 +147,7 @@ float3 CorrectOutOfRangeColor(float3 Color, bool FixNegatives = true, bool FixPo
 	  float3 positiveColorRestoredLuminance = RestoreLuminance(positiveColor, colorLuminance, true, ColorSpace);
 	  Color = lerp(lerp(Color, positiveColorRestoredLuminance, sqrt(DesaturationAmount)), colorLuminance, negativePositiveLuminanceRatio * sqrt(DesaturationAmount));
 #else // This should look better and be faster
-	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : Rec709_Luminance;
+	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : ColorSpace == CS_AP1 ? AP1_Luminance : Rec709_Luminance;
 	  float3 negativePositiveLuminanceRatio = -(negativeColor / luminanceRatio) / (positiveLuminance / luminanceRatio);
 	  Color = lerp(Color, colorLuminance, negativePositiveLuminanceRatio * DesaturationAmount);
 #endif
