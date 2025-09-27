@@ -495,6 +495,7 @@ public:
                   draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                   DrawCustomPixelShaderPass(native_device, native_device_context, game_device_data.lighting_buffer_rtv.get(), device_data, Math::CompileTimeStringHash("Modulate Lighting"), game_device_data.modulate_lighting_buffer_pass_data);
+                  game_device_data.has_modulated_lighting = true;
 
                   draw_state_stack.Restore(native_device_context);
 

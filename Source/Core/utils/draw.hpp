@@ -7,13 +7,13 @@ enum class DrawStateStackType
    // from previous incompatible bindings they had, and these slots might not always be restored by this mode.
    SimpleGraphics,
    // Not 100% of the graphics state, but almost everything we'll ever need.
+   // Note that if we set a render target that was also set as shader resource of the (e.g.) vertex stage, it won't be restored.
    FullGraphics,
    // Not 100% of the compute state, but almost everything we'll ever need.
    Compute,
 };
 // Caches all the states we might need to modify to draw a simple pixel shader.
 // First call "Cache()" (once) and then call "Restore()" (once).
-// TODO: check "ID3D11Device1::CreateDeviceContextState" for DX11
 template<DrawStateStackType Mode = DrawStateStackType::FullGraphics>
 struct DrawStateStack
 {
@@ -53,6 +53,21 @@ struct DrawStateStack
       uav_num = device_max_uav_num;
       if constexpr (Mode == DrawStateStackType::SimpleGraphics || Mode == DrawStateStackType::FullGraphics)
       {
+         device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
+         if constexpr (Mode == DrawStateStackType::FullGraphics)
+         {
+            for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
+            {
+               bool rtv_empty = render_target_views[i].get() == nullptr;
+               if (!rtv_empty)
+               {
+                  render_target_views[i].reset(); // Re-set it as we will re-assign it
+                  valid_render_target_views_bound++; // The documentation is confusing, but it seems like the UAV start slot you request needs to be >= the number of valid bound RTVs
+               }
+            }
+            depth_stencil_view.reset();
+            device_context->OMGetRenderTargetsAndUnorderedAccessViews(valid_render_target_views_bound, &render_target_views[0], &depth_stencil_view, valid_render_target_views_bound, uav_num - valid_render_target_views_bound, &unordered_access_views[0]);
+         }
          device_context->OMGetBlendState(&blend_state, blend_factor, &blend_sample_mask);
          device_context->IAGetPrimitiveTopology(&primitive_topology);
          device_context->RSGetScissorRects(&scissor_rects_num, nullptr); // This will get the number of scissor rects used
@@ -69,21 +84,6 @@ struct DrawStateStack
             device_context->PSGetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, &constant_buffers[0]);
          }
          device_context->OMGetDepthStencilState(&depth_stencil_state, &stencil_ref);
-         device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
-         if constexpr (Mode == DrawStateStackType::FullGraphics)
-         {
-            for (size_t i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT; i++)
-            {
-               bool rtv_empty = render_target_views[i].get() == nullptr;
-               if (!rtv_empty)
-               {
-                  render_target_views[i].reset(); // Re-set it as we will re-assign it
-                  valid_render_target_views_bound++; // The documentation is confusing, but it seems like the UAV start slot you request needs to be >= the number of valid bound RTVs
-               }
-            }
-            depth_stencil_view.reset();
-            device_context->OMGetRenderTargetsAndUnorderedAccessViews(valid_render_target_views_bound, &render_target_views[0], &depth_stencil_view, valid_render_target_views_bound, uav_num - valid_render_target_views_bound, &unordered_access_views[0]);
-         }
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->VSGetShader(&vs, vs_instances, &vs_instances_count);
          device_context->PSGetShader(&ps, ps_instances, &ps_instances_count);
@@ -139,6 +139,19 @@ struct DrawStateStack
 
       if constexpr (Mode == DrawStateStackType::SimpleGraphics || Mode == DrawStateStackType::FullGraphics)
       {
+         // Set the render targets first because they are "output" and take precedence over SR bindings of the same resource, which would otherwise get nulled
+         ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(render_target_views[0]);
+         if constexpr (Mode == DrawStateStackType::FullGraphics)
+         {
+            ID3D11UnorderedAccessView* const* uavs_const = (ID3D11UnorderedAccessView**)std::addressof(unordered_access_views[0]);
+            UINT uav_initial_counts[D3D11_1_UAV_SLOT_COUNT]; // Likely not necessary, we could pass in nullptr
+            std::ranges::fill(uav_initial_counts, -1u);
+            device_context->OMSetRenderTargetsAndUnorderedAccessViews(valid_render_target_views_bound, rtvs_const, depth_stencil_view.get(), valid_render_target_views_bound, uav_num - valid_render_target_views_bound, uavs_const, &uav_initial_counts[0]);
+         }
+         else
+         {
+            device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
+         }
          device_context->OMSetBlendState(blend_state.get(), blend_factor, blend_sample_mask);
          device_context->IASetPrimitiveTopology(primitive_topology);
          device_context->RSSetScissorRects(scissor_rects_num, &scissor_rects[0]);
@@ -155,18 +168,6 @@ struct DrawStateStack
             device_context->PSSetConstantBuffers(0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT, constant_buffers_const);
          }
          device_context->OMSetDepthStencilState(depth_stencil_state.get(), stencil_ref);
-         ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(render_target_views[0]);
-         if constexpr (Mode == DrawStateStackType::FullGraphics)
-         {
-            ID3D11UnorderedAccessView* const* uavs_const = (ID3D11UnorderedAccessView**)std::addressof(unordered_access_views[0]);
-            UINT uav_initial_counts[D3D11_1_UAV_SLOT_COUNT]; // Likely not necessary, we could pass in nullptr
-            std::ranges::fill(uav_initial_counts, -1u);
-            device_context->OMSetRenderTargetsAndUnorderedAccessViews(valid_render_target_views_bound, rtvs_const, depth_stencil_view.get(), valid_render_target_views_bound, uav_num - valid_render_target_views_bound, uavs_const, &uav_initial_counts[0]);
-         }
-         else
-         {
-            device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
-         }
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->VSSetShader(vs.get(), vs_instances, vs_instances_count);
          device_context->PSSetShader(ps.get(), ps_instances, ps_instances_count);

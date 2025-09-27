@@ -430,8 +430,9 @@ public:
          }
 #endif
 
-         draw_state_stack.Restore(native_device_context);
+         // Restore the compute state first, given it might be considered as output and take over SR bindings of the same resource
          compute_state_stack.Restore(native_device_context);
+         draw_state_stack.Restore(native_device_context);
       }
       else if (game_device_data.is_drawing_materials)
       {
