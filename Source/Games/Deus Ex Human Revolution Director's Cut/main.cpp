@@ -494,8 +494,14 @@ public:
                   DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
                   draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
+                  com_ptr<ID3D11HullShader> hs;
+                  // This game has hull shaders, we need to restore that too, and temporarily disable it!
+                  native_device_context->HSGetShader(&hs, nullptr, nullptr);
+
                   DrawCustomPixelShaderPass(native_device, native_device_context, game_device_data.lighting_buffer_rtv.get(), device_data, Math::CompileTimeStringHash("Modulate Lighting"), game_device_data.modulate_lighting_buffer_pass_data);
                   game_device_data.has_modulated_lighting = true;
+
+                  native_device_context->HSSetShader(hs.get(), nullptr, 0);
 
                   draw_state_stack.Restore(native_device_context);
 
