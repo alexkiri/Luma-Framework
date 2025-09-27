@@ -9,6 +9,7 @@ namespace
 {
    bool has_gold_filter_restoration_mod = false;
    bool has_gold_filter = false;
+   bool is_dc = true;
 
    int has_supported_aa_count = 100;
    bool has_custom_gold_filter = false;
@@ -19,12 +20,48 @@ namespace
    ShaderHashesList pixel_shader_hashes_SupportedAA;
    ShaderHashesList pixel_shader_hashes_BloomComposition;
    ShaderHashesList pixel_shader_hashes_UI;
+   ShaderHashesList pixel_shader_hashes_Lighting;
    ShaderHashesList pixel_shader_hashes_SSAOGeneration;
 
-   // User settings
-   float bloom_intensity = 1.f;
-   float fog_intensity = 1.f;
-   float emissive_intensity = 0.667f;
+   constexpr bool allow_lighting_modulation = true;
+
+   // From shaders. The global scene buffer used across all pixel shaders.
+   constexpr size_t game_scene_buffer_size = 912;
+   struct GameSceneBuffer
+   {
+      float4x4 View;
+      float4x4 ScreenMatrix;
+      alignas(16) float2 DepthExportScale;
+      alignas(16) float2 FogScaleOffset;
+      alignas(16) float3 CameraPosition;
+      alignas(16) float3 CameraDirection;
+      alignas(16) float3 DepthFactors;
+      alignas(16) float2 ShadowDepthBias;
+      alignas(16) float4 SubframeViewport;
+      float3 DepthToWorld[4];
+      alignas(16) float4 DepthToView;
+      alignas(16) float4 OneOverDepthToView;
+      alignas(16) float4 DepthToW;
+      alignas(16) float4 ClipPlane;
+      alignas(16) float2 ViewportDepthScaleOffset;
+      alignas(16) float2 ColorDOFDepthScaleOffset;
+      alignas(16) float2 TimeVector;
+      alignas(16) float3 HeightFogParams;
+      alignas(16) float3 GlobalAmbient;
+      float4 GlobalParams[16];
+      alignas(16) float DX3_SSAOScale;
+      alignas(16) float4 ScreenExtents;
+      alignas(16) float2 ScreenResolution;
+      alignas(16) float4 PSSMToMap1Lin;
+      alignas(16) float4 PSSMToMap1Const;
+      alignas(16) float4 PSSMToMap2Lin;
+      alignas(16) float4 PSSMToMap2Const;
+      alignas(16) float4 PSSMToMap3Lin;
+      alignas(16) float4 PSSMToMap3Const;
+      alignas(16) float4 PSSMDistances;
+      float4x4 WorldToPSSM0;
+   };
+   static_assert(game_scene_buffer_size >= sizeof(GameSceneBuffer));
 }
 
 struct GameDeviceDataDeusExHumanRevolutionDC final : public GameDeviceData
@@ -34,7 +71,13 @@ struct GameDeviceDataDeusExHumanRevolutionDC final : public GameDeviceData
    bool has_drawn_opaque_geometry = false;
    bool has_drawn_ssao = false;
 
-   SanitizeNaNsSimpleData sanitize_nans_data;
+   SanitizeNaNsData sanitize_nans_data;
+
+   bool has_found_lighting_cbuffer = false;
+   bool has_found_lighting_buffer = false;
+   bool has_modulated_lighting = false;
+   com_ptr<ID3D11RenderTargetView> lighting_buffer_rtv;
+   CustomPixelShaderPassData modulate_lighting_buffer_pass_data;
 
    // Most of the game's rendering and UI draws directly to this
    com_ptr<ID3D11RenderTargetView> swapchain_rtv;
@@ -62,6 +105,10 @@ public:
    {
       return *static_cast<GameDeviceDataDeusExHumanRevolutionDC*>(device_data.game);
    }
+   static const GameDeviceDataDeusExHumanRevolutionDC& GetGameDeviceData(const DeviceData& device_data)
+   {
+      return *static_cast<const GameDeviceDataDeusExHumanRevolutionDC*>(device_data.game);
+   }
 
    void OnInit(bool async) override
    {
@@ -72,8 +119,6 @@ public:
          {"ENABLE_LUMA", '1', false, false, "Allows disabling some of the Luma's post processing modifications to improve the image and output HDR"},
          {"ENABLE_IMPROVED_BLOOM", '1', false, false, "The bloom radius was calibrated for 720p/1080p and looked too small at higher resolutions"},
          {"ENABLE_IMPROVED_COLOR_GRADING", '1', false, false, "Allow running a new, modernized, version of the color grading pass (e.g. the gold filter)"},
-         {"ENABLE_COLOR_GRADING_DESATURATION", '0', false, false, "The color grading pass (e.g. the gold filter) often had a strong desaturation effect, turn this off to preserve saturation (it's off by default as that was the case with the DE)"},
-         {"ENABLE_FAKE_HDR", '1', false, false, "Enable a \"Fake\" HDR boosting effect"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
 
@@ -83,6 +128,9 @@ public:
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
 
+      // The game just looks better with gamma between 2.35 and 2.4
+      custom_sdr_gamma = 2.35f;
+
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
 
 #if DEVELOPMENT
@@ -90,6 +138,8 @@ public:
       forced_shader_names.emplace(Shader::Hash_StrToNum("1DA1E46E"), "MLAA Mask 2 Gen");
       forced_shader_names.emplace(Shader::Hash_StrToNum("51BBB596"), "MLAA Composition");
 #endif
+
+      native_shaders_definitions.emplace(CompileTimeStringHash("Modulate Lighting"), ShaderDefinition{ "Luma_ModulateLighting", reshade::api::pipeline_subobject_type::pixel_shader });
    }
 
    void OnLoad(std::filesystem::path& file_path, bool failed) override
@@ -97,6 +147,12 @@ public:
       // Note: this code might try to apply multiple times as the ReShade addon gets loaded and unloaded, once is enough
       if (!failed)
       {
+         if (allow_lighting_modulation)
+         {
+            reshade::register_event<reshade::addon_event::map_buffer_region>(GameDeusExHumanRevolutionDC::OnMapBufferRegion);
+            reshade::register_event<reshade::addon_event::unmap_buffer_region>(GameDeusExHumanRevolutionDC::OnUnmapBufferRegion);
+         }
+
          if (GetModuleHandle(TEXT("DXHRDC-GFX.asi")) != NULL)
          {
             has_gold_filter_restoration_mod = true;
@@ -107,6 +163,7 @@ public:
          std::string exe_name = System::GetProcessExecutableName();
          if (exe_name == "DXHR.exe" || exe_name == "dxhr.exe")
          {
+            is_dc = false;
             has_gold_filter = true;
          }
 
@@ -332,7 +389,14 @@ public:
       auto& game_device_data = GetGameDeviceData(device_data);
       if (&game_device_data != nullptr) // TODO: is this needed? Probl not. This check is also in INSIDE
       {
-         game_device_data.swapchain_rtv.reset(); // Reset it when the game resizes
+         // Reset it when the game resizes
+         game_device_data.swapchain_rtv.reset();
+         game_device_data.lighting_buffer_rtv.reset();
+         game_device_data.sanitize_nans_data = {};
+
+         cb_luma_global_settings.GameSettings.InvOutputRes.x = 1.f / device_data.output_resolution.x;
+         cb_luma_global_settings.GameSettings.InvOutputRes.y = 1.f / device_data.output_resolution.y;
+         device_data.cb_luma_global_settings_dirty = true;
       }
    }
 
@@ -361,15 +425,16 @@ public:
 
       if (!game_device_data.has_drawn_custom_gold_filter)
       {
-         // Tell the supported AA shaders they need to tonemap, as the gold filter shader won't run, and that's ideally where we'd do TM
-         if (is_custom_pass && original_shader_hashes.Contains(pixel_shader_hashes_SupportedAA))
+         if (allow_lighting_modulation && !game_device_data.has_found_lighting_buffer && original_shader_hashes.Contains(pixel_shader_hashes_Lighting))
          {
-            if (!has_custom_gold_filter)
-            {
-               SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
-               SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, 1);
-               updated_cbuffers = true;
-            }
+            com_ptr<ID3D11RenderTargetView> lighting_buffer_rtv;
+            native_device_context->OMGetRenderTargets(1, &lighting_buffer_rtv, nullptr);
+            game_device_data.lighting_buffer_rtv = lighting_buffer_rtv;
+            game_device_data.has_found_lighting_buffer = true;
+         }
+         // Tell the supported AA shaders they need to tonemap, as the gold filter shader won't run, and that's ideally where we'd do TM
+         else if (is_custom_pass && original_shader_hashes.Contains(pixel_shader_hashes_SupportedAA))
+         {
             game_device_data.has_drawn_supported_aa = true;
 
             game_device_data.swapchain_rtv.reset();
@@ -397,10 +462,6 @@ public:
             // Add depth so we can do fog in the original bloom composition shader too, given that only the DC had fog
             ID3D11ShaderResourceView* const depth_buffer_srv_ptr = game_device_data.depth_buffer_srv.get();
             native_device_context->PSSetShaderResources(3, 1, &depth_buffer_srv_ptr);
-
-            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
-            SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, Math::AsUInt(emissive_intensity), 0, bloom_intensity, fog_intensity);
-            updated_cbuffers = true;
          }
          // Requires SSAO enabled in the setting
          else if (original_shader_hashes.Contains(pixel_shader_hashes_SSAOGeneration))
@@ -427,6 +488,32 @@ public:
             // After normal maps and lighting buffer, the game draws the materials final color
             if (r2 && r2 == r1)
             {
+               // The lighting buffer always has a different SRV slot in all materials, so just cache it upfront and modulate it when materials rendering begins
+               if (!game_device_data.has_modulated_lighting && game_device_data.lighting_buffer_rtv.get() && cb_luma_global_settings.GameSettings.LightingColor != float4{ 1.f, 1.f, 1.f, 1.f } && test_index != 14)
+               {
+                  DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
+                  draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
+
+                  DrawCustomPixelShaderPass(native_device, native_device_context, game_device_data.lighting_buffer_rtv.get(), device_data, Math::CompileTimeStringHash("Modulate Lighting"), game_device_data.modulate_lighting_buffer_pass_data);
+
+                  draw_state_stack.Restore(native_device_context);
+
+#if DEVELOPMENT
+                  const std::shared_lock lock_trace(s_mutex_trace);
+                  if (trace_running)
+                  {
+                     const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+                     TraceDrawCallData trace_draw_call_data;
+                     trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+                     trace_draw_call_data.command_list = native_device_context;
+                     trace_draw_call_data.custom_name = "Modulate Lighting";
+                     // Re-use the RTV data for simplicity
+                     GetResourceInfo(game_device_data.lighting_buffer_rtv.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+                     cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data); // Add this one before any other
+                  }
+#endif
+               }
+
                if (dsv)
                {
                   com_ptr<ID3D11Resource> depth_buffer;
@@ -470,11 +557,11 @@ public:
                   // We don't want any blurring of NaNs with the background because they happen in this game and they are actually meant to turn black.
                   if (!game_device_data.has_drawn_opaque_geometry && !IsRTRGBBlendDisabled(blend_desc.RenderTarget[0]) && test_index != 18)
                   {
-                     DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+                     DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
                      draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                      game_device_data.has_drawn_opaque_geometry = true;
-                     SanitizeNaNsSimple(native_device, native_device_context, device_data, rtv.get(), game_device_data.sanitize_nans_data);
+                     SanitizeNaNs(native_device, native_device_context, rtv.get(), device_data, game_device_data.sanitize_nans_data);
 
                      draw_state_stack.Restore(native_device_context);
 
@@ -495,7 +582,7 @@ public:
                   }
 
                   // To draw emissive objects, the game was setting the source and target blends to use the blend factor.
-                  // This cause blackground to become exponentially brigher in float textures, given that they wouldn't clamp to 0-1, and multiple emissive layers would really break it.
+                  // This cause blackground to become exponentially brighter in float textures, given that they wouldn't clamp to 0-1, and multiple emissive layers would really break it.
                   // We simply swap the background to retain its original color while adding the emissive on top as usual.
                   if (blend_desc.RenderTarget[0].BlendEnable
                      && (blend_desc.RenderTarget[0].SrcBlend == D3D11_BLEND_BLEND_FACTOR
@@ -581,6 +668,162 @@ public:
       return false;
    }
 
+   static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
+   {
+      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+      ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
+      auto& game_device_data = GetGameDeviceData(device_data);
+
+      // The target cbuffer is always set once after AO, and once before materials start to render. We only care about patching the second time.
+      // We change these until bloom has run, which is totally fine.
+      if (!allow_lighting_modulation || !game_device_data.has_drawn_ssao || device_data.has_drawn_main_post_processing)
+      {
+         return;
+      }
+
+      if (access == reshade::api::map_access::write_only || access == reshade::api::map_access::write_discard || access == reshade::api::map_access::read_write)
+      {
+         D3D11_BUFFER_DESC buffer_desc;
+         buffer->GetDesc(&buffer_desc);
+
+         if (buffer_desc.ByteWidth == game_scene_buffer_size)
+         {
+            device_data.cb_per_view_global_buffer = buffer;
+#if DEVELOPMENT
+            ASSERT_ONCE(buffer_desc.Usage == D3D11_USAGE_DYNAMIC && buffer_desc.BindFlags == D3D11_BIND_CONSTANT_BUFFER && buffer_desc.CPUAccessFlags == D3D11_CPU_ACCESS_WRITE && buffer_desc.MiscFlags == 0 && buffer_desc.StructureByteStride == 0);
+#endif // DEVELOPMENT
+            ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data);
+            device_data.cb_per_view_global_buffer_map_data = *data;
+         }
+      }
+   }
+
+   static void OnUnmapBufferRegion(reshade::api::device* device, reshade::api::resource resource)
+   {
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
+      auto& game_device_data = GetGameDeviceData(device_data);
+      ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+      ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
+      bool is_global_cbuffer = device_data.cb_per_view_global_buffer != nullptr && device_data.cb_per_view_global_buffer == buffer;
+      ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data || is_global_cbuffer);
+
+      if (is_global_cbuffer && device_data.cb_per_view_global_buffer_map_data != nullptr)
+      {
+         GameSceneBuffer* data = (GameSceneBuffer*)device_data.cb_per_view_global_buffer_map_data;
+
+         bool is_valid_cbuffer = Math::AlmostEqual(data->ScreenResolution.x, device_data.render_resolution.x, 0.001f) && Math::AlmostEqual(data->ScreenResolution.y, device_data.render_resolution.y, 0.001f); // It works without any threshold too, but let's be extra safe
+         if (is_valid_cbuffer && test_index != 15)
+         {
+            game_device_data.has_found_lighting_cbuffer = true;
+
+            // TODO: consider changing the "FogColor" in the "DrawableBuffer" cbuffer (slot 1), which is though per material, and is often not even used (but sometimes is!)
+
+            using float3x3 = std::array<std::array<float, 3>, 3>;
+
+            // From color shaders
+            constexpr float3x3 BT709_2_BT2020 = {
+               0.627403914928436279296875f,      0.3292830288410186767578125f,  0.0433130674064159393310546875f,
+               0.069097287952899932861328125f,   0.9195404052734375f,           0.011362315155565738677978515625f,
+               0.01639143936336040496826171875f, 0.08801330626010894775390625f, 0.895595252513885498046875f };
+            constexpr float3x3 BT2020_2_BT709 = {
+                1.66049098968505859375f,          -0.58764111995697021484375f,     -0.072849862277507781982421875f,
+               -0.12455047667026519775390625f,     1.13289988040924072265625f,     -0.0083494223654270172119140625f,
+               -0.01815076358616352081298828125f, -0.100578896701335906982421875f,  1.11872971057891845703125f };
+
+            auto mul3 = [](const float3x3& mat, const float3& vec) -> float3 {
+               return {
+                   mat[0][0] * vec.x + mat[0][1] * vec.y + mat[0][2] * vec.z,
+                   mat[1][0] * vec.x + mat[1][1] * vec.y + mat[1][2] * vec.z,
+                   mat[2][0] * vec.x + mat[2][1] * vec.y + mat[2][2] * vec.z
+               };
+               };
+            auto mul4 = [](const float3x3& mat, const float4& vec) -> float4 {
+               return {
+                   mat[0][0] * vec.x + mat[0][1] * vec.y + mat[0][2] * vec.z,
+                   mat[1][0] * vec.x + mat[1][1] * vec.y + mat[1][2] * vec.z,
+                   mat[2][0] * vec.x + mat[2][1] * vec.y + mat[2][2] * vec.z,
+                   vec.w
+               };
+               };
+            auto pow3 = [](const float3& vec, float exp) -> float3 {
+               return {
+                   std::pow(vec.x, exp),
+                   std::pow(vec.y, exp),
+                   std::pow(vec.z, exp)
+               };
+               };
+            auto pow4 = [](const float4& vec, float exp) -> float4 {
+               return {
+                   std::pow(vec.x, exp),
+                   std::pow(vec.y, exp),
+                   std::pow(vec.z, exp),
+                   vec.w
+               };
+               };
+
+            float4 AmbientLightColor = cb_luma_global_settings.GameSettings.AmbientLightColor;
+            // For some reasons these are shifted by 1 in the c++ representation of the data (probably some wrong padding, but this works)
+            float3 GlobalParams0 = { data->GlobalParams[0].y, data->GlobalParams[0].z, data->GlobalParams[0].w };
+            float3 GlobalParams1 = { data->GlobalParams[1].y, data->GlobalParams[1].z, data->GlobalParams[1].w };
+
+            AmbientLightColor.x *= cb_luma_global_settings.GameSettings.AmbientLightingIntensity;
+            AmbientLightColor.y *= cb_luma_global_settings.GameSettings.AmbientLightingIntensity;
+            AmbientLightColor.z *= cb_luma_global_settings.GameSettings.AmbientLightingIntensity;
+
+            AmbientLightColor = pow4(AmbientLightColor, 2.2f);
+            data->GlobalAmbient = pow3(data->GlobalAmbient, 2.2f);
+            GlobalParams0 = pow3(GlobalParams0, 2.2f);
+            GlobalParams1 = pow3(GlobalParams1, 2.2f);
+
+            if (test_index != 16)
+            {
+               AmbientLightColor = mul4(BT709_2_BT2020, AmbientLightColor);
+               data->GlobalAmbient = mul3(BT709_2_BT2020, data->GlobalAmbient);
+               GlobalParams0 = mul3(BT709_2_BT2020, GlobalParams0);
+               GlobalParams1 = mul3(BT709_2_BT2020, GlobalParams1);
+            }
+
+            // Multiply lighting. Do it in linear BT.2020 space to generate more wide gamut colors
+
+            // Seemengly unused, but it won't hurt to set it
+            data->GlobalAmbient.x *= AmbientLightColor.x;
+            data->GlobalAmbient.y *= AmbientLightColor.y;
+            data->GlobalAmbient.z *= AmbientLightColor.z;
+            
+            // Lighting from above
+            GlobalParams0.x *= AmbientLightColor.x;
+            GlobalParams0.y *= AmbientLightColor.y;
+            GlobalParams0.z *= AmbientLightColor.z;
+            // Lighting from below
+            GlobalParams1.x *= AmbientLightColor.x;
+            GlobalParams1.y *= AmbientLightColor.y;
+            GlobalParams1.z *= AmbientLightColor.z;
+
+            if (test_index != 16)
+            {
+               data->GlobalAmbient = mul3(BT2020_2_BT709, data->GlobalAmbient);
+               GlobalParams0 = mul3(BT2020_2_BT709, GlobalParams0);
+               GlobalParams1 = mul3(BT2020_2_BT709, GlobalParams1);
+            }
+
+            data->GlobalAmbient = pow3(data->GlobalAmbient, 1.f / 2.2f);
+            GlobalParams0 = pow3(GlobalParams0, 1.f / 2.2f);
+            GlobalParams1 = pow3(GlobalParams1, 1.f / 2.2f);
+
+            data->GlobalParams[0].y = GlobalParams0.x;
+            data->GlobalParams[0].z = GlobalParams0.y;
+            data->GlobalParams[0].w = GlobalParams0.z;
+            data->GlobalParams[1].y = GlobalParams1.x;
+            data->GlobalParams[1].z = GlobalParams1.y;
+            data->GlobalParams[1].w = GlobalParams1.z;
+         }
+
+         device_data.cb_per_view_global_buffer_map_data = nullptr;
+         device_data.cb_per_view_global_buffer = nullptr;
+      }
+   }
+
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
@@ -588,9 +831,16 @@ public:
       if (device_data.has_drawn_main_post_processing)
       {
          has_custom_gold_filter = game_device_data.has_drawn_custom_gold_filter;
+         if (has_custom_gold_filter != bool(cb_luma_global_settings.GameSettings.HasColorGradingPass))
+         {
+            cb_luma_global_settings.GameSettings.HasColorGradingPass = has_custom_gold_filter ? 1 : 0; // Make shaders tonemap in the bloom composition
+            device_data.cb_luma_global_settings_dirty = true;
+         }
+
          has_supported_aa_count += game_device_data.has_drawn_supported_aa ? 1 : -1; // Count up to two frames to avoid false positives when opening the menu
          has_supported_aa_count = std::clamp(has_supported_aa_count, 0, 100); // 100 seems like a fine value that doesn't trigger false positives when opening the menu (it might still do at very high frame rates)
          has_ssao = game_device_data.has_drawn_ssao;
+         ASSERT_ONCE(!allow_lighting_modulation || game_device_data.has_found_lighting_buffer); // Shouldn't happen unless no lighting drew or unless we missed some lighting shaders from the check
       }
       else
       {
@@ -601,17 +851,24 @@ public:
 
       device_data.has_drawn_main_post_processing = false;
       game_device_data.has_drawn_ssao = false;
+      game_device_data.has_found_lighting_buffer = false;
+      game_device_data.has_found_lighting_cbuffer = false;
       game_device_data.has_drawn_custom_gold_filter = false;
       game_device_data.has_drawn_supported_aa = false;
       game_device_data.has_drawn_opaque_geometry = false;
+      game_device_data.has_modulated_lighting = false;
    }
 
    void LoadConfigs() override
    {
       reshade::api::effect_runtime* runtime = nullptr;
-      reshade::get_config_value(runtime, NAME, "BloomIntensity", bloom_intensity);
-      reshade::get_config_value(runtime, NAME, "EmissiveIntensity", emissive_intensity);
-      reshade::get_config_value(runtime, NAME, "FogIntensity", fog_intensity);
+
+      reshade::get_config_value(runtime, NAME, "BloomIntensity", cb_luma_global_settings.GameSettings.BloomIntensity);
+      reshade::get_config_value(runtime, NAME, "EmissiveIntensity", cb_luma_global_settings.GameSettings.EmissiveIntensity);
+      reshade::get_config_value(runtime, NAME, "FogIntensity", cb_luma_global_settings.GameSettings.FogIntensity);
+      reshade::get_config_value(runtime, NAME, "DesaturationIntensity", cb_luma_global_settings.GameSettings.DesaturationIntensity);
+      reshade::get_config_value(runtime, NAME, "AmbientLightingIntensity", cb_luma_global_settings.GameSettings.AmbientLightingIntensity);
+      reshade::get_config_value(runtime, NAME, "HDRBoostIntensity", cb_luma_global_settings.GameSettings.HDRBoostIntensity);
       // "device_data.cb_luma_global_settings_dirty" should already be true at this point
    }
 
@@ -628,32 +885,114 @@ public:
          ImGui::PopStyleColor();
       }
 
-      if (ImGui::SliderFloat("Bloom Intensity", &bloom_intensity, 0.f, 2.f))
+      if (ImGui::SliderFloat("Bloom Intensity", &cb_luma_global_settings.GameSettings.BloomIntensity, 0.f, 2.f))
       {
-         reshade::set_config_value(runtime, NAME, "BloomIntensity", bloom_intensity);
+         reshade::set_config_value(runtime, NAME, "BloomIntensity", cb_luma_global_settings.GameSettings.BloomIntensity);
       }
-      DrawResetButton(bloom_intensity, 1.f, "BloomIntensity", runtime);
-
-      if (ImGui::SliderFloat("Emissive Intensity", &emissive_intensity, 0.f, 1.f))
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
-         reshade::set_config_value(runtime, NAME, "EmissiveIntensity", emissive_intensity);
+         ImGui::SetTooltip("Luma slightly lowers bloom by default, as it was mostly there to simulate HDR. Set it to 1 for the vanilla behavior.");
+      }
+      DrawResetButton(cb_luma_global_settings.GameSettings.BloomIntensity, 0.8f, "BloomIntensity", runtime);
+
+      if (ImGui::SliderFloat("Emissive Intensity", &cb_luma_global_settings.GameSettings.EmissiveIntensity, 0.f, 1.f))
+      {
+         reshade::set_config_value(runtime, NAME, "EmissiveIntensity", cb_luma_global_settings.GameSettings.EmissiveIntensity);
       }
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
          ImGui::SetTooltip("Luma allows emissive surfaces to be boosted to increase the dynamic range of the scene.");
       }
-      DrawResetButton(emissive_intensity, 0.667f, "EmissiveIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.EmissiveIntensity, 0.667f, "EmissiveIntensity", runtime);
 
-      if (ImGui::SliderFloat("Fog Intensity", &fog_intensity, 0.f, 1.f))
+      if (is_dc)
       {
-         reshade::set_config_value(runtime, NAME, "FogIntensity", fog_intensity);
+         if (ImGui::SliderFloat("Fog Intensity", &cb_luma_global_settings.GameSettings.FogIntensity, 0.f, 1.f))
+         {
+            reshade::set_config_value(runtime, NAME, "FogIntensity", cb_luma_global_settings.GameSettings.FogIntensity);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Luma adds fog to the original game's bloom, to add some depth to the scene. Tweak it to your liking.");
+         }
+         DrawResetButton(cb_luma_global_settings.GameSettings.FogIntensity, 1.f, "FogIntensity", runtime);
+      }
+      // Fog isn't supported in the non DC version, it relies on cbuffers from the DC
+      else
+      {
+         cb_luma_global_settings.GameSettings.FogIntensity = 0.f;
+      }
+
+      if (ImGui::SliderFloat("Desaturation Intensity", &cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.f, 1.f))
+      {
+         reshade::set_config_value(runtime, NAME, "DesaturationIntensity", cb_luma_global_settings.GameSettings.DesaturationIntensity);
       }
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
-         ImGui::SetTooltip("Luma adds back fog to the original game's bloom, to add some depth to the scene. Tweak it to your liking.");
+         ImGui::SetTooltip("The color grading pass (e.g. the gold filter) often has a strong desaturation effect, turn this off to preserve the original saturation.\nLuma disables this by default as it was the case with the \"Definitive Edition\", set to 1 for the vanilla behaviour.");
       }
-      DrawResetButton(fog_intensity, 1.f, "FogIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.f, "DesaturationIntensity", runtime);
+
+      if (ImGui::SliderFloat("Ambient Lighting Intensity", &cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.f, 1.f))
+      {
+         reshade::set_config_value(runtime, NAME, "AmbientLightingIntensity", cb_luma_global_settings.GameSettings.AmbientLightingIntensity);
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("The game's ambient lighting was very strong, making everything glow, reduce this to increase the contrast between light and shadow (note that visibility might be decreased).");
+      }
+      DrawResetButton(cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.75f, "AmbientLightingIntensity", runtime);
+
+      if (cb_luma_global_settings.DisplayMode == 1)
+      {
+         if (ImGui::SliderFloat("HDR Boost Intensity", &cb_luma_global_settings.GameSettings.HDRBoostIntensity, 0.f, 2.f))
+         {
+            reshade::set_config_value(runtime, NAME, "HDRBoostIntensity", cb_luma_global_settings.GameSettings.HDRBoostIntensity);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Enable a \"Fake\" HDR boosting effect. Set to 0 for the vanilla look.");
+         }
+         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostIntensity, 1.f, "HDRBoostIntensity", runtime);
+      }
+
+#if DEVELOPMENT
+      if (allow_lighting_modulation)
+         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+#endif
+      if (allow_lighting_modulation && ImGui::TreeNode("Advanced Settings"))
+      {
+         // Allows to make the scene darker or have arbitrary colors
+         ImGui::Text("Ambient Light Color");
+         ImGui::PushID(1);
+         ImGui::SliderFloat3("RGB", &cb_luma_global_settings.GameSettings.AmbientLightColor.x, 0.0f, 5.0f);
+         DrawResetButton<float4, false>(cb_luma_global_settings.GameSettings.AmbientLightColor, { 1.f, 1.f, 1.f, 1.f }, nullptr, runtime);
+         ImGui::PopID();
+         ImGui::Text("Lights Color");
+         ImGui::PushID(2);
+         ImGui::SliderFloat3("RGB", &cb_luma_global_settings.GameSettings.LightingColor.x, 0.0f, 5.0f);
+         DrawResetButton<float4, false>(cb_luma_global_settings.GameSettings.LightingColor, { 1.f, 1.f, 1.f, 1.f }, nullptr, runtime);
+         ImGui::PopID();
+
+         ImGui::TreePop();
+      }
    }
+
+#if DEVELOPMENT || TEST
+   void PrintImGuiInfo(const DeviceData& device_data) override
+   {
+      auto& game_device_data = GetGameDeviceData(device_data);
+      void* ptr = nullptr;
+      if (game_device_data.lighting_buffer_rtv)
+      {
+         com_ptr<ID3D11Resource> lighting_buffer;
+         game_device_data.lighting_buffer_rtv->GetResource(&lighting_buffer);
+         ptr = lighting_buffer.get();
+      }
+      ImGui::NewLine();
+      ImGui::Text("Lighting Buffer: %p", (void*)ptr);
+   }
+#endif // DEVELOPMENT || TEST
 
    void PrintImGuiAbout() override
    {
@@ -661,7 +1000,7 @@ public:
          "The mod is made to be used with the \"Gold Filter Restoration\" mod from \"CookiePLMonster\" (https://github.com/CookiePLMonster/DXHRDC-GFX/releases/), however it will work without it too.\n"
          "The mod also fixes the UI being tiny at horizontal resolutions beyond 1280, and dynamically calculates the best UI size for Ultrawide displays.\n"
          "The mod improves support for high resolutions and Ultrawide, as some effects (e.g. objects highlights grid) because tiny at 4k, and some bloom sprites would be stretched in Ultrawide.\n"
-         "The mod might also work on the non \"Director's Cut\" version of the game, but that is untested.", "");
+         "The mod also works on the non \"Director's Cut\" version of the game.", "");
 
       const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
       const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
@@ -756,8 +1095,32 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       pixel_shader_hashes_BloomComposition.pixel_shaders = { Shader::Hash_StrToNum("29E509CF"), Shader::Hash_StrToNum("24314FFA") };
       pixel_shader_hashes_SSAOGeneration.pixel_shaders = { Shader::Hash_StrToNum("D44718C4") };
       pixel_shader_hashes_UI.pixel_shaders = { Shader::Hash_StrToNum("E5757FCE"), Shader::Hash_StrToNum("D07AC030"), Shader::Hash_StrToNum("B8813A2F"), Shader::Hash_StrToNum("3773AC30"), Shader::Hash_StrToNum("9CB44B83"), Shader::Hash_StrToNum("6BAF4A32") };
+      pixel_shader_hashes_Lighting.pixel_shaders = { Shader::Hash_StrToNum("5EF35A1E"), Shader::Hash_StrToNum("C7F2C455"), Shader::Hash_StrToNum("EBE2567F"), Shader::Hash_StrToNum("0AB7755C"), Shader::Hash_StrToNum("7E526193"), Shader::Hash_StrToNum("C7B58EF0") };
+
+      cb_luma_global_settings.GameSettings.BloomIntensity = 0.8f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.FogIntensity = is_dc ? 1.f : 0.f;
+      cb_luma_global_settings.GameSettings.DesaturationIntensity = 0.f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.EmissiveIntensity = 0.667f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.AmbientLightingIntensity = 0.75f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.HDRBoostIntensity = 1.f;
+      cb_luma_global_settings.GameSettings.HasColorGradingPass = has_gold_filter ? 1 : 0;
+      cb_luma_global_settings.GameSettings.AmbientLightColor = { 1.f, 1.f, 1.f, 1.f };
+      cb_luma_global_settings.GameSettings.LightingColor = { 1.f, 1.f, 1.f, 1.f };
+
+#if !DEVELOPMENT
+      old_shader_file_names.emplace("UI_0xB8813A2F.ps_5_0.hlsl");
+      old_shader_file_names.emplace("UI_0x9CB44B83.ps_5_0.hlsl");
+#endif
 
       game = new GameDeusExHumanRevolutionDC();
+   }
+   else if (ul_reason_for_call == DLL_PROCESS_DETACH)
+   {
+      if (allow_lighting_modulation)
+      {
+         reshade::unregister_event<reshade::addon_event::map_buffer_region>(GameDeusExHumanRevolutionDC::OnMapBufferRegion);
+         reshade::unregister_event<reshade::addon_event::unmap_buffer_region>(GameDeusExHumanRevolutionDC::OnUnmapBufferRegion);
+      }
    }
 
    CoreMain(hModule, ul_reason_for_call, lpReserved);

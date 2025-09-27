@@ -1,17 +1,8 @@
 #include "Includes/Common.hlsl"
 
-#ifndef ENABLE_LUMA
-#define ENABLE_LUMA 1
-#endif
+Texture2D<float4> sourceTexture : register(t0);
 
-cbuffer DrawableBuffer : register(b1)
-{
-  float4 FogColor : packoffset(c0);
-  float4 DebugColor : packoffset(c1);
-  float MaterialOpacity : packoffset(c2);
-  float AlphaThreshold : packoffset(c3);
-}
-
+// This should already be set, with mostly valid values
 cbuffer SceneBuffer : register(b2)
 {
   row_major float4x4 View : packoffset(c0);
@@ -48,34 +39,21 @@ cbuffer SceneBuffer : register(b2)
   float StereoOffset : packoffset(c25.w);
 }
 
-cbuffer InstanceBuffer : register(b5)
+// Do whatever we want with lighting here (even subtracting from it, and making negative colors)
+float4 main(float4 pos : SV_Position0) : SV_Target0
 {
-  float4 InstanceParams[8] : packoffset(c0);
-}
+  float4 color = sourceTexture.Load(int3(pos.xy, 0)); // Note: the alpha channel controls the amount of object UI overlay
+  float3 lightingColor = LumaSettings.GameSettings.LightingColor.rgb;
+  
+  color.rgb = gamma_to_linear(color.rgb, GCT_MIRROR);
+  lightingColor.rgb = gamma_to_linear(lightingColor.rgb, GCT_MIRROR);
+  color.rgb = BT709_To_BT2020(color.rgb);
+  lightingColor.rgb = BT709_To_BT2020(lightingColor.rgb);
 
-SamplerState p_default_Material_176777245763634_Param_sampler_s : register(s0);
-Texture2D<float4> p_default_Material_176777245763634_Param_texture : register(t0);
+  color.rgb *= lightingColor.rgb; // Do it in linear BT.2020 to generate colors beyond BT.709
 
-void main(
-  float4 v0 : SV_POSITION0,
-  out float4 o0 : SV_Target0)
-{
-  float4 r0;
-  r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  bool forceSDR = ShouldForceSDR(r0.xy, true);
-  r0.xyzw = p_default_Material_176777245763634_Param_texture.Sample(p_default_Material_176777245763634_Param_sampler_s, r0.xy).xyzw;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs
-#if ENABLE_LUMA // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom
-  //r0.xyz = min(r0.xyz, 5.0);
-  if (forceSDR)
-    r0 = saturate(r0);
-#else
-  r0.xyz = saturate(r0.xyz);
-#endif
-  r0.w = InstanceParams[0].x * r0.w;
-  r0.xyz = r0.w * r0.xyz;
-  r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs again (they were usually in the alpha channel)
-  r0.w = GetLuminance(r0.xyz); // Luma: fixed wrong luminance calculations
-  o0.xyz = r0.xyz;
-  o0.w = MaterialOpacity * r0.w;
+  color.rgb = BT2020_To_BT709(color.rgb);
+  color.rgb = linear_to_gamma(color.rgb, GCT_MIRROR);
+
+	return color;
 }

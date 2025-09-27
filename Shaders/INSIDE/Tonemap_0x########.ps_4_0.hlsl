@@ -28,9 +28,9 @@
 // See the code for more information about these.
 // 0x1926C2D3 is the most barebones permutation while 0xBF930E1F is the most complete one.
 #define LOW_QUALITY 0
-// Only ever false if "LOW_QUALITY" is also false.
-#define COLOR_FILTER_TEXTURE 1
-// Always true if "COLOR_FILTER_TEXTURE" is true.
+// Only ever false if "LOW_QUALITY" is true.
+#define COLOR_FILTER_TEXTURE 0
+// Only ever true true if "COLOR_FILTER_TEXTURE" is true.
 #define WAVE_EFFECT 0
 #define DESATURATION 0
 #define USER_BRIGHTNESS 0
@@ -314,7 +314,7 @@ void main(
   float3 centralColorFilter = colorFilterTexture.SampleLevel(colorFilterSampler, currentColorPaletteUV, 0).rgb;
   centralColorFilter = lerp(1.0, centralColorFilter, colorFilterIntensity);
 #else
-  float alternativeColorFilter = 1.0 - cb0[6].z; // "colorFilterIntensity" is being re-used for a different purpose
+  float alternativeColorFilter = 1.0 - cb0[6].z; // "colorFilterIntensity" is being re-used for a different purpose (I think)
   float3 centralColorFilter = float3(1.0, alternativeColorFilter.xx); // GB (R neutral)
 #endif
   float4 centralSceneColor = sceneTexture.Sample(sceneSampler, currentSceneUV).rgba;
@@ -342,15 +342,14 @@ void main(
 #if COLOR_FILTER_TEXTURE
     float3 currentColorFilter = colorFilterTexture.SampleLevel(colorFilterSampler, currentColorPaletteUV, 0).rgb; // Point sampler, likely on purpose
     currentColorFilter = lerp(1.0, currentColorFilter, colorFilterIntensity);
-    colorFilter += currentColorFilter;
-#else
+#else // "LOW_QUALITY" is implied here
     float3 currentColorFilter = 1.0;
     if (i == 1)
       currentColorFilter.rb = alternativeColorFilter; // RB (G neutral)
     else if (i == 2)
       currentColorFilter.rg = alternativeColorFilter; // RG (B neutral)
-      float3(1.0, alternativeColorFilter.xx) + float3(alternativeColorFilter.x, 1.0, alternativeColorFilter.x) + float3(alternativeColorFilter.xx, 1.0)
 #endif
+    colorFilter += currentColorFilter;
 
     float4 currentSceneColor = sceneTexture.Sample(sceneSampler, currentSceneUV).rgba;
     currentSceneColor.rgb *= GetSceneWeightFromAlpha(currentSceneColor.a);
@@ -364,16 +363,10 @@ void main(
   outColor.rgb = sceneColor / float(numIterations); return;
 #endif
 
-  float3 finalColorFilter = 1.0 / numIterations; // Just the value I'd expect it to have, but it doesn't
-#if COLOR_FILTER_TEXTURE // Some kind of hacky performance optimization (pow/sqrt like) to do brightness scaling... The image is overly dark without it
+  // Some kind of hacky performance optimization (pow/sqrt like) to do brightness scaling... The image is overly dark without it
   int3 hackyMathResultA = 0x7ef311c3 - asint(colorFilter);
   float3 hackyMathResultB = 2.0 - (asfloat(hackyMathResultA) * colorFilter);
-#else // Dunno why this path uses some yyz instead of xyz, nor how it creates its filter
-  colorFilter = alternativeColorFilter + float3(-cb0[6].zz, alternativeColorFilter) + float3(2,2,1);
-  int3 hackyMathResultA = 0x7ef311c3 - asint(colorFilter.ggb);
-  float3 hackyMathResultB = 2.0 - (asfloat(hackyMathResultA.ggb) * colorFilter);
-#endif
-  finalColorFilter = hackyMathResultB * asfloat(hackyMathResultA);
+  float3 finalColorFilter = hackyMathResultB * asfloat(hackyMathResultA); // You'd expect this to be "1.0 / numIterations", but it's not!
 
   float3 scaledSceneColor = OptionalSaturate(ApplyColorFilter(sceneColor, finalColorFilter)); // Luma: removed saturate
   float3 scaledBloomColor = OptionalSaturate(ApplyColorFilter(bloomColor, finalColorFilter)); // Luma: removed saturate
@@ -425,17 +418,22 @@ void main(
   // The main tonemapping
   // It seemengly darkens the game usually, and extracts a lot of highlights from the already dim image, given that the range was mostly within SDR even if textures were upgraded
 #if ENABLE_LUMA
-  bool TM_BT2020 = LumaSettings.DisplayMode == 1; // It seems to look a bit better, usually it barely makes any difference
+  bool forceSDR = ShouldForceSDR(v1.xy, true); // Not a full "TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL" implementation, but it's mostly there
+  if (forceSDR)
+  {
+    midtonesHDRBoost = 0.0;
+    highlightsHDRBoost = 0.0;
+  }
+  bool TM_BT2020 = LumaSettings.DisplayMode == 1 && !forceSDR; // It seems to look a bit better, usually it barely makes any difference
   const bool TM_ByLuminance = false;
   scaledComposedColor = TM_BT2020 ? BT709_To_BT2020(scaledComposedColor) : scaledComposedColor;
   float3 tonemapByChannel = ApplyCustomCurveWrapped(scaledComposedColor, v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost);
-  float tonemapByLuminance = average(ApplyCustomCurveWrapped(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709), v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost));
   if (!TM_ByLuminance)
   {
     scaledComposedColor = tonemapByChannel;
     
     // In HDR, desaturate highlights to get a look closer to SDR (HDR tonemapper output is more saturated due to the more aggressive params)
-    if (LumaSettings.DisplayMode == 1)
+    if (LumaSettings.DisplayMode == 1 && !forceSDR)
     {
       const bool desaturateInLinear = true; // Slightly more accurate in most cases
       float highlightsBoost = (midtonesHDRBoost + highlightsHDRBoost) / 2.0; // These are usually both in 0-1 range and rougly boost saturation equally
@@ -451,6 +449,7 @@ void main(
   }
   else
   {
+    float tonemapByLuminance = average(ApplyCustomCurveWrapped(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709), v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost));
     float TM_ByLuminance_Amount = 0.5; // TODO: all this branch. It's got artifacts near black now. Luminance should be calculated in linear etc. This might also loose the color filtering the tonemapper applies...
     scaledComposedColor = lerp(tonemapByChannel, RestoreLuminance(scaledComposedColor, tonemapByLuminance, true, TM_BT2020 ? CS_BT2020 : CS_BT709), TM_ByLuminance_Amount);
   }

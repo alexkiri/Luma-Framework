@@ -268,6 +268,7 @@ public:
       // Unity games almost always have a clear last shader, so we can pre-scale by the inverse of the UI brightness, so the UI can draw at a custom brightness.
       // The UI usually draws in linear space too, though that's an engine setting.
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
+      GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
 
       native_shaders_definitions.emplace(CompileTimeStringHash("Sanitize Lighting"), ShaderDefinition{ "Luma_SanitizeLighting", reshade::api::pipeline_subobject_type::pixel_shader });
    }
@@ -346,7 +347,7 @@ public:
 
             if (game_device_data.lighting_buffer_srv.get() && game_device_data.lighting_buffer_width != 0)
             {
-               DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+               DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
                draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                com_ptr<ID3D11Resource> rtv_resource;
@@ -398,14 +399,14 @@ public:
          ASSERT_ONCE(game_device_data.scene_color_rtv.get());
          game_device_data.is_drawing_materials = false;
 
-         DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+         DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
          DrawStateStack<DrawStateStackType::Compute> compute_state_stack;
          draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
          compute_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
          // Avoids nans spreading over the transparency phase and TAA etc (character shaders occasionally spit out some)
          if (test_index != 18) // TODO: delete
-         SanitizeNaNs(native_device, native_device_context, device_data, game_device_data.scene_color_rtv.get(), game_device_data.sanitize_nans_data);
+         SanitizeNaNs(native_device, native_device_context, game_device_data.scene_color_rtv.get(), device_data, game_device_data.sanitize_nans_data, true);
 
 #if DEVELOPMENT
          const std::shared_lock lock_trace(s_mutex_trace);

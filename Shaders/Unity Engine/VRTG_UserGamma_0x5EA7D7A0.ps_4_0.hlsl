@@ -36,10 +36,10 @@ void main(
   r0.xyz = log2(r0.xyz);
   r0.xyz = float3(0.416666657,0.416666657,0.416666657) * r0.xyz;
   r0.xyz = exp2(r0.xyz);
-#else
-  r0.xyz = pow(r0.xyz, 1.0 / 2.4);
-#endif
   r0.xyz = (r0.xyz * 1.055) - 0.055;
+#else
+  r0.xyz = gamma_sRGB_to_linear(r0.xyz);
+#endif
 #if 0
   r0.xyz = max(float3(0,0,0), r0.xyz);
 #endif

@@ -9,7 +9,11 @@
 // SDR linear mid gray.
 // This is based on the commonly used value, though perception space mid gray (0.5) in sRGB or Gamma 2.2 would theoretically be ~0.2155 in linear.
 static const float MidGray = 0.18f;
+#ifdef CUSTOM_SDR_GAMMA
+static const float DefaultGamma = CUSTOM_SDR_GAMMA;
+#else
 static const float DefaultGamma = 2.2f;
+#endif
 static const float3 Rec709_Luminance = float3(0.2126f, 0.7152f, 0.0722f);
 static const float3 Rec2020_Luminance = float3(0.2627066f, 0.6779996f, 0.0592938f);
 static const float3 AP1_Luminance = float3(0.2722287168f, 0.6740817658f, 0.0536895174f);
@@ -147,7 +151,7 @@ float3 CorrectOutOfRangeColor(float3 Color, bool FixNegatives = true, bool FixPo
 	  float3 positiveColorRestoredLuminance = RestoreLuminance(positiveColor, colorLuminance, true, ColorSpace);
 	  Color = lerp(lerp(Color, positiveColorRestoredLuminance, sqrt(DesaturationAmount)), colorLuminance, negativePositiveLuminanceRatio * sqrt(DesaturationAmount));
 #else // This should look better and be faster
-	  const float3 luminanceRatio = ColorSpace == CS_BT2020 ? Rec2020_Luminance : ColorSpace == CS_AP1 ? AP1_Luminance : Rec709_Luminance;
+	  const float3 luminanceRatio = (ColorSpace == CS_BT2020) ? Rec2020_Luminance : ((ColorSpace == CS_AP1) ? AP1_Luminance : Rec709_Luminance);
 	  float3 negativePositiveLuminanceRatio = -(negativeColor / luminanceRatio) / (positiveLuminance / luminanceRatio);
 	  Color = lerp(Color, colorLuminance, negativePositiveLuminanceRatio * DesaturationAmount);
 #endif

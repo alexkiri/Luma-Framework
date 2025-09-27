@@ -3,6 +3,8 @@
 enum class DrawStateStackType
 {
    // Same as "FullGraphics" but skips some states that are usually not changed by our code.
+   // Note that in DX10-11 when binding game resources as RT or SR etc, they might automatically get unbound
+   // from previous incompatible bindings they had, and these slots might not always be restored by this mode.
    SimpleGraphics,
    // Not 100% of the graphics state, but almost everything we'll ever need.
    FullGraphics,
@@ -829,9 +831,11 @@ bool IsRTBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
    return IsRTRGBBlendDisabled(rt_blend_desc) && IsRTAlphaBlendDisabled(rt_blend_desc);
 }
 
-struct SanitizeNaNsSimpleData
+struct CustomPixelShaderPassData
 {
-   com_ptr<ID3D11RenderTargetView> original_rtv;
+   // Only one of the two will be valid
+   com_ptr<ID3D11RenderTargetView> original_or_custom_rtv;
+   com_ptr<ID3D11View> original_rv;
 
    // Temp texture copy
    com_ptr<ID3D11Texture2D> texture_2d;
@@ -840,19 +844,19 @@ struct SanitizeNaNsSimpleData
    UINT height = 1;
 };
 
-void SanitizeNaNsSimple(ID3D11Device* device, ID3D11DeviceContext* device_context, const DeviceData& device_data, ID3D11RenderTargetView* rtv, SanitizeNaNsSimpleData& data)
+void DrawCustomPixelShaderPass(ID3D11Device* device, ID3D11DeviceContext* device_context, ID3D11View* resource_view, const DeviceData& device_data, uint32_t pixel_shader_hash, CustomPixelShaderPassData& data)
 {
-   if (data.original_rtv != rtv)
+   if (data.original_rv.get() != resource_view)
    {
-      if (data.original_rtv)
+      if (data.original_rv)
       {
-         data = SanitizeNaNsSimpleData();
+         data = CustomPixelShaderPassData();
       }
 
-      if (rtv)
+      if (resource_view)
       {
          com_ptr<ID3D11Resource> resource;
-         rtv->GetResource(&resource);
+         resource_view->GetResource(&resource);
          if (resource)
          {
             com_ptr<ID3D11Texture2D> texture_2d;
@@ -866,12 +870,26 @@ void SanitizeNaNsSimple(ID3D11Device* device, ID3D11DeviceContext* device_contex
                   data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_RENDER_TARGET, false, false, device_context);
                   if (data.texture_2d)
                   {
-                     data.original_rtv = rtv;
+                     HRESULT hr;
+
+                     data.original_rv = resource_view;
+
+                     com_ptr<ID3D11RenderTargetView> rtv;
+                     hr = resource_view->QueryInterface(&rtv);
+                     if (rtv)
+                     {
+                        data.original_or_custom_rtv = rtv;
+                     }
+                     else
+                     {
+                        hr = device->CreateRenderTargetView(texture_2d.get(), nullptr, &data.original_or_custom_rtv);
+                        ASSERT_ONCE(SUCCEEDED(hr));
+                     }
 
                      data.width = texture_2d_desc.Width;
                      data.height = texture_2d_desc.Height;
 
-                     HRESULT hr = device->CreateShaderResourceView(data.texture_2d.get(), nullptr, &data.srv);
+                     hr = device->CreateShaderResourceView(data.texture_2d.get(), nullptr, &data.srv);
                      ASSERT_ONCE(SUCCEEDED(hr));
                   }
                }
@@ -880,19 +898,20 @@ void SanitizeNaNsSimple(ID3D11Device* device, ID3D11DeviceContext* device_contex
       }
    }
 
-   if (data.original_rtv)
+   // This is only valid if everything succeeded
+   if (data.original_or_custom_rtv)
    {
       const auto vs = device_data.native_vertex_shaders.find(Math::CompileTimeStringHash("Copy VS"));
-      const auto ps = device_data.native_pixel_shaders.find(Math::CompileTimeStringHash("Sanitize RGBA PS"));
+      const auto ps = device_data.native_pixel_shaders.find(pixel_shader_hash);
       if (vs == device_data.native_vertex_shaders.end() || !vs->second.get()
          || ps == device_data.native_pixel_shaders.end() || !ps->second.get()) return;
 
       com_ptr<ID3D11Resource> resource;
-      rtv->GetResource(&resource); // If we got here, it's valid
+      data.original_or_custom_rtv->GetResource(&resource); // If we got here, it's valid
 
       device_context->CopySubresourceRegion(data.texture_2d.get(), 0, 0, 0, 0, resource.get(), 0, nullptr);
 
-      DrawCustomPixelShader(device_context, nullptr, nullptr, device_data.sampler_state_point.get(), vs->second.get(), ps->second.get(), data.srv.get(), data.original_rtv.get(), data.width, data.height);
+      DrawCustomPixelShader(device_context, nullptr, nullptr, device_data.sampler_state_point.get(), vs->second.get(), ps->second.get(), data.srv.get(), data.original_or_custom_rtv.get(), data.width, data.height);
    }
 }
 
@@ -904,16 +923,16 @@ struct SanitizeNaNsData
 
    // Temp mipped texture copy
    com_ptr<ID3D11Texture2D> texture_2d;
-   com_ptr<ID3D11ShaderResourceView> srvs[max_levels] = {}; // Theoretically we don't need the last one. The first one allows access to all mips.
-   com_ptr<ID3D11RenderTargetView> rtvs[max_levels] = {}; // Theoretically we don't need the first one.
+   com_ptr<ID3D11ShaderResourceView> srv;
    com_ptr<ID3D11UnorderedAccessView> uavs[max_levels] = {}; // Theoretically we don't need the first one.
    UINT width = 1;
    UINT height = 1;
    UINT levels = 1; // >= 1 (includes base)
+
+   bool smoothed = false;
 };
 
-// TODO: rename both to better names, or unify with "SanitizeNaNsSimple" given they very similar.
-void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, const DeviceData& device_data, ID3D11RenderTargetView* rtv, SanitizeNaNsData& data)
+void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, ID3D11RenderTargetView* rtv, const DeviceData& device_data, SanitizeNaNsData& data, bool smoothed = false)
 {
    if (data.original_rtv != rtv)
    {
@@ -934,9 +953,15 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, con
             {
                D3D11_TEXTURE2D_DESC texture_2d_desc;
                texture_2d->GetDesc(&texture_2d_desc);
+#if DEVELOPMENT
+               D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
+               rtv->GetDesc(&rtv_desc);
+               ASSERT_ONCE(rtv_desc.Format == texture_2d_desc.Format); // TODO: if this triggers, add support for view formats that don't match the texture format (in case it was typeless)
+#endif
+
                if (IsSignedFloatFormat(texture_2d_desc.Format)) // They couldn't have NaNs otherwise
                {
-                  data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, D3D11_BIND_RENDER_TARGET, false, false, device_context, 0); // Create texture with mips for NaN filtering
+                  data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE | (smoothed ? D3D11_BIND_UNORDERED_ACCESS : 0), D3D11_BIND_RENDER_TARGET, false, false, device_context, smoothed ? 0 : -1); // Create texture with mips for NaN filtering
                   if (data.texture_2d)
                   {
                      data.original_rtv = rtv;
@@ -945,6 +970,8 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, con
                      data.height = texture_2d_desc.Height;
 
                      data.levels = GetTextureMaxMipLevels(data.width, data.width);
+
+                     data.smoothed = smoothed;
 
 #if DEVELOPMENT
                      D3D11_TEXTURE2D_DESC new_texture_2d_desc;
@@ -958,20 +985,23 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, con
                      D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
                      srv_desc.Format = texture_2d_desc.Format;
                      srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-                     srv_desc.Texture2D.MipLevels = -1; // All mips
+                     srv_desc.Texture2D.MipLevels = data.smoothed ? -1 : 1; // Optionally all mips
                      srv_desc.Texture2D.MostDetailedMip = 0;
-                     hr = device->CreateShaderResourceView(data.texture_2d.get(), &srv_desc, &data.srvs[0]);
+                     hr = device->CreateShaderResourceView(data.texture_2d.get(), &srv_desc, &data.srv);
                      ASSERT_ONCE(SUCCEEDED(hr));
 
-                     // Create UAVs for each specific downscale pass
-                     for (UINT i = 0; i < data.levels; ++i)
+                     if (data.smoothed)
                      {
-                        D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
-                        uav_desc.Format = texture_2d_desc.Format; // TODO: add SRGB formats support
-                        uav_desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
-                        uav_desc.Texture2D.MipSlice = i;
-                        hr = device->CreateUnorderedAccessView(data.texture_2d.get(), &uav_desc, &data.uavs[i]);
-                        ASSERT_ONCE(SUCCEEDED(hr));
+                        // Create UAVs for each specific downscale pass
+                        for (UINT i = 0; i < data.levels; ++i)
+                        {
+                           D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+                           uav_desc.Format = texture_2d_desc.Format; // TODO: add SRGB formats support
+                           uav_desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
+                           uav_desc.Texture2D.MipSlice = i;
+                           hr = device->CreateUnorderedAccessView(data.texture_2d.get(), &uav_desc, &data.uavs[i]);
+                           ASSERT_ONCE(SUCCEEDED(hr));
+                        }
                      }
                   }
                }
@@ -980,37 +1010,41 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, con
       }
    }
 
+   // This is only valid if everything succeeded
    if (data.original_rtv)
    {
-      const auto cs = device_data.native_compute_shaders.find(Math::CompileTimeStringHash("Gen Sanitized Mip"));
+      const auto cs = data.smoothed ? device_data.native_compute_shaders.find(Math::CompileTimeStringHash("Gen Sanitized Mip")) : device_data.native_compute_shaders.end();
       const auto vs = device_data.native_vertex_shaders.find(Math::CompileTimeStringHash("Copy VS"));
-      const auto ps = device_data.native_pixel_shaders.find(Math::CompileTimeStringHash("Sanitize RGBA Mipped"));
-      if (cs == device_data.native_compute_shaders.end() || !cs->second.get()
+      const auto ps = device_data.native_pixel_shaders.find(data.smoothed ? Math::CompileTimeStringHash("Sanitize RGBA Mipped") : Math::CompileTimeStringHash("Sanitize RGBA PS"));
+      if ((data.smoothed && (cs == device_data.native_compute_shaders.end() || !cs->second.get()))
          || vs == device_data.native_vertex_shaders.end() || !vs->second.get()
          || ps == device_data.native_pixel_shaders.end() || !ps->second.get()) return;
 
       com_ptr<ID3D11Resource> resource;
-      rtv->GetResource(&resource); // If we got here, it's valid
+      data.original_rtv->GetResource(&resource); // If we got here, it's valid
       // Copy the first mip from the current value
       device_context->CopySubresourceRegion(data.texture_2d.get(), 0, 0, 0, 0, resource.get(), 0, nullptr);
 
-      device_context->CSSetShader(cs->second.get(), nullptr, 0);
-      for (UINT i = 1; i < data.levels; i++)
+      if (data.smoothed)
       {
-         // In DX11 the same resource can't be bound as SRV and UAV/RTV, even if they only view one different mip, it'd be automatically unbound, so we need to use a different UAV slice and compute shaders.
-         ID3D11UnorderedAccessView* const uavs[2] = { data.uavs[i-1].get(), data.uavs[i].get() };
-         device_context->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+         device_context->CSSetShader(cs->second.get(), nullptr, 0);
+         for (UINT i = 1; i < data.levels; i++)
+         {
+            // In DX11 the same resource can't be bound as SRV and UAV/RTV, even if they only view one different mip, it'd be automatically unbound, so we need to use a different UAV slice and compute shaders.
+            ID3D11UnorderedAccessView* const uavs[2] = { data.uavs[i - 1].get(), data.uavs[i].get() };
+            device_context->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
 
-         // Compute shader thread size is 8x8x1
-         UINT x = (GetTextureMipSize(data.width, i) + 7) / 8;
-         UINT y = (GetTextureMipSize(data.height, i) + 7) / 8;
-         device_context->Dispatch(x, y, 1);
+            // Compute shader thread size is 8x8x1
+            UINT x = (GetTextureMipSize(data.width, i) + 7) / 8;
+            UINT y = (GetTextureMipSize(data.height, i) + 7) / 8;
+            device_context->Dispatch(x, y, 1);
+         }
+
+         // Clear them up to avoid overlaps (warnings), this is probably unnecessary as below we use a pixel shader
+         ID3D11UnorderedAccessView* null_uavs[2] = { nullptr, nullptr };
+         device_context->CSSetUnorderedAccessViews(0, 2, null_uavs, nullptr);
       }
 
-      // Clear them up to avoid overlaps (warnings), this is probably unnecessary as below we use a pixel shader
-      ID3D11UnorderedAccessView* null_uavs[2] = { nullptr, nullptr };
-      device_context->CSSetUnorderedAccessViews(0, 2, null_uavs, nullptr);
-
-      DrawCustomPixelShader(device_context, nullptr, nullptr, device_data.sampler_state_point.get(), vs->second.get(), ps->second.get(), data.srvs[0].get(), data.original_rtv.get(), data.width, data.height);
+      DrawCustomPixelShader(device_context, nullptr, nullptr, device_data.sampler_state_point.get(), vs->second.get(), ps->second.get(), data.srv.get(), data.original_rtv.get(), data.width, data.height);
    }
 }

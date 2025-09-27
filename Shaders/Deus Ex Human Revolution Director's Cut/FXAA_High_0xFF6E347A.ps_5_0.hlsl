@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
 #include "../Includes/Reinhard.hlsl"
 
@@ -225,7 +225,7 @@ void main(
   o0.xyz = r2.xyz;
   o0.w = 1;
   
-  if (LumaData.CustomData1) // Luma
+  if (!LumaSettings.GameSettings.HasColorGradingPass) // Luma
   {
     o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
     

@@ -330,6 +330,10 @@ namespace
       // For gamma space SDR use "DXGI_FORMAT_R8G8B8A8_UNORM", especially if there's no need to upgrade the bit depth, gamut and dynamic range of the UI.
       // For high quality gamma space SDR use "DXGI_FORMAT_R10G10B10A2_UNORM" can alternatively be used to improve the quality if you are sure the game doesn't read back alpha (you can try with "DXGI_FORMAT_R11G11B10_FLOAT" as a test, and see if any of the UI looks different, given it has no alpha).
       DXGI_FORMAT ui_separation_format = DXGI_FORMAT_UNKNOWN;
+
+      // Ignored if <= 0. Can be used to change all behaviours that use gamma 2.2 to 2.35 or 2.4 or whatever other value.
+      // This will apply to all decoding and decoding gamma functions.
+      float custom_sdr_gamma = -1.f;
    }
 
    // The root path of all the shaders we load and dump
@@ -908,6 +912,10 @@ namespace
          {
             game_specific_defines++;
          }
+         if (custom_sdr_gamma > 0.f)
+         {
+            game_specific_defines++;
+         }
          const uint32_t total_extra_defines = cbuffer_defines + game_specific_defines;
          shader_defines.assign((shader_defines_data.size() + total_extra_defines) * 2, "");
 
@@ -925,6 +933,11 @@ namespace
          {
             shader_defines[shader_defines_index++] = sub_game_shader_define;
             shader_defines[shader_defines_index++] = "1";
+         }
+         if (custom_sdr_gamma > 0.f)
+         {
+            shader_defines[shader_defines_index++] = "CUSTOM_SDR_GAMMA";
+            shader_defines[shader_defines_index++] = std::to_string(custom_sdr_gamma);
          }
 
          // Define 3 shader cbuffers indexes (e.g. "(b13)")
@@ -2410,8 +2423,9 @@ namespace
          {
             cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
          }
-         else if (cb_luma_global_settings.DisplayMode == 1)
+         else if (cb_luma_global_settings.DisplayMode != 1)
          {
+            // Making sure SDR is all defaulted to the right values
             ASSERT_ONCE(cb_luma_global_settings.ScenePeakWhite == srgb_white_level && cb_luma_global_settings.ScenePaperWhite == srgb_white_level);
          }
          device_data.cb_luma_global_settings_dirty = true;
@@ -6767,7 +6781,7 @@ namespace
                hr = native_device->CreateRenderTargetView(proxy_target_resource_texture.get(), &target_rtv_desc, &target_resource_texture_view);
                ASSERT_ONCE(SUCCEEDED(hr));
 
-               DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+               DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
                draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                DrawCustomPixelShader(native_device_context, device_data.default_depth_stencil_state.get(), device_data.default_blend_state.get(), nullptr, device_data.native_vertex_shaders[CompileTimeStringHash("Copy VS")].get(), device_data.native_pixel_shaders[CompileTimeStringHash("Copy PS")].get(), source_resource_texture_view.get(), target_resource_texture_view.get(), target_desc.Width, target_desc.Height, true);
@@ -10463,6 +10477,14 @@ namespace
                ImGui::NewLine();
                ImGui::SliderInt("Tank Performance (Frame Sleep MS)", &frame_sleep_ms, 0, 100);
                ImGui::SliderInt("Tank Performance (Frame Sleep Interval)", &frame_sleep_interval, 1, 30);
+
+               ImGui::NewLine();
+               bool changed_gamma = ImGui::SliderFloat("Custom SDR Gamma", &custom_sdr_gamma, 1.f, 3.f);
+               changed_gamma |= DrawResetButton<float, false>(custom_sdr_gamma, 0.f, nullptr, runtime);
+               if (changed_gamma)
+               {
+                  defines_need_recompilation = true;
+               }
 
                ImGui::NewLine();
                ImGuiInputTextFlags text_flags = ImGuiInputTextFlags_CharsHexadecimal | ImGuiInputTextFlags_CharsNoBlank | ImGuiInputTextFlags_AlwaysOverwrite | ImGuiInputTextFlags_NoUndoRedo;

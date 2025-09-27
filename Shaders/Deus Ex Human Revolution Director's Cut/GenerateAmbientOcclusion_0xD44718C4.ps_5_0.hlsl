@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer DrawableBuffer : register(b1)
 {
@@ -247,7 +247,7 @@ void main(
   //noiseCoords = MirrorUV(noiseCoords);
 #endif
 #if 0
-  noiseCoords *= ScreenResolution.y / 1080.0; // Scale to 1080p, so the noise isn't tiny at 4k, as it ends up being more noticeable
+  noiseCoords *= ScreenResolution.y / DevelopmentVerticalResolution; // Scale to 720p/1080p, so the noise isn't tiny at 4k, as it ends up being more noticeable
   
   noiseCoords += float2(RandomFromIndex(LumaSettings.FrameIndex), RandomFromIndex2(LumaSettings.FrameIndex));
 #endif

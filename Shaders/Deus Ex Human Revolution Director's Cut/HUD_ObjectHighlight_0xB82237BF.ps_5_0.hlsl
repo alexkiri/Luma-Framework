@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer DrawableBuffer : register(b1)
 {
@@ -74,10 +74,10 @@ void main(
   r0.xy = r0i.xy;
   r0.xy = r0.xy / MaterialParams[1].xy;
   float scale = 1.0;
-#if 1 // Luma: fix objects highlights grid being tiny at 4k, and the borders being very thing. We fix it at 1080p, assuming the game didn't scale it at all.
+#if 1 // Luma: fix objects highlights grid being tiny at 4k, and the borders being very thing. We fix it at 720p/1080p, assuming the game didn't scale it at all.
   float2 size;
   p_default_Material_172C75A41181749_DeferredBufferTexture_texture.GetDimensions(size.x, size.y);
-  scale = 1080.0 / size.y;
+  scale = DevelopmentVerticalResolution / size.y;
   r0.xy *= scale;
 #endif
   r0.x = p_default_Material_1A44CED412004500_Texture_texture.Sample(p_default_Material_1A44CED412004500_Texture_sampler_s, r0.xy).w; // The pattern texture

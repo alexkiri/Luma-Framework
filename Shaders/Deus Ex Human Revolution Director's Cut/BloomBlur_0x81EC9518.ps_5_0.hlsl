@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #ifndef ENABLE_LUMA
 #define ENABLE_LUMA 1
@@ -74,13 +74,13 @@ void main(
   float2 centralUV = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
   float scale = 1.0;
   uint iterations = 1.0;
-#if BLOOM_UPGRADE_TYPE != 0 // Luma: scale bloom based on 1080p resolution, given that it was very faint at high resolutions (this will make it closer to the Xbox 360 days, where bloom was very spread (as in, radius))
+#if BLOOM_UPGRADE_TYPE != 0 // Luma: scale bloom based on 720p/1080p resolution, given that it was very faint at high resolutions (this will make it closer to the Xbox 360 days, where bloom was very spread (as in, radius))
   float2 size;
   p_default_Material_0C38D4A418992488_Param_texture.GetDimensions(size.x, size.y);
   float2 originalSize = size;
   size *= 4.0; // At this point we are at 0.25x scale (rounded down to int)
 
-  scale = size.y / 1080.0;
+  scale = size.y / DevelopmentVerticalResolution;
 #if BLOOM_UPGRADE_TYPE == 1
   iterations = max(scale + 0.5, 1);
 #if 0 // Reduce the radius as we don't fully generate mips properly, we have an approximation of them

@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #ifndef ENABLE_LUMA
 #define ENABLE_LUMA 1
@@ -61,10 +61,13 @@ void main(
 {
   float4 r0;
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+  bool forceSDR = ShouldForceSDR(r0.xy, true);
   r0.xyzw = p_default_Material_0B464C7419133480_Param_texture.Sample(p_default_Material_0B464C7419133480_Param_sampler_s, r0.xy).xyzw;
   r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz; // Luma: fix NaNs
 #if ENABLE_LUMA // Luma: Don't go beyond 5 times the SDR range (in gamma space). Some emissive objects had a brightness almost as high as the max float and would explode through bloom
-  //r0.xyz = min(r0.xyz, 5.0); // TODO: not needed until proven again, bloom isn't crazy high anymore (it does get bright and saturated). Also not sure we should clamp by channel.
+  //r0.xyz = min(r0.xyz, 5.0); // Not needed until proven again, bloom isn't crazy high anymore (it does get bright and saturated). Also not sure we should clamp by channel.
+  if (forceSDR)
+    r0 = saturate(r0);
 #else
   r0.xyz = saturate(r0.xyz);
 #endif

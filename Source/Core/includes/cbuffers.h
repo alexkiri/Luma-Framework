@@ -52,6 +52,8 @@ namespace CB
 
 #if DEVELOPMENT // In case we disabled the "DEVELOPMENT" shader define while the code is compiled in "DEVELOPMENT" mode, we'll simply push values that aren't read by shaders (see "CPU_DEVELOPMENT")
       LumaDevSettings DevSettings;
+#else
+      float2 Padding1;
 #endif // DEVELOPMENT
 
       LumaGameSettings GameSettings; // Custom games setting, with a per game struct

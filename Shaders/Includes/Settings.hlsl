@@ -35,6 +35,7 @@
 // If the game drew in gamma space already without ever passing through linear HDR before tonemapping, select Gamma 2.2.
 // If the game used a random encoding formula (e.g. tonemap and encoding in a single function), also select Gamma 2.2.
 // If "POST_PROCESS_SPACE_TYPE" is 0, we assume the HDR implementation uses the same encoding.
+// Note that all gamma 2.2 setting with inherit whatever gamma is set by "DefaultGamma", be it 2.2, 2.4 or anything else.
 //
 // 0 sRGB
 // 1 Gamma 2.2
@@ -49,7 +50,7 @@
 // while everything stays in sRGB gamma (as theoretically it would have been originally, even if it was displayed on 2.2) when stored in textures,
 // so this determines how the final shader should linearize (if >=1, from 2.2, if <=0, from sRGB, thus causing raised blacks compared to how the gamma would have appeared on gamma 2.2 displays).
 // Note that by gamma correction we mean fixing up the game's bad gamma implementation, though sometimes this term is used to imply "display encoding".
-// We do not have a gamma 2.4 setting, because the game was seemingly not meant for that. It'd be easily possible to add one if ever needed (e.g. replace the "DefaultGamma" value, or directly expose that to the user (don't!)).
+// Note that all gamma 2.2 setting with inherit whatever gamma is set by "DefaultGamma", be it 2.2, 2.4 or anything else.
 // 
 // 0 sRGB
 // 1 Gamma 2.2
@@ -209,7 +210,11 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float DevSetting08; // 0, 0, 1
     float DevSetting09; // 0, 0, 1
     float DevSetting10; // 0, 0, 1
+#else
+    float2 Padding1;
 #endif
+
+    // NOTE: keep anything before the game settings aligned to 16 bytes (4 floats/ints). This is the only way to match both c++ and hlsl quirks at the same time.
 
     // This is here to avoid taking too many cbuffer slots for separate buffers. It's at the end to avoid alignment issues with non game specific data in case the game specific includes were missing.
     CB::LumaGameSettings GameSettings; // Custom games setting, with a per game struct.

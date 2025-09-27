@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer cb1_buf : register(b1)
 {
@@ -98,7 +98,7 @@ float dp4_f32(float4 a, float4 b)
     return mad(a.w, b.w, mad(a.z, b.z, mad(a.y, b.y, _185)));
 }
 
-// TODO: this is broken
+// Note: this is broken
 void frag_main()
 {
     float _238 = asfloat(cb2_m[10u].x);

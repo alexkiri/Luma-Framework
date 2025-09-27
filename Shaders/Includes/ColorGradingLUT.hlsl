@@ -279,7 +279,7 @@ float3 NormalizeLUT(float3 vOriginalGamma, float3 vBlackGamma, float3 vMidGrayGa
 // The "BT.2020" flag means it will convert to that from "BT.709"
 float3 RestorePostProcess(float3 nonPostProcessedTargetColor, float3 nonPostProcessedSourceColor, float3 postProcessedSourceColor, float hueRestoration = 0.0, bool BT2020 = true)
 {
-  static const float MaxShadowsColor = pow(1.f / 3.f, 2.2f); // The lower this value, the more "accurate" is the restoration (math wise), but also more error prone (e.g. division by zero). If the color range is wider than the original one, the higher this value is, the further it will extend, due to working by offset near black (and thus generating negative rgb values).
+  static const float MaxShadowsColor = pow(1.f / 3.f, DefaultGamma); // The lower this value, the more "accurate" is the restoration (math wise), but also more error prone (e.g. division by zero). If the color range is wider than the original one, the higher this value is, the further it will extend, due to working by offset near black (and thus generating negative rgb values).
 
 	// Optionally convert to BT.2020 to allow more saturated shadow to be generated (BT.709 will reach the edges of the gamut and clip on shadow).
   // We could do this in AP0 gamut but that'd probably generated too many unsupported colors.
@@ -315,14 +315,14 @@ float3 RestorePostProcess(float3 nonPostProcessedTargetColor, float3 nonPostProc
 }
 
 // This fixes the luminance of linear lerps not being perceptual (but it leaves the original hue, which are a bit randomly shifted if you look at it perceptually)
-float4 PerceptualLerp(float4 colorA, float4 colorB, float alpha)
+float4 PerceptualLerp(float4 colorA, float4 colorB, float alpha, float gamma = DefaultGamma)
 {
 	float luminanceA = GetLuminance(colorA.rgb);
 	float luminanceB = GetLuminance(colorB.rgb);
-   // We use gamma 2.2 just because it's standard, though it's likely not the best here
-	float gammaLuminanceA = pow(max(luminanceA, 0.f), 1.0 / 2.2); // Linear->Gamma
-	float gammaLuminanceB = pow(max(luminanceB, 0.f), 1.0 / 2.2); // Linear->Gamma
-	float targetLuminance = pow(lerp(gammaLuminanceA, gammaLuminanceB, alpha), 2.2); // Blend in gamma space
+   // We use gamma 2.2 or so just because it's standard, though it's likely not the best here
+	float gammaLuminanceA = pow(max(luminanceA, 0.f), 1.0 / gamma); // Linear->Gamma
+	float gammaLuminanceB = pow(max(luminanceB, 0.f), 1.0 / gamma); // Linear->Gamma
+	float targetLuminance = pow(lerp(gammaLuminanceA, gammaLuminanceB, alpha), gamma); // Blend in gamma space
 
 	float4 colorLerped = lerp(colorA, colorB, alpha);
 	float sourceLuminance = GetLuminance(colorLerped.rgb);
@@ -1555,8 +1555,8 @@ float4 sampleLUTWithExtrapolation1D(Texture2D<float4> lut, SamplerState samplerS
 #if 1  // Lerp in gamma space, this seems to look better for old games (especially when the whole renders is in gamma space, never linearized), and the "extrapolationRatio" is in gamma space too
     const float4 extrapolatedSample = lerp(centeredSample, clampedSample, 1.0 + extrapolationRatio);
 #else  // Lerp in linear space to make it more "accurate"
-    float4 extrapolatedSample = lerp(pow(centeredSample, 2.2), pow(clampedSample, 2.2), 1.0 + extrapolationRatio);
-    extrapolatedSample = pow(abs(extrapolatedSample), 1.0 / 2.2) * sign(extrapolatedSample);
+    float4 extrapolatedSample = lerp(pow(centeredSample, DefaultGamma), pow(clampedSample, DefaultGamma), 1.0 + extrapolationRatio);
+    extrapolatedSample = pow(abs(extrapolatedSample), 1.0 / DefaultGamma) * sign(extrapolatedSample);
 #endif
     return extrapolatedSample;
   }

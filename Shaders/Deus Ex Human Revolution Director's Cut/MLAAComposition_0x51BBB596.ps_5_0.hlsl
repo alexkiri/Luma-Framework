@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
 #include "../Includes/Reinhard.hlsl"
 
@@ -254,7 +254,7 @@ float4 main(float4 gl_FragCoord : SV_Position) : SV_Target0
         outColor.w = _454;
     }
     
-  if (LumaData.CustomData1) // Luma
+  if (!LumaSettings.GameSettings.HasColorGradingPass) // Luma
   {
     outColor.rgb = gamma_to_linear(outColor.rgb, GCT_MIRROR);
     
