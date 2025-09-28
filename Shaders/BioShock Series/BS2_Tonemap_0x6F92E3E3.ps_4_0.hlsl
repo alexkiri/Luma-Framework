@@ -56,7 +56,7 @@ void main(
 
   float3 clippedLuminance = r0.xyz - saturate(r0.xyz);
   r0.xyz = pow(abs(r0.xyz), 1.0 / 2.2) * sign(r0.xyz); // Linear to gamma
-  outColor.xyz = s_toneMapTable.Sample(s_toneMapTable_s, saturate(r0.xyz)).xyz; // Broken sampling math, we have not corrected this, it clips!
+  outColor.xyz = s_toneMapTable.Sample(s_toneMapTable_s, saturate(r0.xyz)).xyz; // Broken sampling math, here we have not corrected this, it clips!
   outColor.xyz = pow(abs(outColor.xyz), 2.2) * sign(outColor.xyz); // Gamma to linear
 #if ENABLE_LUMA && 0 // Luma: cheap awful trick to recover luminance
   outColor.xyz += clippedLuminance;
@@ -133,5 +133,5 @@ void main(
 
 #endif // ENABLE_COLOR_GRADING && !ENABLE_LUMA
   
-  outColor.xyz = pow(abs(outColor.xyz), 1.0 / 2.2) * sign(outColor.xyz); // Linear to gamma
+  outColor.xyz = pow(abs(outColor.xyz), 1.0 / 2.2) * sign(outColor.xyz); // Linear to gamma (the game used 2.2)
 }

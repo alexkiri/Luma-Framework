@@ -221,7 +221,7 @@ void main(
     float highlightsSaturationIntensity = 0.25; // Anything more is deep fried.
     float luminanceTonemap = saturate(Reinhard::ReinhardRange(GetLuminance(gradedSceneColorLinear), MidGray, -1.0, 1.0, false).x);
     fakeHDRColor = linear_srgb_to_oklab(fakeHDRColor);
-    fakeHDRColor.yz *= lerp(1.0, max(pow(luminanceTonemap, 1.0 / 2.2) + 0.5, 1.0), highlightsSaturationIntensity); // Arbitrary formula
+    fakeHDRColor.yz *= lerp(1.0, max(pow(luminanceTonemap, 1.0 / DefaultGamma) + 0.5, 1.0), highlightsSaturationIntensity); // Arbitrary formula
 	  fakeHDRColor = oklab_to_linear_srgb(fakeHDRColor);
     
     gradedSceneColorLinear = lerp(gradedSceneColorLinear, fakeHDRColor, LumaData.CustomData3);

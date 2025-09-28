@@ -261,6 +261,9 @@ void main(
   bool forceFinalPostProcess = (LumaData.CustomData1 & 0x1) != 0; // First bit (bit 0)
   bool forceEncode = (LumaData.CustomData1 & 0x2) != 0; // Second bit (bit 1)
   bool forceSDR = ShouldForceSDR(uv) || LumaSettings.DisplayMode != 1;
+#if !ENABLE_LUMA
+  forceSDR = true;
+#endif
 
   // We couldn't apply sharpening any later in this edge case, as it needs to sample it from a texture (unless we wanted to compute tonemapping 4-5 times per pixel...), this should be fine,
   // except for where there is lens distortion applied in the vertex shader (somehow?), either way it won't look terrible.

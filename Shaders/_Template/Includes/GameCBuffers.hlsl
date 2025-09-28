@@ -6,11 +6,10 @@
 #include "../../../Source/Core/includes/shader_types.h"
 #endif
 
-
 // Mirrors c++ name spaces.
 namespace CB
 {
-	// Define the game specific cbuffer settings here
+	// Define the game specific cbuffer settings here. They don't need 4 bytes alignment.
 	struct LumaGameSettings
 	{
 		float GameSetting01;

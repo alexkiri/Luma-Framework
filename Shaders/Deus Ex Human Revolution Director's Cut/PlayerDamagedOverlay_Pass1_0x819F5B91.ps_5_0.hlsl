@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 cbuffer DrawableBuffer : register(b1)
 {

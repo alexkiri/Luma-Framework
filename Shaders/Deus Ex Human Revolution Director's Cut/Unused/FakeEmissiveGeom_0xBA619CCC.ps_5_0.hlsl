@@ -1,6 +1,3 @@
-#include "Includes/Common.hlsl"
-#include "../Includes/ColorGradingLUT.hlsl"
-
 cbuffer DrawableBuffer : register(b1)
 {
   float4 FogColor : packoffset(c0);
@@ -50,10 +47,8 @@ cbuffer MaterialBuffer : register(b3)
   float4 MaterialParams[32] : packoffset(c0);
 }
 
-SamplerState p_default_Material_0BB3C5A410399412_Texture_sampler_s : register(s0);
-SamplerState p_default_Material_051E652418262650_Texture_sampler_s : register(s1);
-Texture2D<float4> p_default_Material_0BB3C5A410399412_Texture_texture : register(t0);
-Texture2D<float4> p_default_Material_051E652418262650_Texture_texture : register(t1);
+SamplerState p_default_Material_0B390A243201500_0851E8642221812_Texture_sampler_s : register(s0);
+Texture2D<float4> p_default_Material_0B390A243201500_0851E8642221812_Texture_texture : register(t0);
 
 void main(
   float4 v0 : SV_POSITION0,
@@ -61,30 +56,16 @@ void main(
   float4 v2 : TEXCOORD5,
   out float4 o0 : SV_Target0)
 {
-  float4 r0,r1,r2;
-  r0.x = MaterialParams[1].z * TimeVector.x;
-  r0.x = sin(r0.x);
-  r0.x = 1 + -abs(r0.x);
-  r0.x = -r0.x * MaterialParams[1].y + 1;
-  r0.yzw = p_default_Material_0BB3C5A410399412_Texture_texture.Sample(p_default_Material_0BB3C5A410399412_Texture_sampler_s, v1.xy).xyz;
-  r0.xyz = r0.yzw * r0.xxx;
-  r1.xy = MaterialParams[0].zw * TimeVector.xx;
-  r1.xy = v1.xy * MaterialParams[0].xy + r1.xy;
-  r1.xyz = p_default_Material_051E652418262650_Texture_texture.Sample(p_default_Material_051E652418262650_Texture_sampler_s, r1.xy).xyz;
-  r1.xyz = float3(1,1,1) + -r1.xyz;
-  r1.xyz = -r1.xyz * MaterialParams[1].xxx + float3(1,1,1);
-  r2.xyz = r1.xyz * r0.xyz;
-  r0.xyz = -r0.xyz * r1.xyz + FogColor.xyz;
-  r0.w = saturate(v2.w);
-  r0.w = GlobalParams[2].x * r0.w;
-  o0.xyz = r0.www * r0.xyz + r2.xyz;
-  o0.w = MaterialOpacity;
+  float4 r0,r1;
+  r0.x = saturate(v2.w);
+  r0.x = GlobalParams[2].x * r0.x;
+  r0.yzw = MaterialParams[1].zzz * MaterialParams[0].xyz;
+  r1.xyz = -MaterialParams[1].zzz * MaterialParams[0].xyz + FogColor.xyz;
+  o0.xyz = r0.xxx * r1.xyz + r0.yzw;
+  r0.xy = MaterialParams[1].xy * v1.xy;
+  r0.x = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Sample(p_default_Material_0B390A243201500_0851E8642221812_Texture_sampler_s, r0.xy).w;
+  o0.w = MaterialParams[0].w * r0.x;
 
-  // Luma: fix it up
-  o0.xyz = gamma_to_linear(o0.xyz, GCT_MIRROR);
-	FixColorGradingLUTNegativeLuminance(o0.xyz);
-  o0.xyz = linear_to_gamma(o0.xyz, GCT_MIRROR);
-  o0.xyz = max(o0.xyz, 0);
-  //o0.xyz = min(o0.xyz, 5.0); // Don't go beyond 5 times the SDR range (in gamma space). These emissive objects had a brightness almost as high as the max float
-  o0.w = saturate(o0.w);
+  o0.rgb *= 2.0;
+  o0.w *= 1.0;
 }

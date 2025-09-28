@@ -21,6 +21,10 @@ namespace
       {
          return lhs.x == rhs.x && lhs.y == rhs.y;
       }
+      friend bool operator!=(const uint2& lhs, const uint2& rhs)
+      {
+         return !(lhs == rhs);
+      }
    };
 
    struct uint3
@@ -32,6 +36,10 @@ namespace
       friend bool operator==(const uint3& lhs, const uint3& rhs)
       {
          return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+      }
+      friend bool operator!=(const uint3& lhs, const uint3& rhs)
+      {
+         return !(lhs == rhs);
       }
    };
 
@@ -46,6 +54,10 @@ namespace
       {
          return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
       }
+      friend bool operator!=(const uint4& lhs, const uint4& rhs)
+      {
+         return !(lhs == rhs);
+      }
    };
 
    struct float2
@@ -56,6 +68,10 @@ namespace
       friend bool operator==(const float2& lhs, const float2& rhs)
       {
          return lhs.x == rhs.x && lhs.y == rhs.y;
+      }
+      friend bool operator!=(const float2& lhs, const float2& rhs)
+      {
+         return !(lhs == rhs);
       }
    };
 
@@ -69,6 +85,10 @@ namespace
       {
          return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
       }
+      friend bool operator!=(const float3& lhs, const float3& rhs)
+      {
+         return !(lhs == rhs);
+      }
    };
 
    struct float4
@@ -81,6 +101,10 @@ namespace
       friend bool operator==(const float4& lhs, const float4& rhs)
       {
          return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
+      }
+      friend bool operator!=(const float4& lhs, const float4& rhs)
+      {
+         return !(lhs == rhs);
       }
    };
 

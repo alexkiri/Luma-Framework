@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
 
 cbuffer DrawableBuffer : register(b1)

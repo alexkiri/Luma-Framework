@@ -39,7 +39,10 @@ namespace Reinhard
 
     float3 possibleOutValue = ShoulderStart + restoreRangeCompressedColor; // This will be between "ShoulderStart" and "Out_Peak" (possibly going beyond it)
     if (ClampOutput) // Optionally clamp as it could be beyond "Out_Peak" if the input was beyond "In_Peak"
+    {
       possibleOutValue = min(possibleOutValue, Out_Peak);
+      Color = max(Color, 0.0);
+    }
     return (Color <= ShoulderStart) ? Color : possibleOutValue;
   }
   

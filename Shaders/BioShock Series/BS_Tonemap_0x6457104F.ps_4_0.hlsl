@@ -39,5 +39,5 @@ void main(
   sceneColor.rgb += bloomColor; // Bloom is 100% additive here
   sceneColor.rgb *= sceneBias; // Exposure // Luma: removed saturate
   
-  outColor = float4(pow(abs(sceneColor.rgb), 1.0 / 2.2) * sign(sceneColor.rgb), sceneColor.a); // Gamma 2.2
+  outColor = float4(pow(abs(sceneColor.rgb), 1.0 / 2.2) * sign(sceneColor.rgb), sceneColor.a); // Linear to gamma (the game used 2.2)
 }

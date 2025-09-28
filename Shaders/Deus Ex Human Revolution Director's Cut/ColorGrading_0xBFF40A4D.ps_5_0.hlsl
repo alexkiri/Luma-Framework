@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
 #include "../Includes/Reinhard.hlsl"
 
@@ -59,6 +59,10 @@ Texture2D<float4> p_default_Material_0C25AF6416088781_Param_texture : register(t
 #ifndef ENABLE_VIGNETTE
 #define ENABLE_VIGNETTE 1
 #endif
+// Undefined it as this used to be exposed to users but we've moved it to a cbuffer now
+#ifdef ENABLE_COLOR_GRADING_DESATURATION
+#undef ENABLE_COLOR_GRADING_DESATURATION
+#endif
 #ifndef ENABLE_COLOR_GRADING_DESATURATION
 #define ENABLE_COLOR_GRADING_DESATURATION 1
 #endif
@@ -77,6 +81,7 @@ void main(
 #endif
 
   float saturationAmount = InstanceParams[0].y; // <1 is desaturation, >1 is saturation
+  saturationAmount = lerp(max(saturationAmount, 1.0), saturationAmount, LumaSettings.GameSettings.DesaturationIntensity);
   float rgbAverage = (color.r + color.g + color.b) / 3.0;
 #if ENABLE_IMPROVED_COLOR_GRADING
 
@@ -187,7 +192,7 @@ void main(
 #endif
       o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
     }
-    else
+    else // Per channel doesn't look good in this game
     {
       o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
       o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them

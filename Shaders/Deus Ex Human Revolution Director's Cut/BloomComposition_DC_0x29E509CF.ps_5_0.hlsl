@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #ifndef ENABLE_FAKE_HDR
 #define ENABLE_FAKE_HDR 1
@@ -83,20 +83,20 @@ void main(
   sceneColor.xyz = min(sceneColor.xyz, 5.0); // Bloom was already clamped before
 #endif
 
+  bool forceSDR = ShouldForceSDR(r0.xy, true);
+
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that. Do it before bloom to avoid bloom going crazy too
-  if (LumaSettings.DisplayMode == 1)
+  if (LumaSettings.DisplayMode == 1 && !forceSDR)
   {
     float normalizationPoint = 0.05; // Found empyrically
-    float fakeHDRIntensity = 0.1;
+    float fakeHDRIntensity = 0.1 * LumaSettings.GameSettings.HDRBoostIntensity;
     sceneColor.xyz = gamma_to_linear(sceneColor.xyz, GCT_MIRROR);
     sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity, false);
     sceneColor.xyz = linear_to_gamma(sceneColor.xyz, GCT_MIRROR);
   }
 #endif // ENABLE_FAKE_HDR
 
-  bool forceSDR = ShouldForceSDR(r0.xy, true);
-
-  float emissiveScale = forceSDR ? 0.0 : asfloat(LumaData.CustomData1);
+  float emissiveScale = forceSDR ? 0.0 : LumaSettings.GameSettings.EmissiveIntensity;
 #if ENABLE_LUMA
   sceneColor.xyz /= lerp(1.0, max(sqr(sqr(saturate(1.0 - sceneColor.w))), 0.01), saturate(emissiveScale)); // Luma: scale scene color (before fogging it, and before bloom, as we already have bloom controls)
 #endif
@@ -111,7 +111,7 @@ void main(
   r0.w = -InstanceParams[3].z * r0.z + 1;
   r0.z = InstanceParams[3].z * r0.z;
 
-  r0.z *= LumaData.CustomData4; // Luma: scale the fog effect that was in the DC version of the game too
+  r0.z *= LumaSettings.GameSettings.FogIntensity; // Luma: scale the fog effect that was in the DC version of the game too
 
   r0.x = saturate(bloomedColor.w) * r0.w + r0.z; // Luma: added saturate to bloom alpha (its average color) prevent negative fov
   r0.x *= r0.z;
@@ -121,7 +121,7 @@ void main(
   foggedColor += sceneColor.xyz * sceneColor.w * emissiveScale;
 #endif
 
-  bloomedColor.xyzw *= LumaData.CustomData3; // Luma: scale bloom
+  bloomedColor.xyzw *= forceSDR ? 1.f : LumaSettings.GameSettings.BloomIntensity; // Luma: scale bloom
 
   o0.xyz = bloomedColor.xyz * InstanceParams[4].x + foggedColor.xyz;
   o0.w = MaterialOpacity;

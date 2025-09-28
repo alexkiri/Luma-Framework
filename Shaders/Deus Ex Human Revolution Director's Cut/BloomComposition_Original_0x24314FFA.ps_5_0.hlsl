@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 #ifndef ENABLE_FAKE_HDR
 #define ENABLE_FAKE_HDR 1
@@ -55,6 +55,7 @@ cbuffer MaterialBuffer : register(b3)
   float4 MaterialParams[32] : packoffset(c0);
 }
 
+// Only set in the DE version of the game
 cbuffer InstanceBuffer : register(b5)
 {
   float4 InstanceParams[8] : packoffset(c0);
@@ -82,11 +83,13 @@ void main(
   sceneColor.xyz = min(sceneColor.xyz, 5.0); // Bloom was already clamped before
 #endif
 
+  bool forceSDR = ShouldForceSDR(r0.xy, true);
+
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that. Do it before bloom to avoid bloom going crazy too
-  if (LumaSettings.DisplayMode == 1)
+  if (LumaSettings.DisplayMode == 1 && !forceSDR)
   {
     float normalizationPoint = 0.05; // Found empyrically
-    float fakeHDRIntensity = 0.1;
+    float fakeHDRIntensity = 0.1 * LumaSettings.GameSettings.HDRBoostIntensity;
     sceneColor.xyz = gamma_to_linear(sceneColor.xyz, GCT_MIRROR);
     sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity, false);
     sceneColor.xyz = linear_to_gamma(sceneColor.xyz, GCT_MIRROR);
@@ -97,33 +100,34 @@ void main(
   bloomedColor = p_default_Material_0B33AFF46643651_Param_texture.Sample(p_default_Material_0B33AFF46643651_Param_sampler_s, r0.xy);
   //bloomedColor = IsNaN_Strict(bloomedColor) ? 0.0 : bloomedColor; // Shouldn't be needed
   
-  bool forceSDR = ShouldForceSDR(r0.xy, true);
-  
-  float emissiveScale = forceSDR ? 0.0 : asfloat(LumaData.CustomData1);
+  float emissiveScale = forceSDR ? 0.0 : LumaSettings.GameSettings.EmissiveIntensity;
   sceneColor.xyz /= lerp(1.0, max(sqr(sqr(saturate(1.0 - sceneColor.w))), 0.01), saturate(emissiveScale)); // Luma: scale scene color (before fogging it, and before bloom, as we already have bloom controls)
 
   float4 foggedColor = sceneColor;
 #if ENABLE_LUMA // Add back missing fog from the original bloom
-  // TODO: this is using an anisotropic sampler, which makes no sense for any post process (all pp does in this game), but it's probably cheap enough
-  r0.z = depth_texture.Sample(p_default_Material_0B33AF346638807_Param_sampler_s, r0.xy).x;
-  r0.z = r0.z * DepthToW.x + DepthToW.y;
-  r0.z = max(9.99999997e-007, r0.z);
-  r0.z = 1 / r0.z;
-  r0.z = -InstanceParams[3].x + r0.z;
-  r0.w = InstanceParams[3].y - InstanceParams[3].x;
-  r0.z = saturate(r0.z / r0.w);
-  r0.w = -InstanceParams[3].z * r0.z + 1;
-  r0.z = InstanceParams[3].z * r0.z;
+  if (LumaSettings.GameSettings.FogIntensity > 0.0) // Avoid trying to add the fog in the original version of the game (non DE) as the cbuffers for it aren't there
+  {
+    // Note: this is using an anisotropic sampler, which makes no sense for any post process (all pp does in this game), but it's probably cheap enough
+    r0.z = depth_texture.Sample(p_default_Material_0B33AF346638807_Param_sampler_s, r0.xy).x;
+    r0.z = r0.z * DepthToW.x + DepthToW.y;
+    r0.z = max(9.99999997e-007, r0.z);
+    r0.z = 1 / r0.z;
+    r0.z = -InstanceParams[3].x + r0.z;
+    r0.w = InstanceParams[3].y - InstanceParams[3].x;
+    r0.z = saturate(r0.z / r0.w);
+    r0.w = -InstanceParams[3].z * r0.z + 1;
+    r0.z = InstanceParams[3].z * r0.z;
 
-  r0.z *= LumaData.CustomData4; // Luma: scale the fog effect that was in the DC version of the game too
+    r0.z *= LumaSettings.GameSettings.FogIntensity; // Luma: scale the fog effect that was in the DC version of the game too
 
-  r0.x = linear_to_gamma1(saturate(GetLuminance(gamma_to_linear(bloomedColor.rgb, GCT_MIRROR)))) * r0.w + r0.z;
-  r0.x *= r0.z;
-  r0.xyz = r0.x * (InstanceParams[5].xyz * r0.x - sceneColor.xyz);
-  foggedColor.xyz = r0.xyz + sceneColor.xyz; // This shouldn't ever result in negative colors
+    r0.x = linear_to_gamma1(saturate(GetLuminance(gamma_to_linear(bloomedColor.rgb, GCT_MIRROR)))) * r0.w + r0.z;
+    r0.x *= r0.z;
+    r0.xyz = r0.x * (InstanceParams[5].xyz * r0.x - sceneColor.xyz);
+    foggedColor.xyz = r0.xyz + sceneColor.xyz; // This shouldn't ever result in negative colors
+  }
 #endif
 
-  bloomedColor *= LumaData.CustomData3; // Luma: scale bloom
+  bloomedColor *= forceSDR ? 1.f : LumaSettings.GameSettings.BloomIntensity; // Luma: scale bloom
 
   o0.xyz = bloomedColor.xyz * MaterialParams[0].x + foggedColor.xyz;
   o0.w = MaterialOpacity;
