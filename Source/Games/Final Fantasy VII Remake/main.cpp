@@ -13,9 +13,28 @@
 
 namespace
 {
+	float2 projection_jitters = { 0, 0 };
+	std::unique_ptr<float4[]> downsample_buffer_data;
+	std::unique_ptr<float4[]> upsample_buffer_data;
+	ShaderHashesList shader_hashes_TAA;
+	ShaderHashesList shader_hashes_Title;
+	ShaderHashesList shader_hashes_MotionVectors;
+	ShaderHashesList shader_hashes_DOF;
+	ShaderHashesList shader_hashes_Motion_Blur;
+	ShaderHashesList shader_hashes_Downsample_Bloom;
+	ShaderHashesList shader_hashes_Bloom;
+	ShaderHashesList shader_hashes_MenuSlowdown;
+	ShaderHashesList shader_hashes_Tonemap;
+	ShaderHashesList shader_hashes_Velocity_Flatten;
+	ShaderHashesList shader_hashes_Velocity_Gather;
+	const uint32_t CBPerViewGlobal_buffer_size = 4096;
+	float enabled_custom_exposure = 1.f;
+	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
+	float ignore_warnings = 0.f;
+
 	Luma::Settings::Settings settings = {
 		new Luma::Settings::Section{
-			.label = "Advanced Settings",
+			.label = "Post Processing",
 			.settings = {
 				new Luma::Settings::Setting{
 					.key = "FXBloom",
@@ -51,8 +70,21 @@ namespace
 					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					// .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
 					.parse = [](float value) { return value * 0.02f; }
+				},
+				new Luma::Settings::Setting{
+					.key = "FXRCAS",
+					.binding = &cb_luma_global_settings.GameSettings.custom_sharpness_strength,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 50.f,
+					.can_reset = true,
+					.label = "Sharpeness",
+					.tooltip = "RCAS strength multiplier. Default is 50, for Vanilla look set to 0.",
+					.min = 0.f,
+					.max = 100.f,
+					.is_visible = []() { return dlss_sr == 1; },
+					.parse = [](float value) { return value * 0.01f; }
 				},
 				new Luma::Settings::Setting{
 					.key = "CustomLUTStrength",
@@ -80,25 +112,32 @@ namespace
 					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
 				}
 			}
+		},
+		new Luma::Settings::Section{
+			.label = "Advanced Settings",
+			.settings = {
+				new Luma::Settings::Setting{
+					.key = "IgnoreWarnings",
+					.binding = &ignore_warnings,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.can_reset = false,
+					.label = "Ignore Warnings",
+					.tooltip = "Ignore warning messages. Default is Off."
+				},
+				new Luma::Settings::Setting{
+					.key = "DLSSCustomPreExposure",
+					.binding = &enabled_custom_exposure,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.default_value = 1.f,
+					.can_reset = true,
+					.label = "DLSS Custom Pre-Exposure",
+					.tooltip = "Custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
+					.is_visible = []() { return dlss_sr  != 0; }
+				}
+			}
 		}
 	};
 
-	float2 projection_jitters = { 0, 0 };
-	std::unique_ptr<float4[]> downsample_buffer_data;
-	std::unique_ptr<float4[]> upsample_buffer_data;
-	ShaderHashesList shader_hashes_TAA;
-	ShaderHashesList shader_hashes_Title;
-	ShaderHashesList shader_hashes_MotionVectors;
-	ShaderHashesList shader_hashes_DOF;
-	ShaderHashesList shader_hashes_Motion_Blur;
-	ShaderHashesList shader_hashes_Downsample_Bloom;
-	ShaderHashesList shader_hashes_Bloom;
-	ShaderHashesList shader_hashes_MenuSlowdown;
-	ShaderHashesList shader_hashes_Tonemap;
-	ShaderHashesList shader_hashes_Velocity_Flatten;
-	ShaderHashesList shader_hashes_Velocity_Gather;
-	const uint32_t CBPerViewGlobal_buffer_size = 4096;
-	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
 {
@@ -167,8 +206,8 @@ public:
 	{
 		if (api != reshade::api::device_api::d3d11)
 		{
-			MessageBoxA(game_window, "This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.", NAME, MB_SETFOREGROUND);
-			throw std::runtime_error("This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.");
+			if (ignore_warnings == 0.f)
+				MessageBoxA(game_window, "This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.\nIf you are sure the launch option is set correctly, set ignore warning in advanced settings.", NAME, MB_SETFOREGROUND);
 		}
 		return false;
 	}
@@ -478,9 +517,14 @@ public:
 					}
 
 					float dlss_pre_exposure = 0.f;
-#if DEVELOPMENT
-					dlss_pre_exposure = dlss_custom_pre_exposure;
+					if (enabled_custom_exposure != 0.f)
+					{
+						dlss_pre_exposure = dlss_custom_pre_exposure;
+					} else {
+#if DEVELOPMENT || TEST
+						dlss_pre_exposure = dlss_custom_pre_exposure;
 #endif
+					}
 					bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), nullptr, dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
 					if (dlss_succeeded)
 					{
@@ -659,7 +703,7 @@ public:
 		data.GameData.RenderResolution = { device_data.render_resolution.x, device_data.render_resolution.y, 1.0f / device_data.render_resolution.x, 1.0f / device_data.render_resolution.y };
 		data.GameData.OutputResolution = { game_device_data.upscaled_render_resolution.x, game_device_data.upscaled_render_resolution.y, 1.0f / game_device_data.upscaled_render_resolution.x, 1.0f / game_device_data.upscaled_render_resolution.y };
 		data.GameData.ResolutionScale = { game_device_data.resolution_scale, 1.0f / game_device_data.resolution_scale};
-		data.GameData.DrewUpscaling = game_device_data.has_drawn_upscaling ? 1 : 0;
+		data.GameData.DrewUpscaling = device_data.has_drawn_dlss_sr ? 1 : 0;
 		data.GameData.ViewportRect = game_device_data.viewport_rect;
 	}
 
@@ -752,9 +796,10 @@ public:
 				// Extract jitter from constant buffer 1
 				projection_jitters.x = float_data[118].x;
 				projection_jitters.y = float_data[118].y;
-#if 1 // Just a guess, needs testing
-				dlss_custom_pre_exposure = float_data[128].x * 100.0f; 
-#endif
+				if (enabled_custom_exposure != 0.f)
+				{
+					dlss_custom_pre_exposure = float_data[128].x * 100.0f; // Just a guess, needs testing
+				}
 			}
 			device_data.cb_per_view_global_buffer_map_data = nullptr;
 			device_data.cb_per_view_global_buffer = nullptr;
@@ -792,7 +837,7 @@ public:
 		return false;
 	}
 
-#if DEVELOPMENT
+#if DEVELOPMENT || TEST
 	void DrawImGuiDevSettings(DeviceData& device_data) override
 	{
 #if ENABLE_NGX

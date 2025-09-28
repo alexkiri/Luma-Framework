@@ -7,6 +7,32 @@
 // _A8EB118F low hp vignette version
 // _3A4D858E chapter 2 specific? effect
 // _D950DA01 video playback
+// _5CD12E67 fog overlay
+
+#if _922A71D1 || _D950DA01 || _5CD12E67 || _3B489929
+Texture3D<float4> ditherTex : register(t0); // noise
+Texture2D<float4> colorTex : register(t1); // scene color
+Texture3D<float4> lut1Tex : register(t2); // lut1
+Texture3D<float4> lut2Tex : register(t3); // lut2
+Texture2D<float4> uiTex : register(t4); // ui overlay
+
+SamplerState colorSampler : register(s0);
+SamplerState lutSampler : register(s1);
+SamplerState uiSampler : register(s2);
+#endif
+
+#if _D950DA01
+Texture2D<float4> videoTex : register(t5); // video color
+SamplerState videoSampler : register(s3);
+#elif _3B489929
+Texture2D<float4> videoTex : register(t6); // video color
+SamplerState videoSampler : register(s4);
+#endif
+
+#if _5CD12E67 || _3B489929
+Texture2D<float4> fogTex : register(t5);
+SamplerState fogSampler : register(s3);
+#endif
 
 #if _A8EB118F
 Texture3D<float4> ditherTex : register(t0); // noise
@@ -23,23 +49,6 @@ SamplerState lutSampler : register(s2);
 SamplerState uiSampler : register(s3);
 #endif
 
-#if _922A71D1 || _D950DA01
-Texture3D<float4> ditherTex : register(t0); // noise
-Texture2D<float4> colorTex : register(t1); // scene color
-Texture3D<float4> lut1Tex : register(t2); // lut1
-Texture3D<float4> lut2Tex : register(t3); // lut2
-Texture2D<float4> uiTex : register(t4); // ui overlay
-
-SamplerState colorSampler : register(s0);
-SamplerState lutSampler : register(s1);
-SamplerState uiSampler : register(s2);
-#endif
-
-#if _D950DA01
-Texture2D<float4> videoTex : register(t5); // video color
-SamplerState videoSampler : register(s3);
-#endif
-
 #if _3A4D858E
 Texture3D<float4> ditherTex : register(t0); // dither noise
 Texture2D<float4> colorTex : register(t1); // scene color
@@ -52,6 +61,8 @@ SamplerState colorSampler : register(s0);
 SamplerState lutSampler : register(s1);
 SamplerState uiSampler : register(s2);
 #endif
+
+Texture2D<float2> dummyFloat2Texture : register(t8);
 
 cbuffer cb0 : register(b0) {
   float4 cb0[39];
@@ -93,8 +104,8 @@ float getMidGray() {
   return GetLuminance(lutOutputColor_bt2020, CS_BT2020);
 }
 
-#if _D950DA01
-float3 SampleVideoTexture(float2 pos) {
+#if _D950DA01 || _3B489929
+float3 SampleVideoTexture(float2 pos, float2 v0) {
   float4 r0, r1, r2, r3, r4, r5, r6;
   r1.z = cmp(cb0[24].y != 0.000000);
   r3.xz = saturate(cb0[24].xz);
@@ -155,15 +166,17 @@ float3 SampleVideoTexture(float2 pos) {
     r4.xyz = log2(r4.xyz);
     r4.xyz = float3(2.20000005,2.20000005,2.20000005) * r4.xyz;
     r4.xyz = exp2(r4.xyz);
-    // r4.xyz = gamma_sRGB_to_linear(r4.xyz);
-    if (LumaSettings.GameSettings.custom_hdr_videos != 0.f) {
-      r4.xyz = PumboAutoHDR(r4.xyz, (LumaSettings.PeakWhiteNits / LumaSettings.GamePaperWhiteNits) * 100.f, LumaSettings.GamePaperWhiteNits);
+    r4.xyz = gamma_sRGB_to_linear(r4.xyz);
+    if (LumaSettings.GameSettings.custom_hdr_videos.x != 0.f) {
+      float target_max_luminance = min(LumaSettings.PeakWhiteNits, pow(10.f, ((log10(LumaSettings.GamePaperWhiteNits) - 0.03460730900256) / 0.757737096673107)));
+      target_max_luminance = lerp(1.f, target_max_luminance, .5f);
+      r4.xyz = PumboAutoHDR(r4.xyz, target_max_luminance, LumaSettings.GamePaperWhiteNits);
     }
-    if (LumaSettings.GameSettings.custom_film_grain_strength != 0.f) {
+    if (LumaSettings.GameSettings.custom_film_grain_strength.x != 0.f) {
       r4.xyz = renodx::effects::ApplyFilmGrain(r4.xyz, 
-        pos.xy / cb0[34].zw,         
-        LumaSettings.GameSettings.custom_random,
-        LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
+        v0.xy,         
+        LumaSettings.GameSettings.custom_random.x,
+        LumaSettings.GameSettings.custom_film_grain_strength.x * 0.03f,
         1.f);
     }
     r5.x = dot(float3(0.627403915,0.329282999,0.0433131009), r4.xyz);
@@ -176,14 +189,14 @@ float3 SampleVideoTexture(float2 pos) {
 #endif
 
 #if _3A4D858E
-float SampleNoiseTexture(float3 color, float4 v0) {
+float SampleNoiseTexture(float3 color, float4 pos) {
   float4 r0, r1, r2, r3, r4, r5;
   r0.w = cb0[34].z + -cb0[34].x;
   r0.w = max(0, r0.w);
   r0.w = 0.00026041668 * r0.w;
   r0.w = min(1, r0.w);
   r1.z = saturate(cb0[29].x);
-  r3.xy = trunc(v0.xy);
+  r3.xy = trunc(pos.xy);
   r3.yz = float2(0.618034005,0.618034005) * r3.xy;
   r1.w = dot(r3.yz, r3.yz);
   r1.w = sqrt(r1.w);
@@ -236,6 +249,39 @@ float SampleNoiseTexture(float3 color, float4 v0) {
 }
 #endif
 
+#if _5CD12E67 || _3B489929
+float3 SampleFogTexture(float3 color, float2 pos) {
+  float4 r0, r1, r2, r3, r4, r5;
+  r2.xyz = color.xyz;
+  r3.xyzw = fogTex.SampleLevel(fogSampler, pos.xy, 0).xyzw;
+  r0.w = saturate(cb0[23].x);
+  r3.xyzw = float4(-0,-0,-0,-1) + r3.xyzw;
+  r3.xyzw = r0.wwww * r3.xyzw + float4(0,0,0,1);
+  r4.xyz = r2.xyz * float3(0.00400000019,0.00400000019,0.00400000019) + float3(1,1,1);
+  r4.xyz = rcp(r4.xyz);
+  r0.w = r3.w * r3.w;
+  r5.xyz = float3(1,1,1) + -r4.xyz;
+  r4.xyz = r0.www * r5.xyz + r4.xyz;
+  r2.xyz = r4.xyz * r2.xyz;
+  r4.xyz = cmp(r3.xyz < float3(0.00313080009,0.00313080009,0.00313080009));
+  r5.xyz = float3(12.9200001,12.9200001,12.9200001) * r3.xyz;
+  r3.xyz = log2(r3.xyz);
+  r3.xyz = float3(0.416666657,0.416666657,0.416666657) * r3.xyz;
+  r3.xyz = exp2(r3.xyz);
+  r3.xyz = r3.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
+  r3.xyz = r4.xyz ? r5.xyz : r3.xyz;
+  r3.xyz = log2(r3.xyz);
+  r3.xyz = float3(2.20000005,2.20000005,2.20000005) * r3.xyz;
+  r3.xyz = exp2(r3.xyz);
+  r4.x = dot(float3(0.627403915,0.329282999,0.0433131009), r3.xyz);
+  r4.y = dot(float3(0.0690973029,0.919540584,0.0113623003), r3.xyz);
+  r4.z = dot(float3(0.0163914002,0.0880132988,0.895595312), r3.xyz);
+  r3.xyz = float3(250,250,250) * r4.xyz;
+  r2.xyz = r2.xyz * r3.www + r3.xyz;
+  return r2.xyz;
+}
+#endif
+
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
@@ -246,7 +292,7 @@ void main(
 
   if ((cb0[34].x < v0.x && v0.x < cb0[34].z)
       && (cb0[34].y < v0.y && v0.y < cb0[34].w)) {
-
+    int2 v0xy = int2(v0.xy);
     int2 cb034xy = asint(cb0[34].xy);
     r0.xy = (int2)v0.xy;
     r1.xy = asint(cb0[34].xy);
@@ -265,6 +311,9 @@ void main(
     float2 uvCoord = r1.zw;
 
     r2.xyz = colorTex.SampleLevel(colorSampler, uvCoord, 0).xyz;
+    if (LumaData.GameData.DrewUpscaling && LumaSettings.GameSettings.custom_sharpness_strength != 0.f) {
+      r2.xyz = RCAS(int2(v0.xy), 0, 0x7FFFFFFF, LumaSettings.GameSettings.custom_sharpness_strength, colorTex, dummyFloat2Texture, 1.f, true , float4(r2.xyz, 1.0f)).rgb;
+    }
 
     float3 colorSample = r2.xyz;
     float3 pqColor = Linear_to_PQ(colorSample / 100.f);
@@ -389,6 +438,11 @@ void main(
     r2.xyz = lut1Linear;
 
     r2.xyz = cb0[26].zzz * lut1Linear + lut2Linear;
+
+#if _5CD12E67
+    r2.xyz = SampleFogTexture(r2.xyz, pixelPos.xy);
+#endif
+
     gradedAces = r2.xyz;
     r2.xyz = extractColorGradeAndApplyTonemap(colorSample, gradedAces, getMidGray(), v0.xy / cb0[34].zw);
 
@@ -397,16 +451,18 @@ void main(
     r3.xyz = gradedAces * r0.www;
     r2.w = dot(r3.xyz, float3(0.262699991,0.677999973,0.0593000017));
     // r2.xyz = r2.xyz * r0.www + -r2.www;
-#elif _D950DA01
-    float3 videoColor = SampleVideoTexture(pixelPos.xy);
+#elif _D950DA01 || _3B489929
+    float3 videoColor = SampleVideoTexture(pixelPos.xy, v0.xy / cb0[34].zw);
 
     // this seems entirely pointless, but whatever.
     r3.xyz = videoColor + -r2.xyz;
     float2 blendFactor = saturate(cb0[24].xz);
     r2.xyz = r3.xyz * blendFactor.x + r2.xyz;
-
+#if _3B489929
+    r2.xyz = SampleFogTexture(r2.xyz, pixelPos.xy);
+#endif
     r2.w = dot(r2.xyz, float3(0.262699991,0.677999973,0.0593000017));
-    r0.w = 1;
+    r0.w = 1;  
 #else
     r3.xyz = gradedAces;
     r2.w = dot(r2.xyz, float3(0.262699991,0.677999973,0.0593000017));
@@ -451,7 +507,7 @@ void main(
     float3 color = Linear_to_PQ(r1.xyz / 10000.f);
     r1.xy = color.xy;
     r0.w = color.z;
-  if (LumaSettings.GameSettings.custom_film_grain_strength == 0.f)
+  if (LumaSettings.GameSettings.custom_film_grain_strength.x == 0.f)
   {
     r0.z = asuint(cb1[139].z) << 3;
     r2.xyz = (int3)r0.xyz & int3(63,63,63);

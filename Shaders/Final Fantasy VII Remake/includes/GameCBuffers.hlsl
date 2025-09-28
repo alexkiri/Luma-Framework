@@ -14,6 +14,7 @@ namespace CB
 		float custom_bloom;
 		float custom_vignette;
 		float custom_film_grain_strength;
+		float custom_sharpness_strength;
 		float custom_hdr_videos;
 		float custom_random;
 	};

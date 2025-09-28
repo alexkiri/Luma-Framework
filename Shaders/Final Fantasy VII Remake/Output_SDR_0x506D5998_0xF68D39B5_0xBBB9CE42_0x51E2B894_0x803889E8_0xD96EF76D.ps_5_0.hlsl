@@ -2,8 +2,9 @@
 #include "includes/renodx/effects.hlsl"
 #include "../Includes/Color.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
+#include "../Includes/RCAS.hlsl"
 
-#if _F68D39B5 || _51E2B894
+#if _F68D39B5 || _51E2B894 || _803889E8 || _D96EF76D
 Texture3D<float4> ditherTex : register(t0);
 Texture2D<float4> colorTex : register(t1);
 Texture3D<float4> lut1Tex : register(t2);
@@ -15,9 +16,17 @@ SamplerState lutSampler : register(s1);
 SamplerState uiSampler : register(s2);
 #endif
 
+#if _803889E8 || _D96EF76D
+Texture2D<float4> fogTex : register(t5);
+SamplerState fogSampler : register(s3);
+#endif
+
 #if _51E2B894
 Texture2D<float4> videoTex : register(t5);
 SamplerState videoSampler : register(s3);
+#elif _803889E8
+Texture2D<float4> videoTex : register(t6);
+SamplerState videoSampler : register(s4);
 #endif
 
 #if _506D5998
@@ -47,6 +56,8 @@ SamplerState lutSampler : register(s2);
 SamplerState uiSampler : register(s3);
 #endif
 
+Texture2D<float2> dummyFloat2Texture : register(t8);
+
 cbuffer cb1 : register(b1)
 {
   float4 cb1[140];
@@ -73,8 +84,8 @@ float3 SampleLUT(Texture3D<float4> lut, float3 color)
     return lut.SampleLevel(lutSampler, coord, 0).xyz;
 }
 
-#if _51E2B894
-float3 SampleVideoTexture(float2 pos)
+#if _51E2B894 || _803889E8
+float3 SampleVideoTexture(float2 pos, float2 v0)
 {
     float4 r0,r1,r3,r4,r5,r6;
     float3 color;
@@ -117,15 +128,29 @@ float3 SampleVideoTexture(float2 pos)
       r4.xyz = cb0[27].xxx * r4.xyz;
       color.xyz = exp2(r4.xyz);
     }
-    // if (LumaSettings.GameSettings.custom_film_grain_strength != 0) {
-    //   color.xyz = renodx::effects::ApplyFilmGrain(
-    //       color.xyz,
-    //       pos.xy,
-    //       LumaSettings.GameSettings.custom_random,
-    //       LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
-    //       1.f);
-    // }
+    if (LumaSettings.GameSettings.custom_film_grain_strength != 0) {
+      color.xyz = renodx::effects::ApplyFilmGrain(
+          color.xyz,
+          v0.xy,
+          LumaSettings.GameSettings.custom_random,
+          LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
+          1.f);
+    }
     return color.xyz;
+}
+#endif
+
+#if _803889E8 || _D96EF76D
+float3 SampleFogTexture(float3 color, float2 pos)
+{
+  float4 r0,r1,r2,r3;
+  r2.xyz = color;
+  r3.xyzw = fogTex.SampleLevel(fogSampler, pos.xy, 0).xyzw;
+  r0.w = saturate(cb0[23].x);
+  r3.xyzw = float4(-0,-0,-0,-1) + r3.xyzw;
+  r3.xyzw = r0.wwww * r3.xyzw + float4(0,0,0,1);
+  r2.xyz = saturate(r2.xyz * r3.www + r3.xyz);
+  return r2.xyz;
 }
 #endif
 
@@ -220,6 +245,9 @@ void main(
     float2 uvCoord = r1.zw;
 
     r2.xyz = colorTex.SampleLevel(colorSampler, uvCoord, 0).xyz;
+    if (LumaData.GameData.DrewUpscaling && LumaSettings.GameSettings.custom_sharpness_strength != 0.f) {
+      r2.xyz = RCAS(int2(v0.xy), 0, 0x7FFFFFFF, LumaSettings.GameSettings.custom_sharpness_strength, colorTex, dummyFloat2Texture, 1.f, true , float4(r2.xyz, 1.0f)).rgb;
+    }
     float3 colorSample = r2.xyz;
     float3 pqColor = Linear_to_PQ(colorSample / 100.f);
 
@@ -246,15 +274,15 @@ void main(
     r0.w = cmp(0 < cb0[38].x);
     r2.xyz = r0.www ? r2.xyz : r3.xyz;
 
-    // if (LumaSettings.GameSettings.custom_film_grain_strength != 0.f)
-    // {
-    //   r2.xyz = renodx::effects::ApplyFilmGrain(
-    //       r2.xyz,
-    //       pixelPos.xy,
-    //       LumaSettings.GameSettings.custom_random,
-    //       LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
-    //       1.f);
-    // }
+    if (LumaSettings.GameSettings.custom_film_grain_strength != 0.f)
+    {
+      r2.xyz = renodx::effects::ApplyFilmGrain(
+          r2.xyz,
+          v0.xy / cb0[34].zw,
+          LumaSettings.GameSettings.custom_random,
+          LumaSettings.GameSettings.custom_film_grain_strength * 0.03f,
+          1.f);
+    }
 
     float3 gradedColor = r2.xyz;
 
@@ -271,6 +299,9 @@ void main(
     r2.xyz = exp2(r2.xyz);
     r3.xyz = r2.xyz;
     r0.w = 1;
+#if _D96EF76D
+    r3.xyz = SampleFogTexture(r3.xyz, pixelPos.xy);
+#endif
     
 #if _BBB9CE42
     float2 vignetteUV = cb0[21].xy * pixelPos.xy;
@@ -289,11 +320,14 @@ void main(
     r0.w = 1;
 #endif
 
-#if _51E2B894
-    float3 videoColor = SampleVideoTexture(pixelPos.xy);
+#if _51E2B894 || _803889E8
+    float3 videoColor = SampleVideoTexture(pixelPos.xy, v0.xy / cb0[34].zw);
     r3.xyz = videoColor + -r2.xyz;
     float2 blendFactor = saturate(cb0[24].xz);
     r2.xyz = r3.xyz * blendFactor.x + r2.xyz;
+#if _803889E8
+    r2.xyz = SampleFogTexture(r2.xyz, pixelPos.xy);
+#endif
     r3.xyz = r2.xyz;
     r0.w = 1;
 #endif
