@@ -1,6 +1,7 @@
 #include "includes/common.hlsl"
 #include "includes/Tonemap.hlsl"
 #include "includes/renodx/effects.hlsl"
+#include "../Includes/RCAS.hlsl"
 #include "../Includes/Color.hlsl"
 
 // _922A71D1 standard HDR output
