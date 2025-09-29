@@ -37,6 +37,20 @@ namespace
 			.label = "Post Processing",
 			.settings = {
 				new Luma::Settings::Setting{
+					.key = "TonemapType",
+					.binding = &cb_luma_global_settings.GameSettings.tonemap_type,
+					.type = Luma::Settings::SettingValueType::INTEGER,
+					.default_value = 0.f,
+					.can_reset = true,
+					.label = "Tone Map Type",
+					.tooltip = "Tone mapping algorithm to use",
+					.labels = { "ACES 1", "ACES 2" },
+					.min = 0.f,
+					.max = 1.f,
+					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); },
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); }
+				},
+				new Luma::Settings::Setting{
 					.key = "FXBloom",
 					.binding = &cb_luma_global_settings.GameSettings.custom_bloom,
 					.type = Luma::Settings::SettingValueType::FLOAT,
@@ -125,15 +139,29 @@ namespace
 					.tooltip = "Ignore warning messages. Default is Off."
 				},
 				new Luma::Settings::Setting{
-					.key = "DLSSCustomPreExposure",
+					.key = "EnableCustomPreExposure",
 					.binding = &enabled_custom_exposure,
 					.type = Luma::Settings::SettingValueType::BOOLEAN,
 					.default_value = 1.f,
 					.can_reset = true,
-					.label = "DLSS Custom Pre-Exposure",
-					.tooltip = "Custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
-					.is_visible = []() { return dlss_sr  != 0; }
+					.label = "Enable Custom Pre-Exposure for DLSS",
+					.tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
+					.is_visible = []() { return dlss_sr != 0; }
 				}
+#if DEVELOPMENT || TEST 
+				,
+				new Luma::Settings::Setting{
+					.key = "CustomPreExposure",
+					.binding = &dlss_custom_pre_exposure,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 0.f,
+					.can_reset = true,
+					.label = "DLSS Pre Exposure",
+					.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
+					.is_enabled = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f; },
+					.is_visible = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f; },
+				}
+#endif
 			}
 		}
 	};
@@ -174,7 +202,7 @@ public:
 		{
 			reshade::register_event<reshade::addon_event::map_buffer_region>(FF7Remake::OnMapBufferRegion);
 			reshade::register_event<reshade::addon_event::unmap_buffer_region>(FF7Remake::OnUnmapBufferRegion);
-			reshade::register_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+			//reshade::register_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
 			reshade::register_event<reshade::addon_event::create_device>(FF7Remake::OnCreateDevice);
 		}
 	}
@@ -816,7 +844,7 @@ public:
 		 	// It's not very nice to const cast, but we know for a fact this is dynamic memory, so it's probably fine to edit it (ReShade doesn't offer an interface for replacing it easily, and doesn't pass in the command list)
 		 	float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
 		 	const float4* float_data = reinterpret_cast<const float4*>(data);
-		 	if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y)
+		 	if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y && float_data[21].x == game_device_data.upscaled_render_resolution.x / 2.0f && float_data[21].y == game_device_data.upscaled_render_resolution.y / 2.0f)
 		 	{
 		 		mutable_float_data[20].z = game_device_data.upscaled_render_resolution.x;
 		 		mutable_float_data[20].w = game_device_data.upscaled_render_resolution.y;
@@ -837,7 +865,7 @@ public:
 		return false;
 	}
 
-#if DEVELOPMENT || TEST
+#if DEVELOPMENT
 	void DrawImGuiDevSettings(DeviceData& device_data) override
 	{
 #if ENABLE_NGX
@@ -898,6 +926,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		forced_shader_names.emplace(std::stoul("FEE03685", nullptr, 16), "Velocity Gather");
 #endif
 
+#if !DEVELOPMENT
+      old_shader_file_names.emplace("Output_HDR_0xA8EB118F_0x922A71D1_0x3A4D858E_0xD950DA01.ps_5_0.hlsl");
+      old_shader_file_names.emplace("Output_SDR_0x506D5998_0xF68D39B5_0xBBB9CE42_0x51E2B894.ps_5_0.hlsl");
+#endif
 		enable_swapchain_upgrade = true;
 		swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
 		enable_texture_format_upgrades = true;
@@ -928,7 +960,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		// LUT is 3D 32x
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
-
+		redirected_shader_hashes["Output_HDR"] = {"A8EB118F", "922A71D1", "3A4D858E", "D950DA01", "5CD12E67", "3B489929"};
+		redirected_shader_hashes["Output_SDR"] = {"506D5998", "F68D39B5", "BBB9CE42", "51E2B894", "803889E8", "D96EF76D"};
 		Luma::Settings::Initialize(&settings);
 
 		game = new FF7Remake();
@@ -937,7 +970,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	{
 		reshade::unregister_event<reshade::addon_event::map_buffer_region>(FF7Remake::OnMapBufferRegion);
 		reshade::unregister_event<reshade::addon_event::unmap_buffer_region>(FF7Remake::OnUnmapBufferRegion);
-		reshade::unregister_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+		//reshade::unregister_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+		reshade::unregister_event<reshade::addon_event::create_device>(FF7Remake::OnCreateDevice);
 	}
 
 	CoreMain(hModule, ul_reason_for_call, lpReserved);

@@ -19,7 +19,7 @@ void main(
   float4 fDest;
   float resolutionScale;
   if(LumaData.GameData.DrewUpscaling){
-    resolutionScale = LumaData.GameData.ResolutionScale;
+    resolutionScale = LumaData.GameData.ResolutionScale.y;
   }else{
     resolutionScale = 1.0f;
   }

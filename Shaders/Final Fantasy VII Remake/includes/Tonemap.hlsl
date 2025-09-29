@@ -1,6 +1,9 @@
 #include "renodx/tonemap.hlsl"
 #include "renodx/effects.hlsl"
 #include "../../Includes/Color.hlsl"
+#include "../../Includes/Oklab.hlsl"
+#include "../../Includes/DarktableUCS.hlsl"
+#include "../../Includes/ACES.hlsl"
 
 float UpgradeToneMapRatio(float ap1_color_hdr, float ap1_color_sdr, float ap1_post_process_color) {
   if (ap1_color_hdr < ap1_color_sdr) {
@@ -50,32 +53,50 @@ float3 applyReferenceACES(float3 untonemapped, float midGray = 0.1f) {
 
 float3 extractColorGradeAndApplyTonemap(float3 ungraded_bt709, float3 lutOutputColor_bt2020, float midGray, float2 position) {
   // normalize LUT output paper white and convert to BT.709
-  ungraded_bt709 = ungraded_bt709 * 1.5f;
+  // ungraded_bt709 = ungraded_bt709 * 1.5f;
   float3 graded_aces_bt709 = BT2020_To_BT709(lutOutputColor_bt2020 * ( 1 / 250.f ));
 
   float3 tonemapped_bt709;
-//   if (RENODX_TONE_MAP_TYPE != 0) {
-//     // separate the display mapping from the color grading/tone mapping
-//     float3 reference_tonemap_bt709 = renodx::tonemap::ReinhardScalable(ungraded_bt709, 1000.f / 250.f, 0.f, 0.18f, midGray);
-//     float3 graded_untonemapped_bt709 = UpgradeToneMapPerChannel(ungraded_bt709, reference_tonemap_bt709, graded_aces_bt709, 1.f);
+  if (LumaSettings.GameSettings.tonemap_type != 0) {
 
-//     tonemapped_bt709 = ToneMap(graded_untonemapped_bt709, graded_aces_bt709, midGray);
+    ACESSettings acesSettings = DefaultACESSettings();
+    acesSettings.mid_grey = midGray;
+    float3 gameLut = lutOutputColor_bt2020;
+    float3 aces1k = applyReferenceACES(ungraded_bt709, midGray);
+    // float3 aces1k = ACESTonemap(ungraded_bt709, 250.f, 1000.f, acesSettings);
+    gameLut = BT2020_To_BT709(gameLut / 250.f); // Normalize to 1k nits
 
-//     if (CUSTOM_LUT_STRENGTH != 1.f) {
-//       float3 ungraded_tonemapped_bt709 = ToneMap(ungraded_bt709, graded_aces_bt709, midGray);
+    float3 gameLutUCS = DarktableUcs::RGBToUCSLUV(gameLut);
+    float3 aces1kUCS = DarktableUcs::RGBToUCSLUV(aces1k);
+    float3 UCSDiff = gameLutUCS - aces1kUCS;
 
-//       tonemapped_bt709 = lerp(ungraded_tonemapped_bt709, tonemapped_bt709, CUSTOM_LUT_STRENGTH);
-//     }
-//   } else {
+
+    // float3 acesDynamic = ACESTonemap(ungraded_bt709, 250.f, (250.f / LumaSettings.GamePaperWhiteNits) * LumaSettings.PeakWhiteNits, acesSettings);
+    float3 acesDynamic = applyACES(ungraded_bt709, midGray, LumaSettings.PeakWhiteNits, LumaSettings.GamePaperWhiteNits);
+
+    // Restore the color shift from the original LUT, without clipping to 1k nits nor to Rec.709
+    // NOTE: this might flip the hue if it ends up on another side of the circle
+    float3 acesDynamicUCS = DarktableUcs::RGBToUCSLUV(acesDynamic);
+    acesDynamicUCS += UCSDiff;
+    acesDynamic = DarktableUcs::UCSLUVToRGB(acesDynamicUCS); 
+    tonemapped_bt709 = aces1k;
+
+  } else {
+    ungraded_bt709 = ungraded_bt709 * 1.5f;
     // using custom_aces as hdr_color allows us to extend (or compress) the dynamic range
     // in a way that looks natural and perfectly preserves the original look
+
     float3 reference_tonemap_bt709 = applyReferenceACES(ungraded_bt709, midGray);
     float3 custom_aces = applyACES(ungraded_bt709, midGray, LumaSettings.PeakWhiteNits, LumaSettings.GamePaperWhiteNits);
+    // ACESSettings acesSettings = DefaultACESSettings();
+    // acesSettings.mid_grey = midGray;
+    // float3 reference_tonemap_bt709 = ACESTonemap(ungraded_bt709, 250.f, 1000.f, acesSettings);
+    // float3 custom_aces = ACESTonemap(ungraded_bt709, 250.f, (250.f / LumaSettings.GamePaperWhiteNits) * LumaSettings.PeakWhiteNits, acesSettings);
     tonemapped_bt709 = UpgradeToneMapByLuminance(custom_aces, reference_tonemap_bt709, graded_aces_bt709, LumaSettings.GameSettings.custom_lut_strength);
 
     // clean up slight overshoot with very low peak values
     tonemapped_bt709 = min(LumaSettings.PeakWhiteNits / LumaSettings.GamePaperWhiteNits, tonemapped_bt709);
-//   }
+  }
 
   if (LumaSettings.GameSettings.custom_film_grain_strength != 0) {
     tonemapped_bt709 = renodx::effects::ApplyFilmGrain(

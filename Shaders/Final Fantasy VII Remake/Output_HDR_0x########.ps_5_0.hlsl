@@ -98,9 +98,9 @@ float3 LUT_PQ_to_Linear(float3 color)
 }
 
 float getMidGray() {
-  float3 lutInputColor = saturate(Linear_to_PQ(0.18f / (100.f)));
+  float3 lutInputColor = saturate(Linear_to_PQ(0.18f * (100.f / HDR10_MaxWhiteNits)));
   float3 lutResult = SampleLUT(lut2Tex, lutInputColor);
-  float3 lutOutputColor_bt2020 = PQ_to_Linear(lutResult) * 250.f;
+  float3 lutOutputColor_bt2020 = PQ_to_Linear(lutResult, GCT_POSITIVE) * (HDR10_MaxWhiteNits / 250.f);
 
   return GetLuminance(lutOutputColor_bt2020, CS_BT2020);
 }
@@ -290,6 +290,12 @@ void main(
   float4 r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11;
   uint4 bitmask, uiDest;
   float4 fDest;
+  float2 resolution;
+  if (LumaData.GameData.DrewUpscaling) {
+    resolution = LumaData.GameData.OutputResolution.xy;
+  } else {
+    resolution = cb0[31].xy;
+  }
 
   if ((cb0[34].x < v0.x && v0.x < cb0[34].z)
       && (cb0[34].y < v0.y && v0.y < cb0[34].w)) {
@@ -305,7 +311,7 @@ void main(
     r2.xy = float2(0.5625,1.77777779) * r2.xy;
     r2.xy = min(float2(1,1), r2.xy);
     r1.xy = r1.xy * r2.xy + float2(0.5,0.5);
-    r1.zw = r1.zw * cb0[31].xy + cb0[30].xy;
+    r1.zw = r1.zw * resolution.xy + cb0[30].xy;
     r1.zw = cb0[0].zw * r1.zw;
 
     float2 pixelPos = r1.xy;
@@ -317,7 +323,7 @@ void main(
     }
 
     float3 colorSample = r2.xyz;
-    float3 pqColor = Linear_to_PQ(colorSample / 100.f);
+    float3 pqColor = Linear_to_PQ(colorSample / (HDR10_MaxWhiteNits / sRGB_WhiteLevelNits));
     r4.xyz = pqColor;
 
     r3.xyz = SampleLUT(lut1Tex, pqColor);
@@ -369,7 +375,7 @@ void main(
     r3.xyzw = float4(-0,-0,-0,-1) + r3.xyzw;
     r3.xyzw = r0.wwww * r3.xyzw + float4(0,0,0,1);
 
-    float3 pq = Linear_to_PQ(r2.xyz / 10000.f); // r2
+    float3 pq = Linear_to_PQ(r2.xyz / HDR10_MaxWhiteNits); // r2
     // 11) Forward PQ encode current scene (r2) to use as coord into LUT2 (t4)
     float3 lut2Sample = SampleLUT(lut2Tex, pq.xyz); // r4
     r4.xyz = lut2Sample.xyz;
@@ -505,7 +511,7 @@ void main(
     // r1.xyz = cb0[26].yyy * r3.xyz;
     r1.xyz = LumaSettings.UIPaperWhiteNits * r3.xyz; // use UI paper white instead of cb0[26].y
     r1.xyz = r2.xyz * r0.www + r1.xyz;
-    float3 color = Linear_to_PQ(r1.xyz / 10000.f);
+    float3 color = Linear_to_PQ(r1.xyz / HDR10_MaxWhiteNits); // use HDR10 max white instead of 10000.f
     r1.xy = color.xy;
     r0.w = color.z;
   if (LumaSettings.GameSettings.custom_film_grain_strength.x == 0.f)

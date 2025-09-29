@@ -86,7 +86,7 @@ void comp_main()
     float resolutionScale;
     if (LumaData.GameData.DrewUpscaling) {
         viewportSize = LumaData.GameData.ViewportRect;
-        resolutionScale = LumaData.GameData.ResolutionScale.x;
+        resolutionScale = LumaData.GameData.ResolutionScale.y;
     }
     else {
         viewportSize = uint4(cb0_m15, cb0_m16); 
