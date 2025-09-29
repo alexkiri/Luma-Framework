@@ -218,6 +218,12 @@ void main(
   float4 r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11;
   uint4 bitmask, uiDest;
   float4 fDest;
+  float2 resolution;
+  if (LumaData.GameData.DrewUpscaling) {
+    resolution = LumaData.GameData.OutputResolution.xy;
+  } else {
+    resolution = cb0[31].xy;
+  }
 
   r0.xy = cmp(cb0[34].xy < v0.xy);
   r0.zw = cmp(v0.xy < cb0[34].zw);
@@ -238,7 +244,7 @@ void main(
     r2.xy = float2(0.5625,1.77777779) * r2.xy;
     r2.xy = min(float2(1,1), r2.xy);
     r1.xy = r1.xy * r2.xy + float2(0.5,0.5);
-    r1.zw = r1.zw * cb0[31].xy + cb0[30].xy;
+    r1.zw = r1.zw * resolution.xy + cb0[30].xy;
     r1.zw = cb0[0].zw * r1.zw;
 
     float2 pixelPos = r1.xy;
