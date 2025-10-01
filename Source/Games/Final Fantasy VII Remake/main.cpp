@@ -147,21 +147,22 @@ namespace
 					.label = "Enable Custom Pre-Exposure for DLSS",
 					.tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
 					.is_visible = []() { return dlss_sr != 0; }
-				}
-#if DEVELOPMENT || TEST 
-				,
-				new Luma::Settings::Setting{
-					.key = "CustomPreExposure",
-					.binding = &dlss_custom_pre_exposure,
-					.type = Luma::Settings::SettingValueType::FLOAT,
-					.default_value = 0.f,
-					.can_reset = true,
-					.label = "DLSS Pre Exposure",
-					.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
-					.is_enabled = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f; },
-					.is_visible = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f; },
-				}
-#endif
+				},
+				// ,
+				//new Luma::Settings::Setting{
+				//	.key = "CustomPreExposure",
+				//	.binding = &dlss_custom_pre_exposure,
+				//	.type = Luma::Settings::SettingValueType::FLOAT,
+				//	.default_value = 0.f,
+				//	.can_reset = true,
+				//	.label = "DLSS Pre Exposure",
+				//	.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
+    //                .min = 0.f,
+    //                .max = 10.f,
+    //                .format = "%.3f",
+				//	.is_enabled = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f && (DEVELOPMENT || TEST); },
+				//	.is_visible = []() { return dlss_sr != 0 && (DEVELOPMENT || TEST); },
+				//}
 			}
 		}
 	};
@@ -549,9 +550,9 @@ public:
 					{
 						dlss_pre_exposure = dlss_custom_pre_exposure;
 					} else {
-#if DEVELOPMENT || TEST
-						dlss_pre_exposure = dlss_custom_pre_exposure;
-#endif
+// #if DEVELOPMENT || TEST
+// 						dlss_pre_exposure = dlss_custom_pre_exposure;
+// #endif
 					}
 					bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), nullptr, dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
 					if (dlss_succeeded)
@@ -617,6 +618,14 @@ public:
 		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && game_device_data.found_per_view_globals && (stages & reshade::api::shader_stage::all_compute) == 0)
 		{
 			PrepareDrawForEarlyUpscaling(native_device, native_device_context, device_data);
+		}
+		
+		// add linear sampler to motionblur and dof shaders to upscale input textures to new resolution if needed
+        if (original_shader_hashes.Contains(shader_hashes_Motion_Blur) ||
+            original_shader_hashes.Contains(shader_hashes_DOF))
+		{
+            ID3D11SamplerState* const linear_sampler = device_data.sampler_state_linear.get();
+            native_device_context->PSSetSamplers(0, 1, &linear_sampler);
 		}
 
 #endif // ENABLE_NGX
@@ -735,6 +744,54 @@ public:
 		data.GameData.ViewportRect = game_device_data.viewport_rect;
 	}
 
+	static void UpdateLODBias(reshade::api::device *device)
+	{
+         DeviceData &device_data = *device->get_private_data<DeviceData>();
+		 auto& game_device_data = GetGameDeviceData(device_data);
+
+         {
+            std::shared_lock shared_lock_samplers(s_mutex_samplers);
+
+            const auto prev_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
+            if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
+            {
+               device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / game_device_data.upscaled_render_resolution.y) - 1.f; // This results in -1 at output res
+            }
+            else
+            {
+               // Reset to best fallback value.
+               // This bias offset replaces the value from the game (see "samplers_upgrade_mode" 5), which was based on the "r_AntialiasingTSAAMipBias" cvar for most textures (it doesn't apply to all the ones that would benefit from it, and still applies to ones that exhibit moire patterns),
+               // but only if TAA was engaged (not SMAA or SMAA+TAA) (it might persist on SMAA after once using TAA, due to a bug).
+               // Prey defaults that to 0 but Luma's configs set it to -1.
+               device_data.texture_mip_lod_bias_offset = device_data.taa_detected ? -1.f : 0.f;
+            }
+            const auto new_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
+
+            bool texture_mip_lod_bias_offset_changed = prev_texture_mip_lod_bias_offset != new_texture_mip_lod_bias_offset;
+            // Re-create all samplers immediately here instead of doing it at the end of the frame.
+            // This allows us to avoid possible (but very unlikely) hitches that could happen if we re-created a new sampler for a new resolution later on when samplers descriptors are set.
+            // It also allows us to use the right samplers for this frame's resolution.
+            if (texture_mip_lod_bias_offset_changed)
+            {
+               ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+               for (auto& samplers_handle : device_data.custom_sampler_by_original_sampler)
+               {
+                  if (samplers_handle.second.contains(new_texture_mip_lod_bias_offset)) continue; // Skip "resolutions" that already got their custom samplers created
+                  ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(samplers_handle.first);
+                  D3D11_SAMPLER_DESC native_desc;
+                  native_sampler->GetDesc(&native_desc);
+                  shared_lock_samplers.unlock(); // This is fine!
+                  {
+                     std::unique_lock unique_lock_samplers(s_mutex_samplers);
+                     samplers_handle.second[new_texture_mip_lod_bias_offset] = CreateCustomSampler(device_data, native_device, native_desc);
+                  }
+                  shared_lock_samplers.lock();
+               }
+            }
+         }
+
+	}
+
 	static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
 	{
 		ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
@@ -831,6 +888,7 @@ public:
 			}
 			device_data.cb_per_view_global_buffer_map_data = nullptr;
 			device_data.cb_per_view_global_buffer = nullptr;
+			UpdateLODBias(device);
 		}
 	}
 
@@ -864,17 +922,6 @@ public:
 		 }
 		return false;
 	}
-
-#if DEVELOPMENT
-	void DrawImGuiDevSettings(DeviceData& device_data) override
-	{
-#if ENABLE_NGX
-		ImGui::NewLine();
-		//ImGui::SliderFloat("DLSS Custom Exposure", &dlss_custom_exposure, 0.0, 10.0);
-		ImGui::SliderFloat("DLSS Custom Pre-Exposure", &dlss_custom_pre_exposure, 0.0, 10.0);
-#endif // ENABLE_NGX
-	}
-#endif // DEVELOPMENT
 
 	void LoadConfigs() override
 	{
@@ -929,6 +976,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 #if !DEVELOPMENT
       old_shader_file_names.emplace("Output_HDR_0xA8EB118F_0x922A71D1_0x3A4D858E_0xD950DA01.ps_5_0.hlsl");
       old_shader_file_names.emplace("Output_SDR_0x506D5998_0xF68D39B5_0xBBB9CE42_0x51E2B894.ps_5_0.hlsl");
+	  old_shader_file_names.emplace("Velocity_Flatten_0x4EB2EA5B.cs_5_0.hlsl");
+	  old_shader_file_names.emplace("Velocity_Gather_0xFEE03685.cs_5_0.hlsl");
 #endif
 		enable_swapchain_upgrade = true;
 		swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
