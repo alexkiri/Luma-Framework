@@ -103,7 +103,7 @@ namespace Settings
                 case SettingValueType::INTEGER: {
                     std::string format = this->labels.empty() ? this->format : this->labels[this->value_as_int];
                     int v = static_cast<int>(this->GetValue());
-                    if (ImGui::SliderInt(this->label.c_str(), &v, static_cast<int>(this->min), static_cast<int>(this->max))) {
+                    if (ImGui::SliderInt(this->label.c_str(), &v, static_cast<int>(this->min), static_cast<int>(this->max), format.c_str())) {
                         this->Set(static_cast<float>(v))->Write()->Save();
                     }
                     break;

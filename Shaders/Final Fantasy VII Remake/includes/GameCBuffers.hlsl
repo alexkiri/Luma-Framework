@@ -9,11 +9,12 @@ namespace CB
 {
 	struct LumaGameSettings
 	{
-		float graphics_white_nits;
+		float tonemap_type;
 		float custom_lut_strength;
 		float custom_bloom;
 		float custom_vignette;
 		float custom_film_grain_strength;
+		float custom_sharpness_strength;
 		float custom_hdr_videos;
 		float custom_random;
 	};

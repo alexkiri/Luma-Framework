@@ -32,6 +32,8 @@ Texture2D<float4> t0 : register(t0);
 Texture2D<float4> t1 : register(t1);
 Texture2D<float4> t2 : register(t2);
 
+SamplerState linearSampler : register(s0);
+
 static float4 gl_FragCoord;
 static float4 SV_Target;
 
@@ -58,16 +60,13 @@ float dp2_f32(float2 a, float2 b)
 
 void frag_main()
 {
-    float4 resolution;
-    float resolutionScale;
-    if (LumaData.GameData.DrewUpscaling) {
-        resolution = LumaData.GameData.OutputResolution;
-        resolutionScale = LumaData.GameData.ResolutionScale.x;
-    }
-    else {
-        resolution = cb1_m[122u]; 
-        resolutionScale = 1.0f;
-    }
+    bool isUpscaled = (LumaData.GameData.DrewUpscaling != 0);
+    float4 resolution = isUpscaled ? LumaData.GameData.OutputResolution : asfloat(cb1_m[122u]);
+    float2 hiSize = resolution.xy;                                        // current render target size (t0)
+    float2 loSize = float2(asfloat(cb1_m[122].x), asfloat(cb1_m[122].y)); // original t1 size
+    float2 hiFragF = floor(gl_FragCoord.xy);
+    float2 hiToLo = loSize / hiSize;
+
     float _93 = floor(gl_FragCoord.x);
     float _94 = floor(gl_FragCoord.y);
     float _101 = frac(frac(dp2_f32(float2(_93, _94), float2(0.067110560834407806396484375f, 0.005837149918079376220703125f))) * 52.98291778564453125f);
@@ -78,7 +77,18 @@ void frag_main()
     float _120 = asfloat(cb1_m[121u].y);
     float _133 = asfloat(resolution.x);
     float _134 = asfloat(resolution.y);
-    float4 _147 = t2.Load(int3(uint2(uint(clamp(cvt_f32_i32(floor(mad(_104 - _119, 0.0625f, mad(_101, 0.5f, -0.25f)))), 0, cvt_f32_i32((_133 + 15.0f) * 0.0625f))), uint(clamp(cvt_f32_i32(floor(mad(_105 - _120, 0.0625f, mad(_110, 0.5f, -0.25f)))), 0, cvt_f32_i32((_134 + 15.0f) * 0.0625f)))), 0u));
+
+    float2 tileCountF = floor((loSize + 15.0f) * (1.0f / 16.0f));
+    float2 jitter = float2(_101, _110) * 0.5f - 0.25f;
+
+    // Map current high-res pixel center to old resolution space
+    float2 pixelCenterLo = (float2(_104, _105) * hiToLo) - float2(_119, _120);
+    float2 tileCoordF_lo = floor(pixelCenterLo * (1.0f / 16.0f) + jitter);
+    tileCoordF_lo = clamp(tileCoordF_lo, 0.0f, tileCountF - 1.0f);
+    uint2 tileCoord_lo = uint2(tileCoordF_lo);
+    float4 _147 = t2.Load(int3(tileCoord_lo, 0));
+
+    // float4 _147 = t2.Load(int3(uint2(uint(clamp(cvt_f32_i32(floor(mad(_104 - _119, 0.0625f, mad(_101, 0.5f, -0.25f)))), 0, cvt_f32_i32((_133 + 15.0f) * 0.0625f))), uint(clamp(cvt_f32_i32(floor(mad(_105 - _120, 0.0625f, mad(_110, 0.5f, -0.25f)))), 0, cvt_f32_i32((_134 + 15.0f) * 0.0625f)))), 0u));
     float _156 = _147.z * cb0_m18.y;
     float _157 = _147.w * cb0_m18.y;
     float2 _158 = float2(_156, _157);
@@ -126,7 +136,8 @@ void frag_main()
         else
         {
             float _358 = rsqrt(_159) * 4.0f;
-            float4 _360 = t1.Load(int3(_163, 0u));
+            // float4 _360 = t1.Load(int3(_163, 0u));
+            float4 _360 = isUpscaled ? t1.Sample(linearSampler, (float2(_163) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_163, 0u));
             float _362 = _360.y;
             float _366 = min(_360.x * cb0_m18.y, cb0_m18.w);
             float _371 = (1.0f - _101) * 0.02500000037252902984619140625f;
@@ -134,7 +145,8 @@ void frag_main()
             float _373 = (2.0f - _101) * 0.02500000037252902984619140625f;
             float _374 = (2.0f - _110) * 0.02500000037252902984619140625f;
             uint2 _395 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _371, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_371, _157, _105))), _181, _183)));
-            float4 _396 = t1.Load(int3(_395, 0u));
+            // float4 _396 = t1.Load(int3(_395, 0u));
+            float4 _396 = isUpscaled ? t1.Sample(linearSampler, (float2(_395) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_395, 0u));
             float _398 = _396.y;
             float4 _399 = t0.Load(int3(_395, 0u));
             float _404 = min(_396.x * cb0_m18.y, cb0_m18.w);
@@ -142,7 +154,8 @@ void frag_main()
             float _412 = clamp(_358 * _366, 0.0f, 1.0f);
             float _416 = dp2_f32(float2(clamp(mad(_405, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_405, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_412, clamp(_358 * _404, 0.0f, 1.0f)));
             uint2 _419 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _372, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_372, _157, _105))), _181, _183)));
-            float4 _420 = t1.Load(int3(_419, 0u));
+            // float4 _420 = t1.Load(int3(_419, 0u));
+            float4 _420 = isUpscaled ? t1.Sample(linearSampler, (float2(_419) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_419, 0u));
             float _422 = _420.y;
             float4 _423 = t0.Load(int3(_419, 0u));
             float _428 = min(_420.x * cb0_m18.y, cb0_m18.w);
@@ -153,7 +166,8 @@ void frag_main()
             float _442 = (_439 && _440) ? _438 : _416;
             float _444 = (_439 || _440) ? _438 : _416;
             uint2 _475 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _373, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_373, _157, _105))), _181, _183)));
-            float4 _476 = t1.Load(int3(_475, 0u));
+            // float4 _476 = t1.Load(int3(_475, 0u));
+            float4 _476 = isUpscaled ? t1.Sample(linearSampler, (float2(_475) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_475, 0u));
             float _478 = _476.y;
             float4 _479 = t0.Load(int3(_475, 0u));
             float _484 = min(_476.x * cb0_m18.y, cb0_m18.w);
@@ -162,7 +176,8 @@ void frag_main()
             float _493 = clamp(mad(_358, _366, _490), 0.0f, 1.0f);
             float _497 = dp2_f32(float2(clamp(mad(_485, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_485, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_493, clamp(mad(_358, _484, _490), 0.0f, 1.0f)));
             uint2 _500 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _374, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_374, _157, _105))), _181, _183)));
-            float4 _501 = t1.Load(int3(_500, 0u));
+            // float4 _501 = t1.Load(int3(_500, 0u));
+            float4 _501 = isUpscaled ? t1.Sample(linearSampler, (float2(_500) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_500, 0u));
             float _503 = _501.y;
             float4 _504 = t0.Load(int3(_500, 0u));
             float _509 = min(_501.x * cb0_m18.y, cb0_m18.w);
@@ -177,7 +192,8 @@ void frag_main()
             float _540 = (4.0f - _101) * 0.02500000037252902984619140625f;
             float _541 = (4.0f - _110) * 0.02500000037252902984619140625f;
             uint2 _562 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _538, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_538, _157, _105))), _181, _183)));
-            float4 _563 = t1.Load(int3(_562, 0u));
+            // float4 _563 = t1.Load(int3(_562, 0u));
+            float4 _563 = isUpscaled ? t1.Sample(linearSampler, (float2(_562) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_562, 0u));
             float _565 = _563.y;
             float4 _566 = t0.Load(int3(_562, 0u));
             float _571 = min(_563.x * cb0_m18.y, cb0_m18.w);
@@ -186,7 +202,8 @@ void frag_main()
             float _580 = clamp(mad(_358, _366, _577), 0.0f, 1.0f);
             float _584 = dp2_f32(float2(clamp(mad(_572, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_572, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_580, clamp(mad(_358, _571, _577), 0.0f, 1.0f)));
             uint2 _587 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _539, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_539, _157, _105))), _181, _183)));
-            float4 _588 = t1.Load(int3(_587, 0u));
+            // float4 _588 = t1.Load(int3(_587, 0u));
+            float4 _588 = isUpscaled ? t1.Sample(linearSampler, (float2(_587) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_587, 0u));
             float _590 = _588.y;
             float4 _591 = t0.Load(int3(_587, 0u));
             float _596 = min(_588.x * cb0_m18.y, cb0_m18.w);
@@ -197,7 +214,8 @@ void frag_main()
             float _610 = (_607 && _608) ? _606 : _584;
             float _612 = (_607 || _608) ? _606 : _584;
             uint2 _641 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(_156, _540, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(_540, _157, _105))), _181, _183)));
-            float4 _642 = t1.Load(int3(_641, 0u));
+            // float4 _642 = t1.Load(int3(_641, 0u));
+            float4 _642 = isUpscaled ? t1.Sample(linearSampler, (float2(_641) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_641, 0u));
             float _644 = _642.y;
             float4 _645 = t0.Load(int3(_641, 0u));
             float _650 = min(_642.x * cb0_m18.y, cb0_m18.w);
@@ -206,7 +224,8 @@ void frag_main()
             float _659 = clamp(mad(_358, _366, _656), 0.0f, 1.0f);
             float _663 = dp2_f32(float2(clamp(mad(_651, 1.0f, 0.5f), 0.0f, 1.0f), clamp(mad(_651, -1.0f, 0.5f), 0.0f, 1.0f)), float2(_659, clamp(mad(_358, _650, _656), 0.0f, 1.0f)));
             uint2 _666 = uint2(uint(clamp(_180, cvt_f32_i32(floor(mad(-_156, _541, _104))), _182)), uint(clamp(cvt_f32_i32(floor(mad(-_541, _157, _105))), _181, _183)));
-            float4 _667 = t1.Load(int3(_666, 0u));
+            // float4 _667 = t1.Load(int3(_666, 0u));
+            float4 _667 = isUpscaled ? t1.Sample(linearSampler, (float2(_666) + 0.5f) / resolution.xy, 0) : t1.Load(int3(_666, 0u));
             float _669 = _667.y;
             float4 _670 = t0.Load(int3(_666, 0u));
             float _675 = min(_667.x * cb0_m18.y, cb0_m18.w);
