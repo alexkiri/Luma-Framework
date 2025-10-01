@@ -439,10 +439,10 @@ void main(
       float highlightsBoost = (midtonesHDRBoost + highlightsHDRBoost) / 2.0; // These are usually both in 0-1 range and rougly boost saturation equally
       // Values closer to 0.5 provide a look more similar to SDR, but then HDR would end up looking like SDR. 0.333 can desaturate too little in a few scenes that feel too "joyful" for the game, but most of the scene textures are already a grey scale,
       // so this rarely matters, and it allows for a few colorful things to shine through HDR.
-      float maxDesaturation = 0.333 * highlightsBoost; // TODO: expose to users to get a vanilla look as well? Or a more colorful one?
+      float maxDesaturation = 0.333 * highlightsBoost; // TODO: expose to users to get a vanilla look as well? Or a more colorful one? Or even better, desat with oklab or something?
 
       scaledComposedColor = desaturateInLinear ? gamma_to_linear(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
-      float saturation = 1.0 - saturate(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709) - (desaturateInLinear ? MidGray : 0.5)) * maxDesaturation;
+      float saturation = 1.0 - saturate(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709) - (desaturateInLinear ? MidGray : 0.5)) * saturate(maxDesaturation);
       scaledComposedColor = Saturation(scaledComposedColor, saturation, TM_BT2020 ? CS_BT2020 : CS_BT709);
       scaledComposedColor = desaturateInLinear ? linear_to_gamma(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
     }

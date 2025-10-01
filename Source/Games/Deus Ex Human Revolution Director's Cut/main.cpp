@@ -938,7 +938,7 @@ public:
       {
          ImGui::SetTooltip("The color grading pass (e.g. the gold filter) often has a strong desaturation effect, turn this off to preserve the original saturation.\nLuma disables this by default as it was the case with the \"Definitive Edition\", set to 1 for the vanilla behaviour.");
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.f, "DesaturationIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.5f, "DesaturationIntensity", runtime);
 
       if (ImGui::SliderFloat("Ambient Lighting Intensity", &cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.f, 1.f))
       {
@@ -948,7 +948,7 @@ public:
       {
          ImGui::SetTooltip("The game's ambient lighting was very strong, making everything glow, reduce this to increase the contrast between light and shadow (note that visibility might be decreased).");
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.75f, "AmbientLightingIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.8f, "AmbientLightingIntensity", runtime);
 
       if (cb_luma_global_settings.DisplayMode == 1)
       {
@@ -1106,9 +1106,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       cb_luma_global_settings.GameSettings.BloomIntensity = 0.8f; // Not vanilla like!
       cb_luma_global_settings.GameSettings.FogIntensity = is_dc ? 1.f : 0.f;
-      cb_luma_global_settings.GameSettings.DesaturationIntensity = 0.f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.DesaturationIntensity = 0.5f; // Not vanilla like!
       cb_luma_global_settings.GameSettings.EmissiveIntensity = 0.667f; // Not vanilla like!
-      cb_luma_global_settings.GameSettings.AmbientLightingIntensity = 0.75f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.AmbientLightingIntensity = 0.8f; // Not vanilla like!
       cb_luma_global_settings.GameSettings.HDRBoostIntensity = 1.f;
       cb_luma_global_settings.GameSettings.HasColorGradingPass = has_gold_filter ? 1 : 0;
       cb_luma_global_settings.GameSettings.AmbientLightColor = { 1.f, 1.f, 1.f, 1.f };

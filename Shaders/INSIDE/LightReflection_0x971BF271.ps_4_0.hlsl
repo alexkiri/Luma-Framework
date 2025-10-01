@@ -125,4 +125,8 @@ void main(
   r0.y = dot(cb0[3].ww, r0.yy);
   r0.x = r0.x + r0.y;
   o0.w = cb0[27].z * r0.x;
+
+  // Luma: typical UNORM like clamping
+  o0.rgb = max(o0.rgb, 0.0);
+  o0.w = saturate(o0.w);
 }
