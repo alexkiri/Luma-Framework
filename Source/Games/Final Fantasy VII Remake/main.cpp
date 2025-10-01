@@ -13,10 +13,43 @@
 
 namespace
 {
+	float2 projection_jitters = { 0, 0 };
+	std::unique_ptr<float4[]> downsample_buffer_data;
+	std::unique_ptr<float4[]> upsample_buffer_data;
+	ShaderHashesList shader_hashes_TAA;
+	ShaderHashesList shader_hashes_Title;
+	ShaderHashesList shader_hashes_MotionVectors;
+	ShaderHashesList shader_hashes_DOF;
+	ShaderHashesList shader_hashes_Motion_Blur;
+	ShaderHashesList shader_hashes_Downsample_Bloom;
+	ShaderHashesList shader_hashes_Bloom;
+	ShaderHashesList shader_hashes_MenuSlowdown;
+	ShaderHashesList shader_hashes_Tonemap;
+	ShaderHashesList shader_hashes_Velocity_Flatten;
+	ShaderHashesList shader_hashes_Velocity_Gather;
+	const uint32_t CBPerViewGlobal_buffer_size = 4096;
+	float enabled_custom_exposure = 1.f;
+	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
+	float ignore_warnings = 0.f;
+
 	Luma::Settings::Settings settings = {
 		new Luma::Settings::Section{
-			.label = "Advanced Settings",
+			.label = "Post Processing",
 			.settings = {
+				new Luma::Settings::Setting{
+					.key = "TonemapType",
+					.binding = &cb_luma_global_settings.GameSettings.tonemap_type,
+					.type = Luma::Settings::SettingValueType::INTEGER,
+					.default_value = 0.f,
+					.can_reset = true,
+					.label = "Tone Map Type",
+					.tooltip = "Tone mapping algorithm to use",
+					.labels = { "ACES 1", "ACES 2" },
+					.min = 0.f,
+					.max = 1.f,
+					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); },
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); }
+				},
 				new Luma::Settings::Setting{
 					.key = "FXBloom",
 					.binding = &cb_luma_global_settings.GameSettings.custom_bloom,
@@ -51,8 +84,21 @@ namespace
 					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					// .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
 					.parse = [](float value) { return value * 0.02f; }
+				},
+				new Luma::Settings::Setting{
+					.key = "FXRCAS",
+					.binding = &cb_luma_global_settings.GameSettings.custom_sharpness_strength,
+					.type = Luma::Settings::SettingValueType::FLOAT,
+					.default_value = 50.f,
+					.can_reset = true,
+					.label = "Sharpeness",
+					.tooltip = "RCAS strength multiplier. Default is 50, for Vanilla look set to 0.",
+					.min = 0.f,
+					.max = 100.f,
+					.is_visible = []() { return dlss_sr == 1; },
+					.parse = [](float value) { return value * 0.01f; }
 				},
 				new Luma::Settings::Setting{
 					.key = "CustomLUTStrength",
@@ -80,25 +126,47 @@ namespace
 					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
 				}
 			}
+		},
+		new Luma::Settings::Section{
+			.label = "Advanced Settings",
+			.settings = {
+				new Luma::Settings::Setting{
+					.key = "IgnoreWarnings",
+					.binding = &ignore_warnings,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.can_reset = false,
+					.label = "Ignore Warnings",
+					.tooltip = "Ignore warning messages. Default is Off."
+				},
+				new Luma::Settings::Setting{
+					.key = "EnableCustomPreExposure",
+					.binding = &enabled_custom_exposure,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.default_value = 1.f,
+					.can_reset = true,
+					.label = "Enable Custom Pre-Exposure for DLSS",
+					.tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
+					.is_visible = []() { return dlss_sr != 0; }
+				},
+				// ,
+				//new Luma::Settings::Setting{
+				//	.key = "CustomPreExposure",
+				//	.binding = &dlss_custom_pre_exposure,
+				//	.type = Luma::Settings::SettingValueType::FLOAT,
+				//	.default_value = 0.f,
+				//	.can_reset = true,
+				//	.label = "DLSS Pre Exposure",
+				//	.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
+    //                .min = 0.f,
+    //                .max = 10.f,
+    //                .format = "%.3f",
+				//	.is_enabled = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f && (DEVELOPMENT || TEST); },
+				//	.is_visible = []() { return dlss_sr != 0 && (DEVELOPMENT || TEST); },
+				//}
+			}
 		}
 	};
 
-	float2 projection_jitters = { 0, 0 };
-	std::unique_ptr<float4[]> downsample_buffer_data;
-	std::unique_ptr<float4[]> upsample_buffer_data;
-	ShaderHashesList shader_hashes_TAA;
-	ShaderHashesList shader_hashes_Title;
-	ShaderHashesList shader_hashes_MotionVectors;
-	ShaderHashesList shader_hashes_DOF;
-	ShaderHashesList shader_hashes_Motion_Blur;
-	ShaderHashesList shader_hashes_Downsample_Bloom;
-	ShaderHashesList shader_hashes_Bloom;
-	ShaderHashesList shader_hashes_MenuSlowdown;
-	ShaderHashesList shader_hashes_Tonemap;
-	ShaderHashesList shader_hashes_Velocity_Flatten;
-	ShaderHashesList shader_hashes_Velocity_Gather;
-	const uint32_t CBPerViewGlobal_buffer_size = 4096;
-	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
 {
@@ -135,7 +203,7 @@ public:
 		{
 			reshade::register_event<reshade::addon_event::map_buffer_region>(FF7Remake::OnMapBufferRegion);
 			reshade::register_event<reshade::addon_event::unmap_buffer_region>(FF7Remake::OnUnmapBufferRegion);
-			reshade::register_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+			//reshade::register_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
 			reshade::register_event<reshade::addon_event::create_device>(FF7Remake::OnCreateDevice);
 		}
 	}
@@ -167,8 +235,8 @@ public:
 	{
 		if (api != reshade::api::device_api::d3d11)
 		{
-			MessageBoxA(game_window, "This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.", NAME, MB_SETFOREGROUND);
-			throw std::runtime_error("This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.");
+			if (ignore_warnings == 0.f)
+				MessageBoxA(game_window, "This mod only supports Direct3D 11.\nSet -dx11 in the launch options or uninstall the mod.\nIf you are sure the launch option is set correctly, set ignore warning in advanced settings.", NAME, MB_SETFOREGROUND);
 		}
 		return false;
 	}
@@ -478,9 +546,14 @@ public:
 					}
 
 					float dlss_pre_exposure = 0.f;
-#if DEVELOPMENT
-					dlss_pre_exposure = dlss_custom_pre_exposure;
-#endif
+					if (enabled_custom_exposure != 0.f)
+					{
+						dlss_pre_exposure = dlss_custom_pre_exposure;
+					} else {
+// #if DEVELOPMENT || TEST
+// 						dlss_pre_exposure = dlss_custom_pre_exposure;
+// #endif
+					}
 					bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), nullptr, dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
 					if (dlss_succeeded)
 					{
@@ -545,6 +618,14 @@ public:
 		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && game_device_data.found_per_view_globals && (stages & reshade::api::shader_stage::all_compute) == 0)
 		{
 			PrepareDrawForEarlyUpscaling(native_device, native_device_context, device_data);
+		}
+		
+		// add linear sampler to motionblur and dof shaders to upscale input textures to new resolution if needed
+        if (original_shader_hashes.Contains(shader_hashes_Motion_Blur) ||
+            original_shader_hashes.Contains(shader_hashes_DOF))
+		{
+            ID3D11SamplerState* const linear_sampler = device_data.sampler_state_linear.get();
+            native_device_context->PSSetSamplers(0, 1, &linear_sampler);
 		}
 
 #endif // ENABLE_NGX
@@ -659,8 +740,56 @@ public:
 		data.GameData.RenderResolution = { device_data.render_resolution.x, device_data.render_resolution.y, 1.0f / device_data.render_resolution.x, 1.0f / device_data.render_resolution.y };
 		data.GameData.OutputResolution = { game_device_data.upscaled_render_resolution.x, game_device_data.upscaled_render_resolution.y, 1.0f / game_device_data.upscaled_render_resolution.x, 1.0f / game_device_data.upscaled_render_resolution.y };
 		data.GameData.ResolutionScale = { game_device_data.resolution_scale, 1.0f / game_device_data.resolution_scale};
-		data.GameData.DrewUpscaling = game_device_data.has_drawn_upscaling ? 1 : 0;
+		data.GameData.DrewUpscaling = device_data.has_drawn_dlss_sr ? 1 : 0;
 		data.GameData.ViewportRect = game_device_data.viewport_rect;
+	}
+
+	static void UpdateLODBias(reshade::api::device *device)
+	{
+         DeviceData &device_data = *device->get_private_data<DeviceData>();
+		 auto& game_device_data = GetGameDeviceData(device_data);
+
+         {
+            std::shared_lock shared_lock_samplers(s_mutex_samplers);
+
+            const auto prev_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
+            if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
+            {
+               device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / game_device_data.upscaled_render_resolution.y) - 1.f; // This results in -1 at output res
+            }
+            else
+            {
+               // Reset to best fallback value.
+               // This bias offset replaces the value from the game (see "samplers_upgrade_mode" 5), which was based on the "r_AntialiasingTSAAMipBias" cvar for most textures (it doesn't apply to all the ones that would benefit from it, and still applies to ones that exhibit moire patterns),
+               // but only if TAA was engaged (not SMAA or SMAA+TAA) (it might persist on SMAA after once using TAA, due to a bug).
+               // Prey defaults that to 0 but Luma's configs set it to -1.
+               device_data.texture_mip_lod_bias_offset = device_data.taa_detected ? -1.f : 0.f;
+            }
+            const auto new_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
+
+            bool texture_mip_lod_bias_offset_changed = prev_texture_mip_lod_bias_offset != new_texture_mip_lod_bias_offset;
+            // Re-create all samplers immediately here instead of doing it at the end of the frame.
+            // This allows us to avoid possible (but very unlikely) hitches that could happen if we re-created a new sampler for a new resolution later on when samplers descriptors are set.
+            // It also allows us to use the right samplers for this frame's resolution.
+            if (texture_mip_lod_bias_offset_changed)
+            {
+               ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+               for (auto& samplers_handle : device_data.custom_sampler_by_original_sampler)
+               {
+                  if (samplers_handle.second.contains(new_texture_mip_lod_bias_offset)) continue; // Skip "resolutions" that already got their custom samplers created
+                  ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(samplers_handle.first);
+                  D3D11_SAMPLER_DESC native_desc;
+                  native_sampler->GetDesc(&native_desc);
+                  shared_lock_samplers.unlock(); // This is fine!
+                  {
+                     std::unique_lock unique_lock_samplers(s_mutex_samplers);
+                     samplers_handle.second[new_texture_mip_lod_bias_offset] = CreateCustomSampler(device_data, native_device, native_desc);
+                  }
+                  shared_lock_samplers.lock();
+               }
+            }
+         }
+
 	}
 
 	static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)
@@ -752,12 +881,14 @@ public:
 				// Extract jitter from constant buffer 1
 				projection_jitters.x = float_data[118].x;
 				projection_jitters.y = float_data[118].y;
-#if 1 // Just a guess, needs testing
-				dlss_custom_pre_exposure = float_data[128].x * 100.0f; 
-#endif
+				if (enabled_custom_exposure != 0.f)
+				{
+					dlss_custom_pre_exposure = float_data[128].x * 100.0f; // Just a guess, needs testing
+				}
 			}
 			device_data.cb_per_view_global_buffer_map_data = nullptr;
 			device_data.cb_per_view_global_buffer = nullptr;
+			UpdateLODBias(device);
 		}
 	}
 
@@ -771,7 +902,7 @@ public:
 		 	// It's not very nice to const cast, but we know for a fact this is dynamic memory, so it's probably fine to edit it (ReShade doesn't offer an interface for replacing it easily, and doesn't pass in the command list)
 		 	float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
 		 	const float4* float_data = reinterpret_cast<const float4*>(data);
-		 	if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y)
+		 	if (float_data[20].z == device_data.render_resolution.x && float_data[20].w == device_data.render_resolution.y && float_data[21].x == game_device_data.upscaled_render_resolution.x / 2.0f && float_data[21].y == game_device_data.upscaled_render_resolution.y / 2.0f)
 		 	{
 		 		mutable_float_data[20].z = game_device_data.upscaled_render_resolution.x;
 		 		mutable_float_data[20].w = game_device_data.upscaled_render_resolution.y;
@@ -791,17 +922,6 @@ public:
 		 }
 		return false;
 	}
-
-#if DEVELOPMENT
-	void DrawImGuiDevSettings(DeviceData& device_data) override
-	{
-#if ENABLE_NGX
-		ImGui::NewLine();
-		//ImGui::SliderFloat("DLSS Custom Exposure", &dlss_custom_exposure, 0.0, 10.0);
-		ImGui::SliderFloat("DLSS Custom Pre-Exposure", &dlss_custom_pre_exposure, 0.0, 10.0);
-#endif // ENABLE_NGX
-	}
-#endif // DEVELOPMENT
 
 	void LoadConfigs() override
 	{
@@ -853,6 +973,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		forced_shader_names.emplace(std::stoul("FEE03685", nullptr, 16), "Velocity Gather");
 #endif
 
+#if !DEVELOPMENT
+      old_shader_file_names.emplace("Output_HDR_0xA8EB118F_0x922A71D1_0x3A4D858E_0xD950DA01.ps_5_0.hlsl");
+      old_shader_file_names.emplace("Output_SDR_0x506D5998_0xF68D39B5_0xBBB9CE42_0x51E2B894.ps_5_0.hlsl");
+	  old_shader_file_names.emplace("Velocity_Flatten_0x4EB2EA5B.cs_5_0.hlsl");
+	  old_shader_file_names.emplace("Velocity_Gather_0xFEE03685.cs_5_0.hlsl");
+#endif
 		enable_swapchain_upgrade = true;
 		swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
 		enable_texture_format_upgrades = true;
@@ -883,7 +1009,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		// LUT is 3D 32x
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
-
+		redirected_shader_hashes["Output_HDR"] = {"A8EB118F", "922A71D1", "3A4D858E", "D950DA01", "5CD12E67", "3B489929"};
+		redirected_shader_hashes["Output_SDR"] = {"506D5998", "F68D39B5", "BBB9CE42", "51E2B894", "803889E8", "D96EF76D"};
 		Luma::Settings::Initialize(&settings);
 
 		game = new FF7Remake();
@@ -892,7 +1019,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	{
 		reshade::unregister_event<reshade::addon_event::map_buffer_region>(FF7Remake::OnMapBufferRegion);
 		reshade::unregister_event<reshade::addon_event::unmap_buffer_region>(FF7Remake::OnUnmapBufferRegion);
-		reshade::unregister_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+		//reshade::unregister_event<reshade::addon_event::update_buffer_region>(FF7Remake::OnUpdateBufferRegion);
+		reshade::unregister_event<reshade::addon_event::create_device>(FF7Remake::OnCreateDevice);
 	}
 
 	CoreMain(hModule, ul_reason_for_call, lpReserved);

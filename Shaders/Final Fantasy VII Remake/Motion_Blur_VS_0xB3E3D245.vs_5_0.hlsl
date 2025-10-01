@@ -18,15 +18,19 @@ void main(
   uint4 bitmask, uiDest;
   float4 fDest;
   float resolutionScale;
-  if(LumaData.GameData.DrewUpscaling){
-    resolutionScale = LumaData.GameData.ResolutionScale;
-  }else{
+  float4 resolution;
+  if(LumaData.GameData.DrewUpscaling != 0) {
+    resolution = LumaData.GameData.OutputResolution;
+    resolutionScale = LumaData.GameData.ResolutionScale.y;
+  } else {
+    resolution.xy = cb0[1].xy;
+    resolution.zw = cb0[2].xy;
     resolutionScale = 1.0f;
   }
-  r0.xy = v1.xy * (cb0[1].xy * resolutionScale) + (cb0[1].zw * resolutionScale);
+  r0.xy = v1.xy * (resolution.xy) + (cb0[1].zw * resolutionScale);
   o0.xy = cb0[2].zw * r0.xy;
-  r0.xy = v0.xy * (cb0[0].xy * resolutionScale) + (cb0[0].zw * resolutionScale);
-  r0.xy = (cb0[2].xy * 1/resolutionScale) * r0.xy;
+  r0.xy = v0.xy * (resolution.xy) + (cb0[0].zw * resolutionScale);
+  r0.xy = (resolution.zw) * r0.xy;
   r0.xy = r0.xy * float2(2,2) + float2(-1,-1);
   r0.xy = float2(1,-1) * r0.xy;
   o0.zw = r0.xy;
