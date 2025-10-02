@@ -15,12 +15,12 @@ jobs:
         platform: [x64, Win32]
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.3.1
+      uses: microsoft/setup-msbuild@latest
 
     - name: Clone vcpkg
       run: git clone https://github.com/microsoft/vcpkg.git
@@ -37,6 +37,27 @@ jobs:
 
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
+
+    # Disabled as it's probably not necessary
+    - name: Force install latest Git
+      if: false
+      run: |
+        # Check current Git version
+        git --version || echo "Git not found"
+
+        # Install the latest Git for Windows using Chocolatey
+        choco install git --yes --force --no-progress --ignore-checksums
+
+    # This is needed by ReShade to properly add version information
+    - name: Add Git to PATH
+      shell: powershell
+      run: |
+        $gitPath = "C:\Program Files\Git\bin"
+        echo "Adding $gitPath to PATH"
+        echo "$gitPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Verify Git
+      run: git --version
 
     - name: Build ReShade.sln Release
       run: |
@@ -168,17 +189,36 @@ jobs:
           # Bundle in ReShade files (assuming DX10/11/12), for simplicity (to avoid users from having to download it separately, and being able to distribute the right version for luma, possibly even a custom one) (ReShade should automatically generate configs, or re-use the ones that were there)
           # Note: these might be submitted to the repository directly, manually, to avoid re-building them every time on the build machine, wasting time and power.
           if ("${{ matrix.platform }}" -eq "Win32") {
-            $rssrc = "Source/External/reshade/bin/Win32/Release/ReShade32.dll"
+            $rsSrc = "Source/External/reshade/bin/Win32/Release/ReShade32.dll"
           } else {
-            $rssrc = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
+            $rsSrc = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
           }
 
-          if (Test-Path $rssrc) {
-            $rsdst = Join-Path $tempDir "dxgi.dll"
-            Copy-Item -Path $rssrc -Destination $rsdst -Force
-            Write-Host "Copied ReShade to $rsdst"
+          if (Test-Path $rsSrc) {
+            $rsDst = Join-Path $tempDir "dxgi.dll"
+            Copy-Item -Path $rsSrc -Destination $rsDst -Force
+            Write-Host "Copied ReShade to $rsDst"
           } else {
-            Write-Host "ReShade file not found at $rssrc — skipping"
+            Write-Host "ReShade file not found at $rsSrc — skipping"
+          }
+
+          # Add DLSS for the projects that need it (ideally we'd have a binary dependencies folder with all the dependencies needed by each project, but git would duplicate the files and that's a shame, so we do it manually)
+          if (
+              $projectName -like '*Prey*' `
+              -or $projectName -like '*Mafia III*' `
+              -or $projectName -like '*Dishonored 2*' `
+              -or $projectName -like '*Final Fantasy VII Remake*' `
+              -or $projectName -like '*Final Fantasy XV*'
+          ) {
+            # Source path for NGX DLSS DLL
+            $ngxSrc = "Source/External/NGX/bin/rel/nvngx_dlss.dll"
+
+            # Destination in the root of $tempDir, keeping original name
+            if (Test-Path $ngxSrc) {
+                Copy-Item -Path $ngxSrc -Destination $tempDir -Force
+            } else {
+                Write-Host "NGX DLSS DLL not found at $ngxSrc — skipping"
+            }
           }
 
           # Copy addon file to temp root (and rename it)
