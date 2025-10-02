@@ -172,9 +172,9 @@ jobs:
           } else {
             $rssrc = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
           }
-          $rsdst = Join-Path $env:tempDir "dxgi.dll"
 
           if (Test-Path $rssrc) {
+            $rsdst = Join-Path $tempDir "dxgi.dll"
             Copy-Item -Path $rssrc -Destination $rsdst -Force
             Write-Host "Copied ReShade to $rsdst"
           } else {
