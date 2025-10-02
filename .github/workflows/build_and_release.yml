@@ -38,6 +38,11 @@ jobs:
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
 
+    - name: Build ReShade.sln Release
+      run: |
+        msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="64-bit"
+        msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="32-bit"
+
     - name: Build Luma.sln ${{ matrix.config }}-${{ matrix.platform }}
       run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }} /p:DefineConstants="REMOTE_BUILD=1"
 
@@ -158,6 +163,21 @@ jobs:
           }
           else {
             Copy-Item -Path "Shaders/Decompiler/d3dcompiler_47.dll" -Destination "$tempDir/Luma"
+          }
+
+          # Bundle in ReShade files (assuming DX10/11/12), for simplicity (to avoid users from having to download it separately, and being able to distribute the right version for luma, possibly even a custom one) (ReShade should automatically generate configs, or re-use the ones that were there)
+          # Note: these might be submitted to the repository directly, manually, to avoid re-building them every time on the build machine, wasting time and power.
+          if ("${{ matrix.platform }}" -eq "Win32") {
+            $src = "Source/External/reshade/bin/Win32/Release/ReShade32.dll"
+          } else {
+            $src = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
+          }
+          if (Test-Path $src) {
+            $dst = Join-Path $env:tempDir "dxgi.dll"
+            Copy-Item -Path $src -Destination $dst -Force
+            Write-Host "Copied ReShade to $dst"
+          } else {
+            Write-Host "ReShade file not found at $src — skipping"
           }
 
           # Copy addon file to temp root (and rename it)
