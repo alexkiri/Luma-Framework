@@ -168,16 +168,17 @@ jobs:
           # Bundle in ReShade files (assuming DX10/11/12), for simplicity (to avoid users from having to download it separately, and being able to distribute the right version for luma, possibly even a custom one) (ReShade should automatically generate configs, or re-use the ones that were there)
           # Note: these might be submitted to the repository directly, manually, to avoid re-building them every time on the build machine, wasting time and power.
           if ("${{ matrix.platform }}" -eq "Win32") {
-            $src = "Source/External/reshade/bin/Win32/Release/ReShade32.dll"
+            $rssrc = "Source/External/reshade/bin/Win32/Release/ReShade32.dll"
           } else {
-            $src = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
+            $rssrc = "Source/External/reshade/bin/x64/Release/ReShade64.dll"
           }
-          if (Test-Path $src) {
-            $dst = Join-Path $env:tempDir "dxgi.dll"
-            Copy-Item -Path $src -Destination $dst -Force
-            Write-Host "Copied ReShade to $dst"
+          $rsdst = Join-Path $env:tempDir "dxgi.dll"
+
+          if (Test-Path $rssrc) {
+            Copy-Item -Path $rssrc -Destination $rsdst -Force
+            Write-Host "Copied ReShade to $rsdst"
           } else {
-            Write-Host "ReShade file not found at $src — skipping"
+            Write-Host "ReShade file not found at $rssrc — skipping"
           }
 
           # Copy addon file to temp root (and rename it)
@@ -224,8 +225,8 @@ jobs:
             The current version of all Luma mods (based on latest commit).
             
             Installation instructions:
-            - Install the latest version of ReShade with Addons support in the path to the game you want to add Luma to (you don't need anything else for it, no ReShade effects etc, just ReShade for DX10/11/12)
-            - Extract all the files directly in the same folder where ReShade is installed
+            - Extract all the files directly in the game main executable folder
+            - If you already had a ReShade installation or other mods that used the dxgi.dll file, overwrite it, or find a way to proxy it
             - Boot the game
             - Press home to bring out the ReShade and Luma menus (if they don't appear, ReShade or Luma failed to install or run)
             - Customize the settings if you'd like, the defaults are already good and pick up on your display calibration
