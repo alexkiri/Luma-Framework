@@ -587,11 +587,11 @@ namespace ACES
        return output_color;
    }
 
-   float3 RRTAndODT(float3 color, float min_y, float max_y, float3x3 odt_matrix = AP1_TO_BT709_MAT) 
+   float3 RRTAndODT(float3 color, float min_y, float max_y, bool dark_to_dim = false, bool legacy_desat = false, float3x3 input_to_ap0_matrix = BT709_TO_AP0_MAT, float3x3 ap1_to_output_matrix = AP1_TO_BT709_MAT) 
    {
-        color = mul(BT709_TO_AP0_MAT, color);
+        color = mul(input_to_ap0_matrix, color);
         color = RRT(color);
-        color = ODT(color, min_y, max_y, odt_matrix);
+        color = ODT(color, min_y, max_y, dark_to_dim, legacy_desat, ap1_to_output_matrix);
         return color;
    }
 

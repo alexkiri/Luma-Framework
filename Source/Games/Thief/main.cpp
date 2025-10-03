@@ -23,7 +23,7 @@ public:
       };
       shader_defines_data.append_range(game_shader_defines_data);
       // The game was SDR all along, no gamma applied //TODOFT: verify that... there's sRGB views, but are they mirrored in and out? Because if so, then there's no gamma applied anyway (?)
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('0');
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
@@ -136,6 +136,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
       Globals::SetGlobals(PROJECT_NAME, "Thief (2014) Luma mod");
+      Globals::DEVELOPMENT_STATE = Globals::ModDevelopmentState::WorkInProgress;
       Globals::VERSION = 1;
 
       luma_settings_cbuffer_index = 13;

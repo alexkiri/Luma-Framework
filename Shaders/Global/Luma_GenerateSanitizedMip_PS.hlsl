@@ -18,6 +18,8 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
   float4 cWeight = 0.0;
   bool4 nans;
 
+  // TODO: add a define to actually spread any NaN texel channel to all channels on all texels, to quickly detect them in games
+
   // Note: classic NaNs checks might not be performed unless we build with /Gis, so we use strict ones
   nans = IsNaN_Strict(c0);
   cSum += nans ? 0.0 : c0;

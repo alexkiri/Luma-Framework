@@ -210,11 +210,6 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		{
 			color.rgb *= debugSize;
 		}
-		if (tonemap)
-		{
-    		const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-  			color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, -1.0, peakWhite / gamePaperWhite);
-		}
 		if (invertColors) // Only works on in SDR range
 		{
 			color.rgb = 1.0 - color.rgb;
@@ -226,6 +221,16 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 		if (linearToGamma) // Gammify (usually not necessary) (use if image appeared too dark (linear space viewed as gamma))
 		{
        		color.rgb = sRGB ? linear_to_sRGB_gamma(color.rgb, GCT_MIRROR) : (pow(abs(color.rgb), 1.f / DefaultGamma) * sign(color.rgb));
+		}
+		if (tonemap)
+		{
+    		const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+#if 1 // No hue shifts, better analysis
+    		color.rgb = RestoreLuminance(color.rgb, Reinhard::ReinhardRange(GetLuminance(color.rgb), MidGray, -1.0, peakWhite / gamePaperWhite).x, true);
+    		color.rgb = CorrectOutOfRangeColor(color.rgb, true, true, 0.5, 0.5, peakWhite / gamePaperWhite);
+#else
+  			color.rgb = Reinhard::ReinhardRange(color.rgb, MidGray, -1.0, peakWhite / gamePaperWhite);
+#endif
 		}
 		if (validTexel || !backgroundPassthrough)
 		{

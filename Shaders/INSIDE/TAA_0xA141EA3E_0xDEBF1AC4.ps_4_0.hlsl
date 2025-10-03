@@ -1,8 +1,4 @@
-#include "../Includes/Common.hlsl"
-
-#if !defined(ENABLE_FILM_GRAIN)
-#define ENABLE_FILM_GRAIN 1
-#endif
+#include "Includes/Common.hlsl"
 
 Texture2D<float4> t4 : register(t4); // Noise/Dither
 Texture2D<float4> t3 : register(t3); // Previous TAA output (from this very shader)

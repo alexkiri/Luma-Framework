@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/Reinhard.hlsl"
 
 static const float3 _72[10] = { float3(-1.0f, 1.0f, 0.0625f), float3(0.0f, 1.0f, 0.125f), float3(1.0f, 1.0f, 0.0625f), float3(-1.0f, 0.0f, 0.125f), float3(0.0f, 0.0f, 0.25f), float3(1.0f, 0.0f, 0.125f), float3(-1.0f, -1.0f, 0.0625f), float3(0.0f, -1.0f, 0.125f), float3(1.0f, -1.0f, 0.0625f), 0.0f.xxx };

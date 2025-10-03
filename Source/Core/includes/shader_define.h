@@ -11,6 +11,42 @@ namespace Shader
    constexpr uint32_t SHADER_DEFINES_MAX_NAME_LENGTH = 50 + 1; // Increase if necessary (+ 1 is for to null terminate the string)
    constexpr uint32_t SHADER_DEFINES_MAX_VALUE_LENGTH = 1 + 1; // 1 character (+ 1 is for to null terminate the string)
 
+   // Hacky list to make words nicer. Add any here if needed.
+	// A few cases would be better handled with a redirection, like "SRGB" to "sRGB", but whatever.
+   static const std::unordered_set<std::string> upper_case_names = {
+		"HDR", "HDR10","SDR", "AA", "SSAO", "LUT", "UI", "HUD", "FXAA", "SMAA", "DLSS", "FSR", "TAA", "SRGB", "SCRGB", "RGB", "RGBA"
+   };
+
+   std::string NameToTitleCase(const std::string& input)
+   {
+      std::string spaced = input;
+      std::replace(spaced.begin(), spaced.end(), '_', ' ');
+
+      std::istringstream iss(spaced);
+      std::string token, result;
+
+      while (iss >> token)
+      {
+         if (upper_case_names.count(token))
+         {
+            // leave it as is
+         }
+         else
+         {
+            // lowercase the whole token
+            std::transform(token.begin(), token.end(), token.begin(), ::tolower);
+            // uppercase first character
+            token[0] = static_cast<char>(::toupper(token[0]));
+         }
+
+         if (!result.empty())
+            result += ' ';
+         result += token;
+      }
+
+      return result;
+   }
+
    struct ShaderDefine
    {
       ShaderDefine(const char* _name = "", char _value = '\0')
@@ -87,7 +123,7 @@ namespace Shader
          editable_data = default_data;
       }
 
-      // The default label/hint
+      // The default label/hint (auto generated)
       const std::string name_hint;
       const std::string value_hint;
 

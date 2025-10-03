@@ -1,4 +1,4 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 
 Texture2D<float4> t3 : register(t3);
 Texture2D<float4> t2 : register(t2); // Scene
@@ -18,7 +18,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[22];
 }
 
-// Also used to draw water surface moving effects (e.g. waves/ripples)
+// Also (or only) used to draw water surface moving effects (e.g. waves/ripples)
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : TEXCOORD0,

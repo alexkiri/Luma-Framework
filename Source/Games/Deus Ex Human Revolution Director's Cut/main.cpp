@@ -684,7 +684,7 @@ public:
 
       // The target cbuffer is always set once after AO, and once before materials start to render. We only care about patching the second time.
       // We change these until bloom has run, which is totally fine.
-      if (!allow_lighting_modulation || !game_device_data.has_drawn_ssao || device_data.has_drawn_main_post_processing)
+      if (!allow_lighting_modulation || !game_device_data.has_drawn_ssao || device_data.has_drawn_main_post_processing || (cb_luma_global_settings.GameSettings.AmbientLightingIntensity == 1.f && cb_luma_global_settings.GameSettings.AmbientLightColor == float4{ 1.f, 1.f, 1.f, 1.f }))
       {
          return;
       }
@@ -1100,15 +1100,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       pixel_shader_hashes_ColorGrading.pixel_shaders = { Shader::Hash_StrToNum("BFF40A4D") }; // Only one ever
       pixel_shader_hashes_SupportedAA.pixel_shaders = { Shader::Hash_StrToNum("51BBB596"), Shader::Hash_StrToNum("FF6E347A") }; // MLAA and FXAA High (in any order)
       pixel_shader_hashes_BloomComposition.pixel_shaders = { Shader::Hash_StrToNum("29E509CF"), Shader::Hash_StrToNum("24314FFA") };
-      pixel_shader_hashes_SSAOGeneration.pixel_shaders = { Shader::Hash_StrToNum("D44718C4") };
+      pixel_shader_hashes_SSAOGeneration.pixel_shaders = { Shader::Hash_StrToNum("D44718C4"), Shader::Hash_StrToNum("7A054979") }; // DC and OG
       pixel_shader_hashes_UI.pixel_shaders = { Shader::Hash_StrToNum("E5757FCE"), Shader::Hash_StrToNum("D07AC030"), Shader::Hash_StrToNum("B8813A2F"), Shader::Hash_StrToNum("3773AC30"), Shader::Hash_StrToNum("9CB44B83"), Shader::Hash_StrToNum("6BAF4A32") };
       pixel_shader_hashes_Lighting.pixel_shaders = { Shader::Hash_StrToNum("5EF35A1E"), Shader::Hash_StrToNum("C7F2C455"), Shader::Hash_StrToNum("EBE2567F"), Shader::Hash_StrToNum("0AB7755C"), Shader::Hash_StrToNum("7E526193"), Shader::Hash_StrToNum("C7B58EF0") };
 
       cb_luma_global_settings.GameSettings.BloomIntensity = 0.8f; // Not vanilla like!
       cb_luma_global_settings.GameSettings.FogIntensity = is_dc ? 1.f : 0.f;
       cb_luma_global_settings.GameSettings.DesaturationIntensity = 0.5f; // Not vanilla like!
-      cb_luma_global_settings.GameSettings.EmissiveIntensity = 0.667f; // Not vanilla like!
       cb_luma_global_settings.GameSettings.AmbientLightingIntensity = 0.8f; // Not vanilla like!
+      cb_luma_global_settings.GameSettings.EmissiveIntensity = 0.667f; // Not vanilla like!
       cb_luma_global_settings.GameSettings.HDRBoostIntensity = 1.f;
       cb_luma_global_settings.GameSettings.HasColorGradingPass = has_gold_filter ? 1 : 0;
       cb_luma_global_settings.GameSettings.AmbientLightColor = { 1.f, 1.f, 1.f, 1.f };

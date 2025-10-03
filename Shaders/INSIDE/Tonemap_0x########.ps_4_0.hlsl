@@ -1,26 +1,6 @@
-#include "../Includes/Common.hlsl"
+#include "Includes/Common.hlsl"
 #include "../Includes/DICE.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
-
-#if !defined(ENABLE_FILM_GRAIN)
-#define ENABLE_FILM_GRAIN 1
-#endif
-
-#if !defined(ENABLE_LENS_DISTORTION)
-#define ENABLE_LENS_DISTORTION 1
-#endif
-
-#if !defined(ENABLE_CHROMATIC_ABERRATION)
-#define ENABLE_CHROMATIC_ABERRATION 1
-#endif
-
-#if !defined(ENABLE_FAKE_HDR)
-#define ENABLE_FAKE_HDR 0
-#endif
-
-#if !defined(ENABLE_LUMA)
-#define ENABLE_LUMA 1
-#endif
 
 // There are 64 permutations of the tonemap shader in INSIDE (7 branches, with some combinations skipped). Some of them are possibly unused, but still, all of them were available in the dumps.
 // The pause menu brightness preview has a separate permutation ("BLACK_BARS"), the death screen another one ("DARKEN"), under water is another ("WAVE_EFFECT"), lens distortion+chromatic aberration, etc etc.
@@ -190,7 +170,7 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
 
   float3 c1 = OptionalSaturate(color * levelMultiplication + levelAdditive); // Multiply and add (first) // Luma: removed saturate
 
-#if DESATURATION // These shader permutations have more parameters, it's seemengly some color filter, or desaturation
+#if DESATURATION // It's seemengly some color filter, or desaturation
   float3 scaledC = cb0[3].rgb * c1;
   float2 rg_rb = scaledC.rr + scaledC.gb;
   float filterOffset = (c1.b * cb0[3].b) + rg_rb.x + (sqrt(scaledC.g * rg_rb.y) * 2.0 * cb0[3].a);
@@ -207,6 +187,8 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
 }
 
 // Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
+// Note that this original TM might have actually expected to receive negative values due to the code that came just before it generating some, so it's not 100% guaranteed this wrapped formula is good in all cases,
+// but I couldn't spot any negatives
 float3 ApplyCustomCurveWrapped(float3 color, float levelMultiplication, float levelAdditive, float4 polynomialParams, float midtonesHDRBoost = 0.0, float highlightsHDRBoost = 0.0)
 {
   const float3 zeroShift = ApplyCustomCurve(0.0, levelMultiplication, levelAdditive, polynomialParams, midtonesHDRBoost, highlightsHDRBoost);
@@ -243,9 +225,8 @@ void main(
   // Update: this is likely to be the user brightness (if the brightness is >= default), as it's not in the shader if the user lowers the brightness
   const float userBrightness = v3.z;
 #endif
-  // TODO: expose these to the user? At least the mid tones?
-  float midtonesHDRBoost = 0.5;
-  float highlightsHDRBoost = 1.0;
+  float midtonesHDRBoost = 0.5 * LumaSettings.GameSettings.HDRIntensity;
+  float highlightsHDRBoost = 1.0 * (LumaSettings.GameSettings.HDRIntensity > 1.0 ? sqrt(LumaSettings.GameSettings.HDRIntensity) : LumaSettings.GameSettings.HDRIntensity); // Looks good like this
 
 	float screenWidth, screenHeight;
 	sceneTexture.GetDimensions(screenWidth, screenHeight);
@@ -363,10 +344,14 @@ void main(
   outColor.rgb = sceneColor / float(numIterations); return;
 #endif
 
+#if 1
   // Some kind of hacky performance optimization (pow/sqrt like) to do brightness scaling... The image is overly dark without it
-  int3 hackyMathResultA = 0x7ef311c3 - asint(colorFilter);
+  int3 hackyMathResultA = 0x7ef311c3 - asint(colorFilter); // This shouldn't have any negative values
   float3 hackyMathResultB = 2.0 - (asfloat(hackyMathResultA) * colorFilter);
   float3 finalColorFilter = hackyMathResultB * asfloat(hackyMathResultA); // You'd expect this to be "1.0 / numIterations", but it's not!
+#else // Cheaper and more accurate equivalent, however it shifts the look too much
+  float finalColorFilter = 1.0 / numIterations;
+#endif
 
   float3 scaledSceneColor = OptionalSaturate(ApplyColorFilter(sceneColor, finalColorFilter)); // Luma: removed saturate
   float3 scaledBloomColor = OptionalSaturate(ApplyColorFilter(bloomColor, finalColorFilter)); // Luma: removed saturate
@@ -388,12 +373,19 @@ void main(
   scaledComposedColor = max(blackFloor, scaledComposedColor) - blackFloor;
 #endif // ENABLE_LUMA
   scaledComposedColor /= cb0[10].y - blackFloor; // Raises brightness usually
+
 #if ENABLE_LUMA // Luma: added abs*sign to preserve negative colors (the alternaitve would have caused NaNs in SDR too anyway)
   scaledComposedColor = pow(abs(scaledComposedColor), colorPow) * sign(scaledComposedColor); // Lowers brightness usually
-#else
+#else // !ENABLE_LUMA
   scaledComposedColor = pow(scaledComposedColor, colorPow); // Lowers brightness usually
+#endif // ENABLE_LUMA
+  scaledComposedColor = lerp(scaledComposedColor, 1.0, fadeToWhite); // Raises brightness usually // TODO: avoid this raising the black floor? See below
+#if DEVELOPMENT // Draw purple if it's used
+  if (fadeToWhite != 0)
+  {
+    outColor.rgb = float3(1, 0, 1); return;
+  }
 #endif
-  scaledComposedColor = lerp(scaledComposedColor, 1.0, fadeToWhite); // Raises brightness usually
   
 #if 1 // Some kind of brightness scaling... It adds a lot of contrast and flattens highlights
   float3 someColor1 = 1.0 - scaledComposedColor;
@@ -412,7 +404,7 @@ void main(
   someColor1 -= someColor2 * invSqrtColor;
 #endif // ENABLE_LUMA
 
-  scaledComposedColor += someColor1 * 0.5;
+  scaledComposedColor += someColor1 * 0.5; // Note: instead of generating invalid (negative) colors here, we could do a dynamic/smart shadow curve, however the tonemapper seems to rely on negative values too?
 #endif
 
   // The main tonemapping
@@ -424,36 +416,69 @@ void main(
     midtonesHDRBoost = 0.0;
     highlightsHDRBoost = 0.0;
   }
+
   bool TM_BT2020 = LumaSettings.DisplayMode == 1 && !forceSDR; // It seems to look a bit better, usually it barely makes any difference
   const bool TM_ByLuminance = false;
-  scaledComposedColor = TM_BT2020 ? BT709_To_BT2020(scaledComposedColor) : scaledComposedColor;
+  float TM_ByLuminance_Amount_Shadow = 1.0;
+  float TM_ByLuminance_Amount_Highlights = 1.0;
+  const bool desaturateInLinear = true; // Slightly more accurate in most cases
+  float maxDesaturation = LumaSettings.GameSettings.HighlightsDesaturation;
+  bool blackAndWhite = false;
+  bool fixNegativeLuminance = false; // This messes up the tonemapper curve below, that apparently expects negative luminances, to be restored with an additive offset etc
+
+  if (TM_BT2020 || fixNegativeLuminance)
+  {
+    scaledComposedColor = gamma_to_linear(scaledComposedColor, GCT_MIRROR);
+    if (fixNegativeLuminance)
+      FixColorGradingLUTNegativeLuminance(scaledComposedColor); // Remove negative luminances, given there's plenty in the shadow, due to the "Quake_rsqrt" code above. Note that this seemengly raises the black floor a lot, given that most of it was negative.
+    scaledComposedColor = TM_BT2020 ? BT709_To_BT2020(scaledComposedColor) : scaledComposedColor;
+    scaledComposedColor = linear_to_gamma(scaledComposedColor, GCT_MIRROR);
+  }
+
   float3 tonemapByChannel = ApplyCustomCurveWrapped(scaledComposedColor, v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost);
-  if (!TM_ByLuminance)
+  if (!TM_ByLuminance && !blackAndWhite)
   {
     scaledComposedColor = tonemapByChannel;
     
     // In HDR, desaturate highlights to get a look closer to SDR (HDR tonemapper output is more saturated due to the more aggressive params)
     if (LumaSettings.DisplayMode == 1 && !forceSDR)
     {
-      const bool desaturateInLinear = true; // Slightly more accurate in most cases
       float highlightsBoost = (midtonesHDRBoost + highlightsHDRBoost) / 2.0; // These are usually both in 0-1 range and rougly boost saturation equally
       // Values closer to 0.5 provide a look more similar to SDR, but then HDR would end up looking like SDR. 0.333 can desaturate too little in a few scenes that feel too "joyful" for the game, but most of the scene textures are already a grey scale,
       // so this rarely matters, and it allows for a few colorful things to shine through HDR.
-      float maxDesaturation = 0.333 * highlightsBoost; // TODO: expose to users to get a vanilla look as well? Or a more colorful one? Or even better, desat with oklab or something?
+      float desaturation = maxDesaturation * highlightsBoost;
 
       scaledComposedColor = desaturateInLinear ? gamma_to_linear(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
-      float saturation = 1.0 - saturate(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709) - (desaturateInLinear ? MidGray : 0.5)) * saturate(maxDesaturation);
-      scaledComposedColor = Saturation(scaledComposedColor, saturation, TM_BT2020 ? CS_BT2020 : CS_BT709);
+      float saturation = 1.0 - saturate(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709) - (desaturateInLinear ? MidGray : 0.5)) * saturate(desaturation);
+      scaledComposedColor = Saturation(scaledComposedColor, saturation, TM_BT2020 ? CS_BT2020 : CS_BT709); // TODO: eesat with oklab or something?
       scaledComposedColor = desaturateInLinear ? linear_to_gamma(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
     }
+    
+    scaledComposedColor = TM_BT2020 ? linear_to_gamma(BT2020_To_BT709(gamma_to_linear(scaledComposedColor, GCT_MIRROR)), GCT_MIRROR) : scaledComposedColor; // Note: we could skip some gamma conversions through the desaturation branch, but whatever
   }
   else
   {
-    float tonemapByLuminance = average(ApplyCustomCurveWrapped(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709), v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost));
-    float TM_ByLuminance_Amount = 0.5; // TODO: all this branch. It's got artifacts near black now. Luminance should be calculated in linear etc. This might also loose the color filtering the tonemapper applies...
-    scaledComposedColor = lerp(tonemapByChannel, RestoreLuminance(scaledComposedColor, tonemapByLuminance, true, TM_BT2020 ? CS_BT2020 : CS_BT709), TM_ByLuminance_Amount);
+    float scaledComposedColorLuminance = linear_to_gamma1(GetLuminance(gamma_to_linear(scaledComposedColor, GCT_MIRROR), TM_BT2020 ? CS_BT2020 : CS_BT709), GCT_MIRROR);
+    float3 tonemapByLuminance = ApplyCustomCurveWrapped(scaledComposedColorLuminance, v3.y, v3.x, v2, midtonesHDRBoost, highlightsHDRBoost); // TODO: This might also loose the color filtering the tonemapper applies...
+    float tonemapByLuminanceAverage = GetLuminance(gamma_to_linear(tonemapByLuminance, GCT_MIRROR), TM_BT2020 ? CS_BT2020 : CS_BT709); // Just in case rgb were different
+
+    // Just because... it looks cool in this game
+    if (blackAndWhite)
+    {
+      scaledComposedColor = linear_to_gamma1(max(tonemapByLuminanceAverage, 0.0));
+      // No need to convert from BT.2020 to BT.709 given that luminance (grey scale) is the same
+    }
+    else
+    {
+      float TM_ByLuminance_Amount = lerp(TM_ByLuminance_Amount_Shadow, TM_ByLuminance_Amount_Highlights, linear_to_gamma1(saturate(tonemapByLuminanceAverage)));
+      tonemapByChannel = gamma_to_linear(tonemapByChannel, GCT_MIRROR);
+      scaledComposedColor = gamma_to_linear(scaledComposedColor, GCT_MIRROR);
+      // TODO: this just won't work... it denormalizes floats or anyway causes NaNs, no matter how we change the math or check against NaNs...
+      scaledComposedColor = lerp(tonemapByChannel, RestoreLuminance(scaledComposedColor, tonemapByLuminanceAverage, true, TM_BT2020 ? CS_BT2020 : CS_BT709), TM_ByLuminance_Amount);
+      scaledComposedColor = TM_BT2020 ? BT2020_To_BT709(scaledComposedColor) : scaledComposedColor;
+      scaledComposedColor = linear_to_gamma(scaledComposedColor, GCT_MIRROR);
+    }
   }
-  scaledComposedColor = TM_BT2020 ? BT2020_To_BT709(scaledComposedColor) : scaledComposedColor;
 #else // !ENABLE_LUMA
   scaledComposedColor = ApplyCustomCurve(scaledComposedColor, v3.y, v3.x, v2);
 #endif // ENABLE_LUMA

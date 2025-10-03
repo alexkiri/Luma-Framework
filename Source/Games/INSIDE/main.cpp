@@ -505,6 +505,8 @@ public:
          ASSERT_ONCE(!game_device_data.is_drawing_materials);
          game_device_data.is_drawing_materials = false;
          device_data.has_drawn_main_post_processing = true;
+
+         return false;
       }
 
       // Update the game's render resolution and texture upgrade aspect ratio filter based on the final swapchain shader, which converts from the render resolution to the output one
@@ -528,6 +530,8 @@ public:
                device_data.render_resolution.y = texture_2d_desc.Height;
             }
          }
+
+         return false;
       }
 
       return false;
@@ -551,10 +555,9 @@ public:
    {
       reshade::api::effect_runtime* runtime = nullptr;
 
-#if 0 // TODO: delete in all places
-      reshade::get_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
-      reshade::get_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
-#endif
+      reshade::get_config_value(runtime, NAME, "HDRIntensity", cb_luma_global_settings.GameSettings.HDRIntensity);
+      reshade::get_config_value(runtime, NAME, "HighlightsDesaturation", cb_luma_global_settings.GameSettings.HighlightsDesaturation);
+      // "device_data.cb_luma_global_settings_dirty" should already be true at this point
 
       reshade::get_config_value(runtime, NAME, "CustomAspectRatio", max_aspect_ratio);
       // Don't re-patch if the custom AR was disabled, we'll let the mod default to the output AR
@@ -570,34 +573,30 @@ public:
 
       ImGui::NewLine();
 
-#if 0
-      if (cb_luma_global_settings.DisplayMode == 1)
-      {
-         if (ImGui::SliderFloat("HDR Boost", &fake_hdr_effect, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
-         {
-            reshade::set_config_value(runtime, NAME, "FakeHDREffect", fake_hdr_effect);
-         }
-         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-         {
-            ImGui::SetTooltip("\"Artificially\" increases the amount of highlights in the game, given that the game's lighting was created for SDR and is fairly flat.\nHigher values are better to be reserved for lower \"Scene Paper White\" values.");
-         }
-         DrawResetButton(fake_hdr_effect, 0.667f, "FakeHDREffect", runtime);
-
-         if (ImGui::SliderFloat("Expand Color Gamut", &expand_hdr_gamut, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
-         {
-            reshade::set_config_value(runtime, NAME, "ExpandHDRGamut", expand_hdr_gamut);
-         }
-         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-         {
-            ImGui::SetTooltip("Increases the saturation of colors, expanding into HDR color gamuts.\nThe game is meant to look desaturated so don't overdo it.\n0 is neutral/vanilla.");
-         }
-         DrawResetButton(expand_hdr_gamut, 0.1f, "ExpandHDRGamut", runtime);
-      }
-#endif
-
       ImGui::SetNextItemOpen(true, ImGuiCond_Once);
       if (ImGui::TreeNode("Advanced Settings"))
       {
+         if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR)
+         {
+            if (ImGui::SliderFloat("HDR Intensity", &cb_luma_global_settings.GameSettings.HDRIntensity, 0.f, 2.f))
+            {
+               reshade::set_config_value(runtime, NAME, "HDRIntensity", cb_luma_global_settings.GameSettings.HDRIntensity);
+            }
+            DrawResetButton(cb_luma_global_settings.GameSettings.HDRIntensity, 1.f, "HDRIntensity", runtime);
+
+            if (ImGui::SliderFloat("Highlights Desaturation", &cb_luma_global_settings.GameSettings.HighlightsDesaturation, 0.f, 1.f))
+            {
+               reshade::set_config_value(runtime, NAME, "HighlightsDesaturation", cb_luma_global_settings.GameSettings.HighlightsDesaturation);
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            {
+               ImGui::SetTooltip("The higher the value, the closer we are to the vanilla look (results might still be different due to HDR tonemapping)");
+            }
+            DrawResetButton(cb_luma_global_settings.GameSettings.HighlightsDesaturation, 0.4f, "HighlightsDesaturation", runtime);
+
+            ImGui::NewLine();
+         }
+
          bool custom_aspect_ratio_enabled = max_aspect_ratio > 0.f;
          const float output_aspect_ratio = device_data.output_resolution.x / device_data.output_resolution.y;
          if (ImGui::Checkbox("Custom Aspect Ratio", &custom_aspect_ratio_enabled))
@@ -797,6 +796,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 #if DEVELOPMENT // Unity flips Y coordinates on all textures until the final swapchain draws
       debug_draw_options |= (uint32_t)DebugDrawTextureOptionsMask::FlipY;
 #endif
+
+      // Defaults are hardcoded in ImGUI too
+      cb_luma_global_settings.GameSettings.HDRIntensity = 1.f;
+      cb_luma_global_settings.GameSettings.HighlightsDesaturation = 0.4f;
+      // TODO: add a global "Default" game settigns struct that we can save on boot and re-use later
 
       game = new INSIDE();
    }

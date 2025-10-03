@@ -42,7 +42,7 @@ Texture2D<float4> _tex2 : register(t2);
 // LUMA: this works both in linear and gamma space
 void ApplyRadialBlur(inout float4 cScreen, float2 tcFinal)
 {
-#define RadialBlurParams UberPostParams5
+	float4 RadialBlurParams = UberPostParams5;
 
 	float2 vScreenPos = RadialBlurParams.xy;
   
@@ -74,14 +74,12 @@ void ApplyRadialBlur(inout float4 cScreen, float2 tcFinal)
 	cAcc += _tex0.Sample(_tex0_s, (tcFinal.xy + vBlurVec.xy * 8 ) );
 
 	cScreen = cAcc * fWeight;
-
-#undef RadialBlurParams
 }
 
 // LUMA: this works both in linear and gamma space
 void ApplyRadialBlurAndChromaShift(inout float4 cScreen, float2 tcFinal)
 {
-#define RadialBlurParams UberPostParams5
+	float4 RadialBlurParams = UberPostParams5;
 
 	float2 vScreenPos = RadialBlurParams.xy;
 	
@@ -130,8 +128,6 @@ void ApplyRadialBlurAndChromaShift(inout float4 cScreen, float2 tcFinal)
 
 	cScreen.gb = cAcc.gb * fWeight;
 #endif
-  
-#undef RadialBlurParams
 }
 
 // UberGamePostProcessPS

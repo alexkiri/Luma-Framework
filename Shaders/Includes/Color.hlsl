@@ -52,7 +52,8 @@ float GetLuminance(float3 color, uint colorSpace = CS_DEFAULT)
 	if (colorSpace == CS_BT2020)
 	{
 		return dot(color, Rec2020_Luminance);
-	} else if (colorSpace == CS_AP1)
+	}
+	else if (colorSpace == CS_AP1)
 	{
 		// AP1 is basically DCI-P3 with a D65 white point
 		return dot(color, AP1_Luminance);
@@ -204,15 +205,35 @@ float3 linear_to_gamma(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = 
 }
 
 // 1 component
-float gamma_to_linear1(float Color, float Gamma = DefaultGamma)
+float gamma_to_linear1(float Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
 {
-	return pow(Color, Gamma);
+	float colorSign = sign(Color);
+	if (ClampType == GCT_POSITIVE)
+		Color = max(Color, 0.f);
+	else if (ClampType == GCT_SATURATE)
+		Color = saturate(Color);
+	else if (ClampType == GCT_MIRROR)
+		Color = abs(Color);
+	Color = pow(Color, Gamma);
+	if (ClampType == GCT_MIRROR)
+		Color *= sign(colorSign);
+	return Color;
 }
 
 // 1 component
-float linear_to_gamma1(float Color, float Gamma = DefaultGamma)
+float linear_to_gamma1(float Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
 {
-	return pow(Color, 1.f / Gamma);
+	float colorSign = sign(Color);
+	if (ClampType == GCT_POSITIVE)
+		Color = max(Color, 0.f);
+	else if (ClampType == GCT_SATURATE)
+		Color = saturate(Color);
+	else if (ClampType == GCT_MIRROR)
+		Color = abs(Color);
+	Color = pow(Color, 1.f / Gamma);
+	if (ClampType == GCT_MIRROR)
+		Color *= sign(colorSign);
+	return Color;
 }
 
 float3 gamma_to_linear(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = DefaultGamma)
@@ -230,13 +251,25 @@ float3 gamma_to_linear(float3 Color, int ClampType = GCT_DEFAULT, float Gamma = 
 	return Color;
 }
 
-float gamma_sRGB_to_linear1(float channel)
+float gamma_sRGB_to_linear1(float Channel, int ClampType = GCT_DEFAULT)
 {
-	if (channel <= 0.04045f)
-		channel = channel / 12.92f;
+	float channelSign = sign(Channel);
+	if (ClampType == GCT_POSITIVE)
+		Channel = max(Channel, 0.f);
+	else if (ClampType == GCT_SATURATE)
+		Channel = saturate(Channel);
+	else if (ClampType == GCT_MIRROR)
+		Channel = abs(Channel);
+
+	if (Channel <= 0.04045f)
+		Channel = Channel / 12.92f;
 	else
-		channel = pow((channel + 0.055f) / 1.055f, 2.4f);
-	return channel;
+		Channel = pow((Channel + 0.055f) / 1.055f, 2.4f);
+		
+	if (ClampType == GCT_MIRROR)
+		Channel *= sign(channelSign);
+
+	return Channel;
 }
 
 // The sRGB gamma formula already works beyond the 0-1 range but mirroring (and thus running the pow below 0 too) makes it look better
@@ -249,19 +282,31 @@ float3 gamma_sRGB_to_linear(float3 Color, int ClampType = GCT_DEFAULT)
 		Color = saturate(Color);
 	else if (ClampType == GCT_MIRROR)
 		Color = abs(Color);
-	Color = float3(gamma_sRGB_to_linear1(Color.r), gamma_sRGB_to_linear1(Color.g), gamma_sRGB_to_linear1(Color.b));
+	Color = float3(gamma_sRGB_to_linear1(Color.r, GCT_NONE), gamma_sRGB_to_linear1(Color.g, GCT_NONE), gamma_sRGB_to_linear1(Color.b, GCT_NONE));
 	if (ClampType == GCT_MIRROR)
 		Color *= sign(colorSign);
 	return Color;
 }
 
-float linear_to_sRGB_gamma1(float channel)
+float linear_to_sRGB_gamma1(float Channel, int ClampType = GCT_DEFAULT)
 {
-	if (channel <= 0.0031308f)
-		channel = channel * 12.92f;
+	float channelSign = sign(Channel);
+	if (ClampType == GCT_POSITIVE)
+		Channel = max(Channel, 0.f);
+	else if (ClampType == GCT_SATURATE)
+		Channel = saturate(Channel);
+	else if (ClampType == GCT_MIRROR)
+		Channel = abs(Channel);
+
+	if (Channel <= 0.0031308f)
+		Channel = Channel * 12.92f;
 	else
-		channel = 1.055f * pow(channel, 1.f / 2.4f) - 0.055f;
-	return channel;
+		Channel = 1.055f * pow(Channel, 1.f / 2.4f) - 0.055f;
+		
+	if (ClampType == GCT_MIRROR)
+		Channel *= sign(channelSign);
+
+	return Channel;
 }
 
 // The sRGB gamma formula already works beyond the 0-1 range but mirroring (and thus running the pow below 0 too) makes it look better
@@ -274,7 +319,7 @@ float3 linear_to_sRGB_gamma(float3 Color, int ClampType = GCT_DEFAULT)
 		Color = saturate(Color);
 	else if (ClampType == GCT_MIRROR)
 		Color = abs(Color);
-	Color = float3(linear_to_sRGB_gamma1(Color.r), linear_to_sRGB_gamma1(Color.g), linear_to_sRGB_gamma1(Color.b));
+	Color = float3(linear_to_sRGB_gamma1(Color.r, GCT_NONE), linear_to_sRGB_gamma1(Color.g, GCT_NONE), linear_to_sRGB_gamma1(Color.b, GCT_NONE));
 	if (ClampType == GCT_MIRROR)
 		Color *= sign(colorSign);
 	return Color;

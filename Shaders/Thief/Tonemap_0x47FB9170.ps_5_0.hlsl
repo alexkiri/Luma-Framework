@@ -55,7 +55,7 @@ void main(
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
   float normalizationPoint = 0.175; // Found empyrically
   float fakeHDRIntensity = 0.5;
-  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity);
+  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, false);
 #endif
 
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;

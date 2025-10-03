@@ -530,7 +530,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::SetGlobals(PROJECT_NAME, "BioShock Remastered + BioShock 2 Remastered + BioShock Infinite Luma mod");
       Globals::VERSION = 1;
 
-      // TODO: + Bioshock Infinite (rename all)
       const std::string executable_name = System::GetProcessExecutableName();
       if (executable_name == "BioshockHD.exe")
       {
@@ -547,6 +546,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       {
          bioshock_game = BioShockGame::BioShock_Infinite;
          sub_game_shaders_appendix = "BSI";
+         Globals::DEVELOPMENT_STATE = Globals::ModDevelopmentState::WorkInProgress;
       }
       else
       {

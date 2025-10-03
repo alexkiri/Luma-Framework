@@ -14,8 +14,6 @@ cbuffer cb0 : register(b0)
   float4 cb0[27];
 }
 
-#define cmp -
-
 void main(
   float4 v0 : TEXCOORD0,
   float3 v1 : TEXCOORD1,
@@ -65,7 +63,7 @@ void main(
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
   float normalizationPoint = 0.175; // Found empyrically
   float fakeHDRIntensity = 0.5;
-  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity);
+  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, false);
 #endif
 
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;

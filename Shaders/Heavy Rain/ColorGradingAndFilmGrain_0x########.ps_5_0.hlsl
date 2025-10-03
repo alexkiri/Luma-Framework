@@ -72,8 +72,6 @@ void main(
 #endif
   )
 {
-  float4 r0,r1;
-
 #if ALPHA_OUT_TYPE < 2
   o1.xyzw = float4(0,0,0,0);
   o2.x = v0.z;
@@ -118,7 +116,7 @@ void main(
 #endif // COMPOSE_EFFECTS
 
   // This fixes NaNs expanding in the pause menu too!
-  // TODO: NaNs happen less with FXAA??? One idea to hide them would be to generate a mip (ignoring nan pixels by giving them 0 weight on alpha, with a custom generation shader) and smooth them around
+  // TODO: NaNs happen less with FXAA???
   sceneColor.xyz = IsNaN_Strict(sceneColor.xyz) ? 0.0 : sceneColor.xyz;
 
 #if FILM_GRAIN
@@ -164,7 +162,7 @@ void main(
   // If we have negative colors, flip the filter direction of the filter otherwise they'd shift towards the opposite direction.
   // TODO: try to do this with oklab on midgrey... and also port the ideas to Deus Ex. Or do this by max?
   //gradedSceneColor.rgb = (gradedSceneColor.rgb < 1.0) ? ((gradedSceneColor.rgb >= 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : (1.0 - ((1.0 - gradedSceneColor.rgb) / shadowTint.rgb))) : gradedSceneColor.rgb; // Attempted idea to add negative scRGB values support, but I don't think it's needed (applying the filter through oklab might be better)
-  gradedSceneColor.rgb = (gradedSceneColor.rgb < 1.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
+  gradedSceneColor.rgb = (gradedSceneColor.rgb > 0.0 && gradedSceneColor.rgb < 1.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
 #if 0 // TEST: draw shadow ting
   o0.xyz = 1.0 / shadowTint.rgb; return;
 #endif
@@ -204,7 +202,7 @@ void main(
   bool allowReinhard = true;
   if (LumaSettings.DisplayMode == 1 || !allowReinhard)
   {
-    bool perChannel = LumaSettings.DisplayMode != 1;
+    bool perChannel = false; // Per channel causes hue shifts, which this game doesn't seem to expect
     DICESettings settings = DefaultDICESettings(perChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
     gradedSceneColor = DICETonemap(gradedSceneColor * paperWhite, peakWhite, settings) / paperWhite;
   }

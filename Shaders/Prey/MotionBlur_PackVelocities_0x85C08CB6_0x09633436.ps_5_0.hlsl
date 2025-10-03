@@ -35,7 +35,7 @@ struct vtxOut
 
 struct pixout
 {
-  float4 Color : COLOR0;
+  float4 Color : SV_Target0;
 };
 
 // LUMA FT: fixed motion vectors not being scaled properly with DRS

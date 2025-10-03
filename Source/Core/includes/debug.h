@@ -8,6 +8,7 @@
 // DEFINE_VALUE_AS_STRING
 #define _STRINGIZE2(x) #x
 
+// TODO: why don't these run in some debug builds???
 // In non debug builds, replace asserts with a message box
 #if defined(NDEBUG) && (DEVELOPMENT || TEST)
 #undef assert
@@ -100,7 +101,7 @@ namespace
 
       if (!IsDebuggerPresent())
       {
-			// TODO: Add a way to skip this dialog for x minutes or until we change compilation mode
+			// TODO: Add a way to skip this dialog for x minutes or until we change compilation mode. Maybe we should only show it if the build was made with debug symbols/information, however there's no way to know at runtime AFAIK
 			auto ret = MessageBoxA(NULL, "Loaded. You can now attach the debugger or continue execution (press \"Yes\").\nPress \"No\" to skip this message for this session.\nPress \"Cancel\" to close the application.", name, MB_SETFOREGROUND | MB_YESNOCANCEL);
          if (ret == IDABORT || ret == IDCANCEL)
          {

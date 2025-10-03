@@ -11179,11 +11179,16 @@ namespace
             }
 #endif
 
+            bool force_dev_name = false;
+#if DEVELOPMENT
+            force_dev_name = true;
+#endif
             uint8_t longest_shader_define_name_length = 0;
 #if 1 // Enables automatic sizing
             for (uint32_t i = 0; i < shader_defines_data.size(); i++)
             {
-               longest_shader_define_name_length = max(longest_shader_define_name_length, strlen(shader_defines_data[i].editable_data.GetName()));
+               const char* shader_define_name = shader_defines_data[i].editable_data.GetName();
+               longest_shader_define_name_length = max(longest_shader_define_name_length, strlen(shader_define_name));
             }
             longest_shader_define_name_length += 1; // Add an extra space to avoid it looking too crammed and lagging by one frame
 #else
@@ -11216,7 +11221,21 @@ namespace
                // All characters should (roughly) have the same length
                ImGui::SetNextItemWidth(ImGui::CalcTextSize("0").x * longest_shader_define_name_length);
                // ImGUI doesn't work with std::string data, it seems to need c style char arrays.
-               bool name_edited = ImGui::InputTextWithHint("", shader_defines_data[i].name_hint.data(), shader_defines_data[i].editable_data.GetName(), std::size(shader_defines_data[i].editable_data.name) /*SHADER_DEFINES_MAX_NAME_LENGTH*/, flags);
+               bool name_edited = false;
+               if (force_dev_name || shader_defines_data[i].IsNameEditable())
+               {
+                  name_edited = ImGui::InputTextWithHint("", shader_defines_data[i].name_hint.data(), shader_defines_data[i].editable_data.GetName(), std::size(shader_defines_data[i].editable_data.name) /*SHADER_DEFINES_MAX_NAME_LENGTH*/, flags);
+               }
+               else
+               {
+                  std::string user_facing_name = Shader::NameToTitleCase(shader_defines_data[i].editable_data.GetName());
+
+                  // Read only InputText with temporary buffer, to make sure the alignment is right and matches the branch above
+                  char user_facing_name_buffer[SHADER_DEFINES_MAX_NAME_LENGTH]{};
+                  strncpy(user_facing_name_buffer, user_facing_name.c_str(), sizeof(user_facing_name_buffer) - 1);
+
+                  ImGui::InputText("", user_facing_name_buffer, sizeof(user_facing_name_buffer), ImGuiInputTextFlags_ReadOnly );
+               }
                show_tooltip |= ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
                ImGui::PopID();
 
@@ -11366,7 +11385,7 @@ namespace
                {
                   ImGui::NewLine();
                   unsigned long long avail_mb = status.ullAvailVirtual / (1024 * 1024);
-                  ImGui::Text("Process Available Memory: %lluMB", avail_mb);
+                  ImGui::Text("Process Available Memory: %llu MB", avail_mb);
                }
             }
 
@@ -11383,6 +11402,21 @@ namespace
             ImGui::NewLine();
             static const std::string version = "Version: " + std::to_string(Globals::VERSION);
             ImGui::Text(version.c_str());
+
+            static std::string development_state = "Finished"; // "ModDevelopmentState::Finished" by default
+            switch (Globals::DEVELOPMENT_STATE)
+            {
+            case Globals::ModDevelopmentState::NonFunctional: development_state = "Non Functional"; break;
+            case Globals::ModDevelopmentState::WorkInProgress: development_state = "Work in Progress"; break;
+            case Globals::ModDevelopmentState::Playable: development_state = "Playable"; break;
+            }
+            ImGui::Text("Development State: %s", development_state.c_str());
+#if TEST
+            ImGui::Text("TEST Enabled");
+#endif
+#if DEVELOPMENT
+            ImGui::Text("DEVELOPMENT Enabled");
+#endif
 
             ImGui::EndTabItem(); // About
          }
@@ -11730,6 +11764,14 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
 
       // We give the game code the opportunity to do something before rejecting the dll load
       game->OnLoad(file_path, load_failed);
+
+#if !DEVELOPMENT && !TEST
+      if (Globals::DEVELOPMENT_STATE == Globals::ModDevelopmentState::NonFunctional || Globals::DEVELOPMENT_STATE == Globals::ModDevelopmentState::WorkInProgress)
+      {
+         const std::string warn_message = "You are playing a mod that is either non functional or non finished. Proceed at your own risk.\nReporting issues is generally not necessary unless you were asked for testing.";
+         MessageBoxA(NULL, warn_message.c_str(), NAME, MB_SETFOREGROUND);
+		}
+#endif
 
 #if DISABLE_RESHADE
       if (!asi_loaded) return FALSE;

@@ -13,6 +13,10 @@ void main(
   r0.xyzw = t0.Sample(s0_s, v3.xy).xyzw;
   r0.xyzw *= v2.xyzw;
   r0.xyzw += v1.xyzw;
-  o0.w = saturate(v0.w) * r0.w; // Luma: fixes broken alpha with scRGB
-  o0.xyz = max(r0.xyz, 0.f);
+  o0.w = v0.w * r0.w;
+  o0.xyz = r0.xyz;
+
+  // Luma: fix UI negative values to emulate UNORM blends
+  o0.w = saturate(o0.w);
+  o0.xyz = max(o0.xyz, 0.f);
 }

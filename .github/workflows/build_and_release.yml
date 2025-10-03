@@ -39,27 +39,7 @@ jobs:
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install
 
-    # Disabled as it's probably not necessary
-    - name: Force install latest Git
-      if: false
-      run: |
-        # Check current Git version
-        git --version || echo "Git not found"
-
-        # Install the latest Git for Windows using Chocolatey
-        choco install git --yes --force --no-progress --ignore-checksums
-
-    # This is needed by ReShade to properly add version information
-    - name: Add Git to PATH
-      shell: powershell
-      run: |
-        $gitPath = "C:\Program Files\Git\cmd"
-        echo "Adding $gitPath to PATH"
-        echo "$gitPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-    - name: Verify Git
-      run: git --version
-
+    # This requires the git directory to be added to the PATH Windows environment variables, to properly set up versioning information
     - name: Build ReShade.sln Release
       run: |
         msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="64-bit"

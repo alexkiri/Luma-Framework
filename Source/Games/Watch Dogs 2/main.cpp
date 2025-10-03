@@ -86,6 +86,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
       Globals::SetGlobals(PROJECT_NAME, "Watch Dogs 2 Luma mod");
+      Globals::DEVELOPMENT_STATE = Globals::ModDevelopmentState::NonFunctional;
       Globals::VERSION = 1;
 
       luma_settings_cbuffer_index = 13;

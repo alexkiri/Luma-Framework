@@ -8,13 +8,16 @@ namespace
 {
    ShaderHashesList pixel_shader_hashes_BloomAndLensFlare;
    ShaderHashesList pixel_shader_hashes_Tonemap;
+   ShaderHashesList pixel_shader_hashes_AA;
 
    bool pending_swapchain_resize = false;
 }
 
 struct GameDeviceDataHeavyRain final : public GameDeviceData
 {
-   // Empty for now
+   com_ptr<ID3D11Resource> scene_color_resource;
+   com_ptr<ID3D11RenderTargetView> scene_color_rtv;
+   SanitizeNaNsData sanitize_nans_data;
 };
 
 class HeavyRain final : public Game
@@ -35,7 +38,7 @@ public:
             }
          }
 
-         Patches::Init(NAME, Globals::VERSION); // This might already try to patch the executably but likely not as it's still got the default aspect ratio (we don't know the window AR yet)
+         Patches::Init(NAME, Globals::VERSION); // This might already try to patch the executable but likely not as it's still got the default aspect ratio (we don't know the window AR yet)
       }
    }
 
@@ -72,6 +75,11 @@ public:
 #endif
    }
 
+   void OnCreateDevice(ID3D11Device* native_device, DeviceData& device_data) override
+   {
+      device_data.game = new GameDeviceDataHeavyRain;
+   }
+
    void OnInitSwapchain(reshade::api::swapchain* swapchain) override
    {
       auto& device_data = *swapchain->get_device()->get_private_data<DeviceData>();
@@ -87,10 +95,69 @@ public:
       cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.output_resolution.x;
       cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.output_resolution.y;
       device_data.cb_luma_global_settings_dirty = true;
+
+      auto& game_device_data = GetGameDeviceData(device_data);
+      game_device_data.scene_color_rtv.reset();
+      game_device_data.scene_color_resource.reset();
+      game_device_data.sanitize_nans_data = {};
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
+      auto& game_device_data = GetGameDeviceData(device_data);
+
+      // Clear up and smooth over NaNs, given that the game has a habit of outputting a few of them in rendering.
+      // This requires specific AA methods enabled, but everybody should have them.
+      if (!cb_luma_global_settings.GameSettings.DrewTonemap && original_shader_hashes.Contains(pixel_shader_hashes_AA))
+      {
+         DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
+         DrawStateStack<DrawStateStackType::Compute> compute_state_stack;
+         draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
+         compute_state_stack.Cache(native_device_context, device_data.uav_max_count);
+
+         // Manually create the RTV for the resource
+         com_ptr<ID3D11Resource> resource;
+         com_ptr<ID3D11ShaderResourceView> srv;
+         native_device_context->PSGetShaderResources(0, 1, &srv);
+         if (srv.get())
+         {
+            srv->GetResource(&resource);
+         }
+         if (resource.get() != game_device_data.scene_color_resource.get())
+         {
+            game_device_data.scene_color_resource = resource;
+            game_device_data.scene_color_rtv.reset();
+            if (game_device_data.scene_color_resource)
+            {
+               native_device->CreateRenderTargetView(game_device_data.scene_color_resource.get(), nullptr, &game_device_data.scene_color_rtv);
+            }
+         }
+
+         // Avoids nans spreading over the transparency phase and TAA etc (character shaders occasionally spit out some)
+         if (test_index != 18) // TODO: delete
+         SanitizeNaNs(native_device, native_device_context, game_device_data.scene_color_rtv.get(), device_data, game_device_data.sanitize_nans_data, true);
+
+#if DEVELOPMENT
+         const std::shared_lock lock_trace(s_mutex_trace);
+         if (trace_running)
+         {
+            const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+            TraceDrawCallData trace_draw_call_data;
+            trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+            trace_draw_call_data.command_list = native_device_context;
+
+            trace_draw_call_data.custom_name = "Sanitize Scene Color NaNs";
+            // Re-use the RTV data for simplicity
+            GetResourceInfo(game_device_data.scene_color_rtv.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+            cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data); // Add this one before any other
+         }
+#endif
+
+         // Restore the compute state first, given it might be considered as output and take over SR bindings of the same resource
+         compute_state_stack.Restore(native_device_context);
+         draw_state_stack.Restore(native_device_context);
+      }
+
       // Tonemapper. We need to know whether it has already drawn to balance the brightness of some follow up screen space post process effects
       if (!cb_luma_global_settings.GameSettings.DrewTonemap && original_shader_hashes.Contains(pixel_shader_hashes_Tonemap))
       {
@@ -326,6 +393,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       prevent_fullscreen_state = true;
 
       pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("B8164665"), Shader::Hash_StrToNum("8D4D1C88"), Shader::Hash_StrToNum("80408373"), Shader::Hash_StrToNum("7DF19F48"), Shader::Hash_StrToNum("146F3D1E"), Shader::Hash_StrToNum("D7C7F000"), Shader::Hash_StrToNum("E6FC219C"), Shader::Hash_StrToNum("A4E4EBA1"), Shader::Hash_StrToNum("4F74080B"), Shader::Hash_StrToNum("E7CF3D21") };
+      pixel_shader_hashes_AA.pixel_shaders = { Shader::Hash_StrToNum("2AFCA697"), Shader::Hash_StrToNum("378E53A8") };
+
       redirected_shader_hashes["ColorGradingAndFilmGrain"] = { "B8164665", "8D4D1C88", "80408373", "7DF19F48", "146F3D1E", "D7C7F000", "E6FC219C", "A4E4EBA1", "4F74080B", "E7CF3D21" };
 
 #if DEVELOPMENT
@@ -343,8 +412,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Defaults are hardcoded in ImGUI too
       cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity = 1.f;
       cb_luma_global_settings.GameSettings.HDRBoostAmount = 0.5f;
-
-      // TODO: project is set to have debug symbols in dev release mode (that said... isn't that ok for all projects?). Also changed Dynamic Debug and Debug Information Format. Also try Edit and Continue!
 
       game = new HeavyRain();
    }
