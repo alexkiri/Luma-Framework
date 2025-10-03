@@ -154,19 +154,38 @@ void main(
 #endif // ENABLE_COLOR_GRADING
 
 #if COLOR_GRADING && ENABLE_COLOR_GRADING
+#if 0 // Luma: add saturate on source color to clip to original range, it seems to look best
+  const float postProcessedColorAverage = dot(saturate(postProcessedColor.rgb), 1.0 / 3.0);
+#elif 0 // Alterantive version that clips after, might look different from Vanilla, but maybe better
+  const float postProcessedColorAverage = saturate(dot(postProcessedColor.rgb, 1.0 / 3.0));
+#else // Leave it as it was given it wasn't clamped in vanilla
   const float postProcessedColorAverage = dot(postProcessedColor.rgb, 1.0 / 3.0);
+#endif
   float3 shadowTint = saturate(postProcessedColorAverage * register6.xyz + register7.xyz); // Leave this saturate in as it's just a multiplier
   
   // This will generate colors beyond Rec.709 in the shadow
 #if ENABLE_LUMA
-  // If we have negative colors, flip the filter direction of the filter otherwise they'd shift towards the opposite direction.
-  // TODO: try to do this with oklab on midgrey... and also port the ideas to Deus Ex. Or do this by max?
-  //gradedSceneColor.rgb = (gradedSceneColor.rgb < 1.0) ? ((gradedSceneColor.rgb >= 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : (1.0 - ((1.0 - gradedSceneColor.rgb) / shadowTint.rgb))) : gradedSceneColor.rgb; // Attempted idea to add negative scRGB values support, but I don't think it's needed (applying the filter through oklab might be better)
+#if 0
+  // Compress back to 1 to apply the filter. This will desaturate a lot more.
+  float maxGradedSceneColor = max3(gradedSceneColor.rgb);
+  if (maxGradedSceneColor >= FLT_EPSILON)
+  {
+    maxGradedSceneColor = max(maxGradedSceneColor, 1.0);
+    gradedSceneColor.rgb /= maxGradedSceneColor;
+    gradedSceneColor.rgb = (gradedSceneColor.rgb > 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
+    gradedSceneColor.rgb *= maxGradedSceneColor;
+  }
+#elif 1
   gradedSceneColor.rgb = (gradedSceneColor.rgb > 0.0 && gradedSceneColor.rgb < 1.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
+#else
+  // If we have negative colors, flip the filter direction of the filter otherwise they'd shift towards the opposite direction.
+  // Attempted idea to add negative scRGB values support, but I don't think it's needed (applying the filter through oklab might be better)
+  gradedSceneColor.rgb = (gradedSceneColor.rgb < 1.0) ? ((gradedSceneColor.rgb >= 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : (1.0 - ((1.0 - gradedSceneColor.rgb) / shadowTint.rgb))) : gradedSceneColor.rgb;
+#endif
 #if 0 // TEST: draw shadow ting
   o0.xyz = 1.0 / shadowTint.rgb; return;
 #endif
-#else
+#else // !ENABLE_LUMA
   gradedSceneColor.rgb = saturate(gradedSceneColor.rgb);
   gradedSceneColor.rgb = 1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb));
 #endif // ENABLE_LUMA
@@ -202,7 +221,7 @@ void main(
   bool allowReinhard = true;
   if (LumaSettings.DisplayMode == 1 || !allowReinhard)
   {
-    bool perChannel = false; // Per channel causes hue shifts, which this game doesn't seem to expect
+    bool perChannel = true; // Per channel causes hue shifts, which this game doesn't seem to expect that much, but bloom either forms steps with "DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" (especially on blue, police sirens), or clips, with "DICE_TYPE_BY_LUMINANCE_PQ".
     DICESettings settings = DefaultDICESettings(perChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
     gradedSceneColor = DICETonemap(gradedSceneColor * paperWhite, peakWhite, settings) / paperWhite;
   }
