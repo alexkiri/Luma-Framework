@@ -18,6 +18,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
+        fetch-depth: 0
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v1.1.2
@@ -266,7 +267,7 @@ jobs:
             
             Installation instructions:
             - Extract all the files directly in the game main executable folder
-            - If you already had a ReShade installation or other mods that used the dxgi.dll file, overwrite it, or find a way to proxy it
+            - If you already had a ReShade installation overwrite it unless it's the same version. If you have other mods that used the dxgi.dll file, find a way to proxy them
             - Boot the game
             - Press home to bring out the ReShade and Luma menus (if they don't appear, ReShade or Luma failed to install or run)
             - Customize the settings if you'd like, the defaults are already good and pick up on your display calibration
