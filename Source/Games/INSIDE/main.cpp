@@ -576,7 +576,7 @@ public:
       ImGui::SetNextItemOpen(true, ImGuiCond_Once);
       if (ImGui::TreeNode("Advanced Settings"))
       {
-         if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR)
+         if (cb_luma_global_settings.DisplayMode == 1)
          {
             if (ImGui::SliderFloat("HDR Intensity", &cb_luma_global_settings.GameSettings.HDRIntensity, 0.f, 2.f))
             {

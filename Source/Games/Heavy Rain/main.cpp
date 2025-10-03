@@ -63,7 +63,7 @@ public:
 
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1'); // The game just clipped, so HDR is an extension of SDR (except for some shaders that we adjust)
 
-#if 1 // Default to the display aspect ratio, so we apply the patch as early as possible, reducing the possible "damage" it does (it still doesn't prevent users from force toggling fullscreen and borderless once for the changes to take effect)
+#if 1 // Default to the display aspect ratio, so we apply the patch as early as possible, reducing the possible "damage" it does (it still doesn't prevent users from force toggling fullscreen and borderless once for the changes to take effect). This seems to occasionally be able to boot the game in UW without resizing the window, so chances are the code is multithreaded
       int screen_width = GetSystemMetrics(SM_CXSCREEN);
       int screen_height = GetSystemMetrics(SM_CYSCREEN);
       bool patched = Patches::SetOutputResolution(screen_width, screen_height);
