@@ -20,7 +20,7 @@ jobs:
         submodules: recursive
 
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@latest
+      uses: microsoft/setup-msbuild@v1.1.2
 
     - name: Clone vcpkg
       run: git clone https://github.com/microsoft/vcpkg.git
@@ -52,7 +52,7 @@ jobs:
     - name: Add Git to PATH
       shell: powershell
       run: |
-        $gitPath = "C:\Program Files\Git\bin"
+        $gitPath = "C:\Program Files\Git\cmd"
         echo "Adding $gitPath to PATH"
         echo "$gitPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
