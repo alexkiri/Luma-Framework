@@ -2,6 +2,7 @@
 
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 1
+#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
 #ifdef NDEBUG
 #define ALLOW_SHADERS_DUMPING 1
 #endif
@@ -13,150 +14,150 @@
 
 namespace
 {
-	float2 projection_jitters = { 0, 0 };
-	std::unique_ptr<float4[]> downsample_buffer_data;
-	std::unique_ptr<float4[]> upsample_buffer_data;
-	ShaderHashesList shader_hashes_TAA;
-	ShaderHashesList shader_hashes_Title;
-	ShaderHashesList shader_hashes_MotionVectors;
-	ShaderHashesList shader_hashes_DOF;
-	ShaderHashesList shader_hashes_Motion_Blur;
-	ShaderHashesList shader_hashes_Downsample_Bloom;
-	ShaderHashesList shader_hashes_Bloom;
-	ShaderHashesList shader_hashes_MenuSlowdown;
-	ShaderHashesList shader_hashes_Tonemap;
-	ShaderHashesList shader_hashes_Velocity_Flatten;
-	ShaderHashesList shader_hashes_Velocity_Gather;
-	const uint32_t CBPerViewGlobal_buffer_size = 4096;
-	float enabled_custom_exposure = 1.f;
-	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
-	float ignore_warnings = 0.f;
+    float2 projection_jitters = { 0, 0 };
+    std::unique_ptr<float4[]> downsample_buffer_data;
+    std::unique_ptr<float4[]> upsample_buffer_data;
+    ShaderHashesList shader_hashes_TAA;
+    ShaderHashesList shader_hashes_Title;
+    ShaderHashesList shader_hashes_MotionVectors;
+    ShaderHashesList shader_hashes_DOF;
+    ShaderHashesList shader_hashes_Motion_Blur;
+    ShaderHashesList shader_hashes_Downsample_Bloom;
+    ShaderHashesList shader_hashes_Bloom;
+    ShaderHashesList shader_hashes_MenuSlowdown;
+    ShaderHashesList shader_hashes_Tonemap;
+    ShaderHashesList shader_hashes_Velocity_Flatten;
+    ShaderHashesList shader_hashes_Velocity_Gather;
+    const uint32_t CBPerViewGlobal_buffer_size = 4096;
+    float enabled_custom_exposure = 1.f;
+    float dlss_custom_pre_exposure = 0.f; // Ignored at 0
+    float ignore_warnings = 0.f;
 
-	Luma::Settings::Settings settings = {
-		new Luma::Settings::Section{
-			.label = "Post Processing",
-			.settings = {
-				new Luma::Settings::Setting{
-					.key = "TonemapType",
-					.binding = &cb_luma_global_settings.GameSettings.tonemap_type,
-					.type = Luma::Settings::SettingValueType::INTEGER,
-					.default_value = 0.f,
-					.can_reset = true,
-					.label = "Tone Map Type",
-					.tooltip = "Tone mapping algorithm to use",
-					.labels = { "ACES 1", "ACES 2" },
-					.min = 0.f,
-					.max = 1.f,
-					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); },
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); }
-				},
-				new Luma::Settings::Setting{
-					.key = "FXBloom",
-					.binding = &cb_luma_global_settings.GameSettings.custom_bloom,
-					.type = Luma::Settings::SettingValueType::FLOAT,
-					.default_value = 50.f,
-					.can_reset = true,
-					.label = "Bloom",
-					.tooltip = "Bloom strength multiplier. Default is 50.",
-					.min = 0.f,
-					.max = 100.f,
-					.parse = [](float value) { return value * 0.02f; } // Scale down to 0.0-2.0 for the shader
-				},
-				new Luma::Settings::Setting{
-					.key = "FXVignette",
-					.binding = &cb_luma_global_settings.GameSettings.custom_vignette,
-					.type = Luma::Settings::SettingValueType::FLOAT,
-					.default_value = 50.f,
-					.can_reset = true,
-					.label = "Vignette",
-					.tooltip = "Vignette strength multiplier. Default is 50.",
-					.min = 0.f,
-					.max = 100.f,
-					.parse = [](float value) { return value * 0.02f; }
-				},
-				new Luma::Settings::Setting{
-					.key = "FXFilmGrain",
-					.binding = &cb_luma_global_settings.GameSettings.custom_film_grain_strength,
-					.type = Luma::Settings::SettingValueType::FLOAT,
-					.default_value = 50.f,
-					.can_reset = true,
-					.label = "Film Grain",
-					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
-					.min = 0.f,
-					.max = 100.f,
-					// .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
-					.parse = [](float value) { return value * 0.02f; }
-				},
-				new Luma::Settings::Setting{
-					.key = "FXRCAS",
-					.binding = &cb_luma_global_settings.GameSettings.custom_sharpness_strength,
-					.type = Luma::Settings::SettingValueType::FLOAT,
-					.default_value = 50.f,
-					.can_reset = true,
-					.label = "Sharpeness",
-					.tooltip = "RCAS strength multiplier. Default is 50, for Vanilla look set to 0.",
-					.min = 0.f,
-					.max = 100.f,
-					.is_visible = []() { return dlss_sr == 1; },
-					.parse = [](float value) { return value * 0.01f; }
-				},
-				new Luma::Settings::Setting{
-					.key = "CustomLUTStrength",
-					.binding = &cb_luma_global_settings.GameSettings.custom_lut_strength,
-					.type = Luma::Settings::SettingValueType::FLOAT,
-					.default_value = 100.f,
-					.can_reset = true,
-					.label = "LUT Strength",
-					.tooltip = "LUT strength multiplier. Default is 100.",
-					.min = 0.f,
-					.max = 100.f,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
-					.parse = [](float value) { return value * 0.01f; }
-				},
-				new Luma::Settings::Setting{
-					.key = "FXHDRVideos",
-					.binding = &cb_luma_global_settings.GameSettings.custom_hdr_videos,
-					.type = Luma::Settings::SettingValueType::BOOLEAN,
-					.default_value = 1,
-					.can_reset = true,
-					.label = "HDR Videos",
-					.tooltip = "Enable or disable HDR video playback. Default is On.",
-					.min = 0,
-					.max = 1,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
-				}
-			}
-		},
-		new Luma::Settings::Section{
-			.label = "Advanced Settings",
-			.settings = {
-				new Luma::Settings::Setting{
-					.key = "IgnoreWarnings",
-					.binding = &ignore_warnings,
-					.type = Luma::Settings::SettingValueType::BOOLEAN,
-					.can_reset = false,
-					.label = "Ignore Warnings",
-					.tooltip = "Ignore warning messages. Default is Off."
-				},
-				new Luma::Settings::Setting{
-					.key = "EnableCustomPreExposure",
-					.binding = &enabled_custom_exposure,
-					.type = Luma::Settings::SettingValueType::BOOLEAN,
-					.default_value = 1.f,
-					.can_reset = true,
-					.label = "Enable Custom Pre-Exposure for DLSS",
-					.tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
-					.is_visible = []() { return dlss_sr != 0; }
-				},
-				// ,
-				//new Luma::Settings::Setting{
-				//	.key = "CustomPreExposure",
-				//	.binding = &dlss_custom_pre_exposure,
-				//	.type = Luma::Settings::SettingValueType::FLOAT,
-				//	.default_value = 0.f,
-				//	.can_reset = true,
-				//	.label = "DLSS Pre Exposure",
-				//	.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
+    Luma::Settings::Settings settings = {
+        new Luma::Settings::Section{
+            .label = "Post Processing",
+            .settings = {
+                new Luma::Settings::Setting{
+                    .key = "TonemapType",
+                    .binding = &cb_luma_global_settings.GameSettings.tonemap_type,
+                    .type = Luma::Settings::SettingValueType::INTEGER,
+                    .default_value = 0.f,
+                    .can_reset = true,
+                    .label = "Tone Map Type",
+                    .tooltip = "Tone mapping algorithm to use",
+                    .labels = { "ACES 1", "ACES 2" },
+                    .min = 0.f,
+                    .max = 1.f,
+                    .is_enabled = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); },
+                    .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); }
+                },
+                new Luma::Settings::Setting{
+                    .key = "FXBloom",
+                    .binding = &cb_luma_global_settings.GameSettings.custom_bloom,
+                    .type = Luma::Settings::SettingValueType::FLOAT,
+                    .default_value = 50.f,
+                    .can_reset = true,
+                    .label = "Bloom",
+                    .tooltip = "Bloom strength multiplier. Default is 50.",
+                    .min = 0.f,
+                    .max = 100.f,
+                    .parse = [](float value) { return value * 0.02f; } // Scale down to 0.0-2.0 for the shader
+                },
+                new Luma::Settings::Setting{
+                    .key = "FXVignette",
+                    .binding = &cb_luma_global_settings.GameSettings.custom_vignette,
+                    .type = Luma::Settings::SettingValueType::FLOAT,
+                    .default_value = 50.f,
+                    .can_reset = true,
+                    .label = "Vignette",
+                    .tooltip = "Vignette strength multiplier. Default is 50.",
+                    .min = 0.f,
+                    .max = 100.f,
+                    .parse = [](float value) { return value * 0.02f; }
+                },
+                new Luma::Settings::Setting{
+                    .key = "FXFilmGrain",
+                    .binding = &cb_luma_global_settings.GameSettings.custom_film_grain_strength,
+                    .type = Luma::Settings::SettingValueType::FLOAT,
+                    .default_value = 50.f,
+                    .can_reset = true,
+                    .label = "Film Grain",
+                    .tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
+                    .min = 0.f,
+                    .max = 100.f,
+                    // .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+                    .parse = [](float value) { return value * 0.02f; }
+                },
+                new Luma::Settings::Setting{
+                    .key = "FXRCAS",
+                    .binding = &cb_luma_global_settings.GameSettings.custom_sharpness_strength,
+                    .type = Luma::Settings::SettingValueType::FLOAT,
+                    .default_value = 50.f,
+                    .can_reset = true,
+                    .label = "Sharpeness",
+                    .tooltip = "RCAS strength multiplier. Default is 50, for Vanilla look set to 0.",
+                    .min = 0.f,
+                    .max = 100.f,
+                    .is_visible = []() { return dlss_sr == 1; },
+                    .parse = [](float value) { return value * 0.01f; }
+                },
+                new Luma::Settings::Setting{
+                    .key = "CustomLUTStrength",
+                    .binding = &cb_luma_global_settings.GameSettings.custom_lut_strength,
+                    .type = Luma::Settings::SettingValueType::FLOAT,
+                    .default_value = 100.f,
+                    .can_reset = true,
+                    .label = "LUT Strength",
+                    .tooltip = "LUT strength multiplier. Default is 100.",
+                    .min = 0.f,
+                    .max = 100.f,
+                    .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+                    .parse = [](float value) { return value * 0.01f; }
+                },
+                new Luma::Settings::Setting{
+                    .key = "FXHDRVideos",
+                    .binding = &cb_luma_global_settings.GameSettings.custom_hdr_videos,
+                    .type = Luma::Settings::SettingValueType::BOOLEAN,
+                    .default_value = 1,
+                    .can_reset = true,
+                    .label = "HDR Videos",
+                    .tooltip = "Enable or disable HDR video playback. Default is On.",
+                    .min = 0,
+                    .max = 1,
+                    .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
+                }
+            }
+        },
+        new Luma::Settings::Section{
+            .label = "Advanced Settings",
+            .settings = {
+                new Luma::Settings::Setting{
+                    .key = "IgnoreWarnings",
+                    .binding = &ignore_warnings,
+                    .type = Luma::Settings::SettingValueType::BOOLEAN,
+                    .can_reset = false,
+                    .label = "Ignore Warnings",
+                    .tooltip = "Ignore warning messages. Default is Off."
+                },
+                new Luma::Settings::Setting{
+                    .key = "EnableCustomPreExposure",
+                    .binding = &enabled_custom_exposure,
+                    .type = Luma::Settings::SettingValueType::BOOLEAN,
+                    .default_value = 1.f,
+                    .can_reset = true,
+                    .label = "Enable Custom Pre-Exposure for DLSS",
+                    .tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
+                    .is_visible = []() { return dlss_sr != 0; }
+                },
+                // ,
+                //new Luma::Settings::Setting{
+                //	.key = "CustomPreExposure",
+                //	.binding = &dlss_custom_pre_exposure,
+                //	.type = Luma::Settings::SettingValueType::FLOAT,
+                //	.default_value = 0.f,
+                //	.can_reset = true,
+                //	.label = "DLSS Pre Exposure",
+                //	.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
     //                .min = 0.f,
     //                .max = 10.f,
     //                .format = "%.3f",
@@ -246,7 +247,96 @@ public:
 		device_data.game = new GameDeviceDataFF7Remake;
 	}
 
-	void PrepareDrawForEarlyUpscaling(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data)
+    std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash) override
+    {
+        if (type != reshade::api::pipeline_subobject_type::pixel_shader) return nullptr;
+
+        // Pattern: cb1[139].z + literal l(3)
+        const std::vector<std::byte> pattern = {
+            std::byte{0x2A}, std::byte{0x80}, std::byte{0x20}, std::byte{0x00}, // CONST_BUFFER, index 2D, SELECT_1(.z)
+            std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, // cb index = 1
+            std::byte{0x8B}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, // element = 139
+            std::byte{0x01}, std::byte{0x40}, std::byte{0x00}, std::byte{0x00}, // IMMEDIATE32 (1 component)
+            std::byte{0x03}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}  // literal value = 3
+        };
+
+        std::vector<std::byte*> matches = System::ScanMemoryForPattern(code, size, pattern);
+        if (matches.empty()) return nullptr;
+
+        // Confirm we are inside an 'ishl' (cb-pattern is +12 bytes from instruction start)
+        const std::byte* cb_match = matches[0];
+        if (cb_match < code + 12) return nullptr;
+        const std::byte* ishl_start = cb_match - 12;
+
+        // Verify ishl opcode token = 0x08000029 -> bytes LE: 29 00 00 08
+        if (ishl_start[0] != std::byte{0x29} || ishl_start[1] != std::byte{0x00} ||
+            ishl_start[2] != std::byte{0x00} || ishl_start[3] != std::byte{0x08})
+            return nullptr;
+
+        constexpr size_t ishl_instruction_size = 32; // 8 DWORDs
+        constexpr size_t iadd_instruction_size = 32; // 8 DWORDs
+        const size_t injection_point = static_cast<size_t>(ishl_start - code) + ishl_instruction_size;
+
+        const uint32_t dest_token = *reinterpret_cast<const uint32_t*>(ishl_start + 4);
+        const uint32_t dest_index = *reinterpret_cast<const uint32_t*>(ishl_start + 8);
+
+        // Convert dest (MASK) -> src (SELECT_1 of written component)
+        auto dest_to_src_select1 = [](uint32_t token) -> uint32_t {
+            const uint32_t mask = (token >> 4) & 0xF; // xyzw bits
+            uint32_t comp = (mask & 0x1) ? 0u : (mask & 0x2) ? 1u : (mask & 0x4) ? 2u : 3u;
+            // Set selection mode to SELECT_1 (2), set selected component in bits [5:4]
+            token &= ~(0x3u << 2);
+            token |=  (2u   << 2);
+            token &= ~(0x30u);
+            token |=  ((comp & 3u) << 4);
+            return token;
+        };
+
+        const uint32_t src0_token = dest_to_src_select1(dest_token);
+        const uint32_t src0_index = dest_index;
+
+        // Clone CB operand and switch SELECT_1 from .z to .w (bits [5:4] = 3)
+        const uint32_t cb_token_z = *reinterpret_cast<const uint32_t*>(cb_match + 0);
+        const uint32_t cb_index   = *reinterpret_cast<const uint32_t*>(cb_match + 4);
+        const uint32_t cb_elem    = *reinterpret_cast<const uint32_t*>(cb_match + 8);
+
+        auto set_select1_comp = [](uint32_t token, uint32_t comp) -> uint32_t {
+            token &= ~(0x3u << 2);
+            token |=  (2u   << 2);        // SELECT_1
+            token &= ~(0x30u);            // clear selected component (bits 5:4)
+            token |=  ((comp & 3u) << 4); // set to X/Y/Z/W = 0/1/2/3
+            return token;
+        };
+        const uint32_t cb_token_w = set_select1_comp(cb_token_z, 3u);
+
+        const size_t new_size = size + iadd_instruction_size;
+        auto new_code = std::make_unique<std::byte[]>(new_size);
+
+        // Copy original up to injection
+        std::memcpy(new_code.get(), code, injection_point);
+
+        // Build valid iadd (8 DWORDs)
+        uint32_t iadd[8] = {};
+        iadd[0] = 0x0800001E; // iadd, length=8 DWORDs
+        iadd[1] = dest_token;
+        iadd[2] = dest_index;
+        iadd[3] = src0_token;
+        iadd[4] = src0_index;
+        iadd[5] = cb_token_w;
+        iadd[6] = cb_index;
+        iadd[7] = cb_elem;
+
+        std::memcpy(new_code.get() + injection_point, iadd, sizeof(iadd));
+        // Copy the rest
+        std::memcpy(new_code.get() + injection_point + sizeof(iadd), code + injection_point, size - injection_point);
+
+        // Update raw bytecode length token (+8 DWORDs)
+        size += sizeof(iadd);
+
+        return new_code;
+    }
+
+    void PrepareDrawForEarlyUpscaling(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data)
 	{
 		auto& game_device_data = FF7Remake::GetGameDeviceData(device_data);
 
