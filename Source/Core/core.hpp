@@ -2677,6 +2677,7 @@ namespace
                Hash::MD5::Digest* pre_patched_code_hash = nullptr;
                bool found_code_chunk = false;
 
+               int32_t size_diff = 0;
                for (uint32_t i = 0; i < shader_header->chunk_count; ++i)
                {
                   const uint32_t* chunk = (uint32_t*)((uint8_t*)shader_desc->code + shader_header->chunk_offsets[i]); // in "DWORD"
@@ -2731,7 +2732,7 @@ namespace
                      DXBCProgramType reshade_program_type = DXBCProgramType(-1);
                      switch (subobject.type)
                      {
-                     case reshade::api::pipeline_subobject_type::geometry_shader: { reshade_program_type = DXBCProgramType::PixelShader; break; }
+                     case reshade::api::pipeline_subobject_type::geometry_shader: { reshade_program_type = DXBCProgramType::GeometryShader; break; }
                      case reshade::api::pipeline_subobject_type::vertex_shader: { reshade_program_type = DXBCProgramType::VertexShader; break; }
                      case reshade::api::pipeline_subobject_type::compute_shader: { reshade_program_type = DXBCProgramType::ComputeShader; break; }
                      case reshade::api::pipeline_subobject_type::pixel_shader: { reshade_program_type = DXBCProgramType::PixelShader; break; }
@@ -2745,12 +2746,40 @@ namespace
 #endif
                      const std::byte* byte_code = reinterpret_cast<const std::byte*>(&chunk[4]);
 
-                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, byte_code_size, subobject.type, shader_hash))
+                     size_t new_size = byte_code_size;  
+
+                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, new_size, subobject.type, shader_hash))
                      {
                         if (!new_patched_code)
                         {
-                           new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size);
-                           std::memcpy(new_patched_code.get(), shader_desc->code, shader_desc->code_size);
+                           // check if size changed if it did we have to reconstruct the shader headers and chunk index as well as the replace with a new shader description for dx11
+                           if (new_size != byte_code_size)
+                           {
+                              size_diff = int32_t(new_size) - int32_t(byte_code_size);
+                              new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size + size_diff);
+                              std::memcpy(new_patched_code.get(), shader_desc->code, byte_code - (std::byte*)shader_desc->code); // Copy everything until byte code
+                              // update sizes
+                              DXBCHeader* new_shader_header = reinterpret_cast<DXBCHeader*>(new_patched_code.get());
+                              new_shader_header->file_size = new_shader_header->file_size + size_diff;
+                              uint32_t* shex_header = reinterpret_cast<uint32_t*>(new_patched_code.get() + new_shader_header->chunk_offsets[i]);
+                              shex_header[1] = shex_header[1] + size_diff; // chunk size
+                              shex_header[3] = shex_header[3] + (size_diff / sizeof(uint32_t)); // byte code size in DWORD (4 bytes)
+                              // update chunk offsets
+                              for (uint32_t j = i + 1; j < shader_header->chunk_count; ++j)
+                              {
+                                 new_shader_header->chunk_offsets[j] += size_diff;
+                              }
+                              // copy tail-end
+                              uint32_t tail_offset = shader_header->chunk_offsets[i] + chunk_size + size_diff;
+                              uint32_t old_tail_offset = shader_header->chunk_offsets[i] + chunk_size;
+                              uint32_t tail_size = shader_desc->code_size - old_tail_offset; // should be 0 if this is the last chunk?
+                              std::memcpy(new_patched_code.get() + tail_offset, (std::byte*)shader_desc->code + old_tail_offset, tail_size);
+
+                           } else 
+                           {
+                              new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size);
+                              std::memcpy(new_patched_code.get(), shader_desc->code, shader_desc->code_size);
+                           }
                         }
 
                         // Calculate the offset relative to original code and copy the replaced byte code in it
@@ -2758,7 +2787,7 @@ namespace
                         // and plus it'd break other mods that load before us that replace shaders by hash on creation)
 
                         const size_t offset = byte_code - (std::byte*)shader_desc->code;
-                        std::memcpy(new_patched_code.get() + offset, patched_byte_code.get(), byte_code_size);
+                        std::memcpy(new_patched_code.get() + offset, patched_byte_code.get(), byte_code_size + size_diff);
                      }
                   }
                }
@@ -2979,7 +3008,7 @@ namespace
                   {
                      auto& previous_shader = previous_shader_pair->second;
                      // Make sure that two shaders have the same hash, their code size also matches (theoretically we could check even more, but the chances hashes overlapping is extremely small)
-                     assert(previous_shader->size == shader_desc->code_size);
+                     //assert(previous_shader->size == shader_desc->code_size);
                      if (!keep_duplicate_cached_shaders)
                      {
 #if DEVELOPMENT
