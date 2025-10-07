@@ -2757,7 +2757,7 @@ namespace
                               size_diff = int32_t(new_byte_code_size) - int32_t(byte_code_size); // int32 should always be enough
                               new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size + size_diff);
                               std::memcpy(new_patched_code.get(), shader_desc->code, byte_code - (std::byte*)shader_desc->code); // Copy everything until byte code
-                              // update sizes
+                              // Update sizes
                               DXBCHeader* new_shader_header = reinterpret_cast<DXBCHeader*>(new_patched_code.get());
                               new_shader_header->file_size = new_shader_header->file_size + size_diff;
                               uint32_t* shex_header = reinterpret_cast<uint32_t*>(new_patched_code.get() + new_shader_header->chunk_offsets[i]);
