@@ -49,10 +49,9 @@ public:
    }
 
    // Optionally returns a modified shader.
-   // The size is in bytes and at the moment cannot be changed.
    // Requires "ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS" to be enabled.
    // "shader_hash" is 32bit, will be set to -1 if it's not specified.
-   virtual std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash = -1) { return nullptr; }
+   virtual std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash = -1) { return nullptr; }
 
    // TODO: call OnDrawOrComputeCustom?
    // Called for every game's valid draw call (any type),
