@@ -1180,6 +1180,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
+      // TODO: figure out why the game hangs after alt tabbing back in, or changing FSE resolution. It seems to happen without mods too sometimes though, the game is very crash prone. It also hangs on exit.
+      prevent_fullscreen_state = false; // Fixes hangs when alt tabbing out of the game
+
       // TODO: figure out how the game does gamma adjustments fullscreen (they only work in FSE and apply to ReShade too, but they don't seem to be the typical ones)
       //allow_disabling_gamma_ramp = true; // Game uses Windows gamma functions to adjust brightness, but it defaults to a neutral one!
 

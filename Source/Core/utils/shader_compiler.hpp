@@ -67,8 +67,8 @@ namespace Shader
    };
    struct DXBCByteCodeChunk
    {
-      uint8_t version_major; // E.g. SM4/5
-      uint8_t version_minor;
+      uint8_t version_major_and_minor; // E.g. SM4.0/5.1
+      uint8_t reserved;
       DXBCProgramType program_type;
 
       uint32_t chunk_size_dword; // The size is stored in "DWORD" elements and counted the size (this very variable) and program version/type in its count
