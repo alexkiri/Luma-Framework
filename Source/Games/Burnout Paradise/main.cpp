@@ -1,15 +1,12 @@
-// ### Rename this ###
 #define GAME_BURNOUT_PC 1
 
 #include "..\..\Core\core.hpp"
 
-class BurnoutParadiseCity final : public Game // ### Rename this to your game's name ###
+class BurnoutParadiseCity final : public Game
 {
 public:
    void OnInit(bool async) override
    {
-      // ### Update these (find the right values) ###
-      // ### See the "GameCBuffers.hlsl" in the shader directory to expand settings ###
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
 
@@ -56,7 +53,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
       // This game has NaNs or subtractive values in the UI without this
-      enable_ui_separation = true;
+      //enable_ui_separation = true;
 
       game = new BurnoutParadiseCity();
    }
