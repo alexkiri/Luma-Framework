@@ -7,7 +7,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[6];
 }
 
-// Vignette?
+// Vignette, and maybe more
 void main(
   float4 v0 : TEXCOORD0,
   out float4 o0 : SV_Target0)

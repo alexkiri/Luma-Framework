@@ -1,4 +1,3 @@
-// ---- Created with 3Dmigoto v1.3.16 on Tue Jul 15 04:02:15 2025
 Texture2D<float4> t2 : register(t2);
 
 Texture2D<float4> t1 : register(t1);
@@ -21,13 +20,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[23];
 }
 
-
-
-
-// 3Dmigoto declarations
-#define cmp -
-
-
+// TODO: verify signature
 void main(
   float4 v0 : TEXCOORD4,
   float v1 : TEXCOORD1,
@@ -41,9 +34,6 @@ void main(
   out float4 o0 : SV_Target0)
 {
   float4 r0,r1;
-  uint4 bitmask, uiDest;
-  float4 fDest;
-
   r0.xy = w1.xy / v6.ww;
   r0.xy = r0.xy * cb2[0].xy + cb2[0].wz;
   r1.xyz = t1.Sample(s1_s, r0.xy).xyz;
@@ -60,5 +50,4 @@ void main(
   r0.yzw = r0.yyy * r1.xyz + cb0[22].xyz;
   o0.xyz = r0.yzw * r0.xxx;
   o0.w = 0;
-  return;
 }

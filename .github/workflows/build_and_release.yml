@@ -189,16 +189,21 @@ jobs:
               -or $projectName -like '*Mafia III*' `
               -or $projectName -like '*Dishonored 2*' `
               -or $projectName -like '*Final Fantasy VII Remake*' `
-              -or $projectName -like '*Final Fantasy XV*'
-          ) {
+              -or $projectName -like '*Final Fantasy XV*' `
+              -or $projectName -like '*Trine 5*' ) {
             # Source path for NGX DLSS DLL
-            $ngxSrc = "Source/External/NGX/bin/rel/nvngx_dlss.dll"
+            
+            if (("${{ matrix.config }}" -eq "Development-Debug") -or ("${{ matrix.config }}" -eq "Development-Release")) {
+              $ngxSrc = "Source/External/NGX/bin/dev/nvngx_dlss.dll"
+            } else {
+              $ngxSrc = "Source/External/NGX/bin/rel/nvngx_dlss.dll"
+            }
 
             # Destination in the root of $tempDir, keeping original name
             if (Test-Path $ngxSrc) {
-                Copy-Item -Path $ngxSrc -Destination $tempDir -Force
+              Copy-Item -Path $ngxSrc -Destination $tempDir -Force
             } else {
-                Write-Host "NGX DLSS DLL not found at $ngxSrc — skipping"
+              Write-Host "NGX DLSS DLL not found at $ngxSrc — skipping"
             }
           }
 
@@ -246,8 +251,8 @@ jobs:
             The current version of all Luma mods (based on latest commit).
             
             Installation instructions:
-            - Extract all the files directly in the game main executable folder
-            - If you already had a ReShade installation overwrite it unless it's the same version. If you have other mods that used the dxgi.dll file, find a way to proxy them
+            - Extract all the files directly in the game main executable folder (replace the previous ones if you are updating)
+            - If you already had a ReShade installation (dxgi.dll) overwrite it unless it's the same version. If you have other mods that used the dxgi.dll file, find a way to proxy them
             - Boot the game
             - Press home to bring out the ReShade and Luma menus (if they don't appear, ReShade or Luma failed to install or run)
             - Customize the settings if you'd like, the defaults are already good and pick up on your display calibration

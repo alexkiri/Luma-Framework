@@ -27,23 +27,23 @@ void main(
   bloomColor -= sceneColor.rgb;
   sceneColor.rgb += someCoeff2 * bloomColor;
   bool someBool = someCoeff2 < 0.005;
-  r1.xyz = float3(1, 0.05, 0.05) + -sceneColor.rgb;
+  r1.xyz = float3(1, 0.05, 0.05) - sceneColor.rgb;
   r1.xyz = someCoeff * r1.xyz + sceneColor.rgb;
-  r2.xyz = float3(0.05, 0.05, 1) + -sceneColor.rgb;
+  r2.xyz = float3(0.05, 0.05, 1) - sceneColor.rgb;
   r2.xyz = r2.xyz * 0.8 + sceneColor.rgb;
   float lum = GetLuminance(sceneColor.rgb); // Luma: fixed from BT.601 coeffs
-  r2.w = sqrt(lum);
+  r2.w = linear_to_gamma1(lum, GCT_POSITIVE); // Luma: fixed using sqrt as approximation of gamma 2.2
   r3.xyz = lum - sceneColor.rgb;
   r1.w = r2.w;
   r2.xyzw = someBool ? r2.xyzw : r1.xyzw;
 
   r4.w = r1.w;
   r1.x = cb0[7].x * r1.w;
-  r1.y = cb0[7].x * r1.w + -0.5;
+  r1.y = cb0[7].x * r1.w - 0.5;
   r1.xy = saturate(r1.xy + r1.xy);
-  r5.xyzw = cb0[3].xyzw + -cb0[1].xyzw;
+  r5.xyzw = cb0[3].xyzw - cb0[1].xyzw;
   r5.xyzw = r1.x * r5.xyzw + cb0[1].xyzw;
-  r6.xyzw = cb0[5].xyzw + -r5.xyzw;
+  r6.xyzw = cb0[5].xyzw - r5.xyzw;
   r1.xyzw = r1.y * r6.xyzw + r5.xyzw;
   r0.xyz = r1.w * r3.xyz + sceneColor.xyz;
   r3.xyz = r1.xyz * r0.xyz;
@@ -53,9 +53,10 @@ void main(
   o0.xyzw = some ? r2.xyzw : r4.xyzw;
 
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
-  float normalizationPoint = 0.175; // Found empyrically
-  float fakeHDRIntensity = 0.5;
-  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, false);
+  float normalizationPoint = 0.025; // Found empyrically
+  float fakeHDRIntensity = 0.4;
+  float saturationBoost = 0.666;
+  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, saturationBoost);
 #endif
 
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;

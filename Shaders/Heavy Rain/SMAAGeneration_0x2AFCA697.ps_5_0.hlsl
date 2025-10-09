@@ -16,7 +16,7 @@ void main(
   r0.xyz = texColor.Sample(PointSampler_s, v1.xy).xyz;
   r1.xyz = texColor.Sample(PointSampler_s, v2.xy).xyz;
 
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   // The game has some minor nans and invalid colors (due to subtractive blending).
   // AA is the first fullscreen pass where we can fix them.
   r0.xyz = IsNaN_Strict(r0.xyz) ? 0.0 : r0.xyz;
@@ -34,7 +34,7 @@ void main(
   r0.w = max(abs(r1.x), abs(r1.y));
   r1.x = max(r0.w, abs(r1.z));
   r2.xyz = texColor.Sample(PointSampler_s, v2.zw).xyz;
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   r2.xyz = IsNaN_Strict(r2.xyz) ? 0.0 : r2.xyz;
   r2.rgb = gamma_to_linear(r2.rgb, GCT_MIRROR);
   FixColorGradingLUTNegativeLuminance(r2.xyz);
@@ -49,7 +49,7 @@ void main(
   r0.w = (r0.w == 0.000000);
   if (r0.w != 0) discard;
   r2.xyz = texColor.Sample(PointSampler_s, v3.xy).xyz;
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   r2.xyz = IsNaN_Strict(r2.xyz) ? 0.0 : r2.xyz;
   r2.rgb = gamma_to_linear(r2.rgb, GCT_MIRROR);
   FixColorGradingLUTNegativeLuminance(r2.xyz);
@@ -59,7 +59,7 @@ void main(
   r0.w = max(abs(r2.x), abs(r2.y));
   r2.x = max(r0.w, abs(r2.z));
   r3.xyz = texColor.Sample(PointSampler_s, v3.zw).xyz;
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   r3.xyz = IsNaN_Strict(r3.xyz) ? 0.0 : r3.xyz;
   r3.rgb = gamma_to_linear(r3.rgb, GCT_MIRROR);
   FixColorGradingLUTNegativeLuminance(r3.xyz);
@@ -70,7 +70,7 @@ void main(
   r2.y = max(r0.w, abs(r3.z));
   r2.xy = max(r2.xy, r1.xy);
   r3.xyz = texColor.Sample(PointSampler_s, v4.xy).xyz;
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   r3.xyz = IsNaN_Strict(r3.xyz) ? 0.0 : r3.xyz;
   r3.rgb = gamma_to_linear(r3.rgb, GCT_MIRROR);
   FixColorGradingLUTNegativeLuminance(r3.xyz);
@@ -80,7 +80,7 @@ void main(
   r0.w = max(abs(r3.x), abs(r3.y));
   r3.x = max(r0.w, abs(r3.z));
   r4.xyz = texColor.Sample(PointSampler_s, v4.zw).xyz;
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   r4.xyz = IsNaN_Strict(r4.xyz) ? 0.0 : r4.xyz;
   r4.rgb = gamma_to_linear(r4.rgb, GCT_MIRROR);
   FixColorGradingLUTNegativeLuminance(r4.xyz);

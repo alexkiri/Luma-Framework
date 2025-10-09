@@ -61,8 +61,8 @@
 #endif
 #define DELAY_DITHERING 1
 //TODOFT: test more with this off (which theoretically should be better), and possibly disable it (or remove it if you move the AA pass)
-#ifndef DLSS_RELATIVE_PRE_EXPOSURE
-#define DLSS_RELATIVE_PRE_EXPOSURE 1
+#ifndef SR_RELATIVE_PRE_EXPOSURE
+#define SR_RELATIVE_PRE_EXPOSURE 1
 #endif
 // Disable to keep the vanilla behaviour of CRT like emulated effects becoming near imperceptible at higher resolutions (which defeats their purpose)
 #ifndef CORRECT_CRT_INTERLACING_SIZE
@@ -254,7 +254,7 @@ static const float SunShaftsBrightnessMultiplier = 4.0;
 // The value should be between 0 and 1.
 static const float SunShaftsAndLensOpticsExposureAlpha = 0.25; // Anything more than 0.25 can cause sun effects to be blinding if the exposure is too high (it's pretty high in some scenes)
 
-//TODOFT: test increase? Nah! It's not classy
+//TODOFT: test increase? Nah! It's not classy. Review after code changes. Maybe 250 or so is better.
 static const float BinkVideosAutoHDRPeakWhiteNits = 400; // Values beyond 700 will make AutoHDR look bad
 // The higher it is, the "later" highlights start
 static const float BinkVideosAutoHDRShoulderPow = 2.75; // A somewhat conservative value

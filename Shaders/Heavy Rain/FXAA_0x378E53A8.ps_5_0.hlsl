@@ -16,7 +16,7 @@ void main(
 {
   float4 r0,r1,r2,r3,r4;
   r0.xyz = imtex.SampleLevel(g_sampler_s, v1.zw, 0, int2(1, 0)).xyz;
-  r0.x = GetLuminance(r0.xyz); // Luma: fixed wrong luminance formula (BT.601) for better results
+  r0.x = GetLuminance(r0.xyz); // Luma: fixed wrong luminance formula (BT.601) for better results (it's be even better to calculate luminance in linear space, but the game has better AA settings)
   r0.yzw = imtex.SampleLevel(g_sampler_s, v1.zw, 0, int2(1, 1)).xyz;
   r0.y = GetLuminance(r0.yzw);
   r0.z = r0.x + r0.y;
@@ -64,15 +64,16 @@ void main(
   r0.w = GetLuminance(r1.xyz);
   r0.y = min(r0.w, r0.y);
   r0.x = max(r0.w, r0.x);
-  r0.xy = (r0.zz >= r0.xy);
-  r0.y = r0.y ? 1.0 : 0;
-  r0.x = r0.x ? -1 : -0;
+
+  r0.y = r0.z >= r0.y; // In hlsl this theoretically already returns 0 or 1, though in asm the "ge" instruction would return either 0 or 0xFFFFFFFF
+  r0.x = -(r0.z >= r0.x);
+
   r0.x = r0.y + r0.x;
   r1.xyzw = r0.x * r3.xyzw;
   r0.x = 1 + -r0.x;
   o0.xyzw = r0.x * r2.xyzw + r1.xyzw;
 
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   // The game has some minor nans and invalid colors (due to subtractive blending).
   // AA is the first fullscreen pass where we can fix them.
   o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz;

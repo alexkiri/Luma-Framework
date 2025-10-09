@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 Texture2D<float4> t0 : register(t0); // Normal maps (for Specular objects only)
 Texture2D<float4> t1 : register(t1); // Depth or something
 Texture2D<float4> t2 : register(t2); // Previously prepared SSR step (looks like a mix of normal maps and specularity etc) (if we upgraded textures, this has huge values and needs clamping)
@@ -98,30 +100,36 @@ void main(
     r0.y = r0.y * r0.z + 1;
     r0.y = r0.w / r0.y;
     r0.z = 1 - r4.w;
-    if (isnan(r0.z) || r0.z != r0.z)
+
+    // Luma
+    if (IsNaN_Strict(r0.z))
     {
       r0.z = 0+1;
     }
-    if (isnan(r0.y) || r0.y != r0.y)
+    if (IsNaN_Strict(r0.y))
     {
       r0.y = 0;
     }
+    
     r1.xyz = r2.xyz * r0.z;
     r0.w = t4.Sample(s4_s, v0.xy).w;
     r1.xyz = r1.xyz * r0.w - r4.xyz;
     r1.xyz = r0.y * r1.xyz + r4.xyz;
     o0.xyz = r1.xyz * r0.x;
-    // if (r0.z >= 1)
-    // {
-    //   r0.z = 0;
-    // }
+
+    //if (r0.z >= 1) // Luma
+    //{
+    //  r0.z = 0;
+    //}
+
     o0.w = r0.z;
+
 #if 1 // Luma: fix NaN alpha blends
-    if (isnan(o0.w))
+    if (IsNaN_Strict(o0.w))
     {
       o0.w = 0;
     }
-    if (any(isnan(r1.rgb)))
+    if (any(IsNaN_Strict(r1.rgb)))
     //if (r0.y != r0.y)
     {
       //o0.rgb = 0;
@@ -131,6 +139,7 @@ void main(
     o0.w = saturate(o0.w);
     o0.rgb = saturate(o0.rgb);
 #endif
+
     o1.z = r0.x;
     o1.w = 1;
   }

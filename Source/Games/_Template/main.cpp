@@ -5,8 +5,9 @@
 #define GAME_TEMPLATE 1
 
 // Define all the global "core" defines before including its files:
-// Enable this to be able to use DLSS's code
+// Enable these to be able to use DLSS's or FSR's code
 #define ENABLE_NGX 0
+#define ENABLE_FIDELITY_SK 0
 // Update samples to override the bias, based on the rendering resolution etc
 #define UPGRADE_SAMPLERS 0
 #define GEOMETRY_SHADER_SUPPORT 0
@@ -126,9 +127,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       // The following can be toggled in the dev settings (it generally only fully applies after changing the game's resolution).
       // Default these to "false" for the mod to not do "anything" that might cause issues with the game by default.
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       // Texture upgrades (8 bit unorm and 11 bit float etc to 16 bit float)
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,

@@ -11,6 +11,7 @@ namespace CB
 	{
 		float2 InvRenderRes;
 		float BloomAndLensFlareIntensity;
+		float ColorGradingIntensity;
 		float HDRBoostAmount;
 		bool DrewTonemap;
 	};

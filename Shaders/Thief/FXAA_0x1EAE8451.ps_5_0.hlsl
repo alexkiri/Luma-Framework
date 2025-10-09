@@ -7,10 +7,11 @@ cbuffer cb0 : register(b0)
   float4 cb0[2];
 }
 
-#define cmp -
+#define cmp
 
+// TODO: verify this works well
 void main(
-  float4 v0 : TEXCOORD0,
+  float2 v0 : TEXCOORD0,
   float4 v1 : TEXCOORD1,
   float4 v2 : TEXCOORD2,
   out float4 o0 : SV_Target0)
@@ -72,7 +73,7 @@ void main(
     r2.y = max(abs(r2.y), abs(r2.w));
     r1.y = r3.x ? -r1.y : r1.y;
     r1.w = saturate(abs(r1.w) * r2.x);
-    r2.x = r2.z ? cb0[1].x : 0;
+    r2.x = asfloat(asint(r2.z) & asint(cb0[1].x));
     r2.w = r2.z ? 0 : cb0[1].y;
     r3.yz = r1.yy * float2(0.5,0.5) + v0.xy;
     r3.y = r2.z ? v0.x : r3.y;
@@ -95,8 +96,8 @@ void main(
     r4.x = r3.z ? r4.x : r4.z;
     r4.w = -r2.w * 1.5 + r4.y;
     r4.z = r3.z ? r4.y : r4.w;
-    r4.yw = ~(int2)r3.zw;
-    r4.y = (int)r4.w | (int)r4.y;
+    r4.yw = asfloat(~asint(r3.zw));
+    r4.y = asfloat(asint(r4.w) | asint(r4.y));
     r4.w = r2.x * 1.5 + r5.x;
     r5.x = r3.w ? r5.x : r4.w;
     r4.w = r2.w * 1.5 + r5.y;
@@ -117,8 +118,8 @@ void main(
       r4.x = r3.z ? r4.x : r4.y;
       r4.y = -r2.w * 2 + r4.z;
       r4.z = r3.z ? r4.z : r4.y;
-      r4.yw = ~(int2)r3.zw;
-      r4.y = (int)r4.w | (int)r4.y;
+      r4.yw = asfloat(~asint(r3.zw));
+      r4.y = asfloat(asint(r4.w) | asint(r4.y));
       r4.w = r2.x * 2 + r5.x;
       r5.x = r3.w ? r5.x : r4.w;
       r4.w = r2.w * 2 + r5.z;
@@ -139,8 +140,8 @@ void main(
         r4.x = r3.z ? r4.x : r4.y;
         r4.y = -r2.w * 2 + r4.z;
         r4.z = r3.z ? r4.z : r4.y;
-        r4.yw = ~(int2)r3.zw;
-        r4.y = (int)r4.w | (int)r4.y;
+        r4.yw = asfloat(~asint(r3.zw));
+        r4.y = asfloat(asint(r4.w) | asint(r4.y));
         r4.w = r2.x * 2 + r5.x;
         r5.x = r3.w ? r5.x : r4.w;
         r4.w = r2.w * 2 + r5.z;
@@ -161,8 +162,8 @@ void main(
           r4.x = r3.z ? r4.x : r4.y;
           r4.y = -r2.w * 2 + r4.z;
           r4.z = r3.z ? r4.z : r4.y;
-          r4.yw = ~(int2)r3.zw;
-          r4.y = (int)r4.w | (int)r4.y;
+          r4.yw = asfloat(~asint(r3.zw));
+          r4.y = asfloat(asint(r4.w) | asint(r4.y));
           r4.w = r2.x * 2 + r5.x;
           r5.x = r3.w ? r5.x : r4.w;
           r4.w = r2.w * 2 + r5.z;
@@ -183,8 +184,8 @@ void main(
             r4.x = r3.z ? r4.x : r4.y;
             r4.y = -r2.w * 2 + r4.z;
             r4.z = r3.z ? r4.z : r4.y;
-            r4.yw = ~(int2)r3.zw;
-            r4.y = (int)r4.w | (int)r4.y;
+            r4.yw = asfloat(~asint(r3.zw));
+            r4.y = asfloat(asint(r4.w) | asint(r4.y));
             r4.w = r2.x * 2 + r5.x;
             r5.x = r3.w ? r5.x : r4.w;
             r4.w = r2.w * 2 + r5.z;
@@ -205,8 +206,8 @@ void main(
               r4.x = r3.z ? r4.x : r4.y;
               r4.y = -r2.w * 2 + r4.z;
               r4.z = r3.z ? r4.z : r4.y;
-              r4.yw = ~(int2)r3.zw;
-              r4.y = (int)r4.w | (int)r4.y;
+              r4.yw = asfloat(~asint(r3.zw));
+              r4.y = asfloat(asint(r4.w) | asint(r4.y));
               r4.w = r2.x * 2 + r5.x;
               r5.x = r3.w ? r5.x : r4.w;
               r4.w = r2.w * 2 + r5.z;
@@ -227,8 +228,8 @@ void main(
                 r4.x = r3.z ? r4.x : r4.y;
                 r4.y = -r2.w * 2 + r4.z;
                 r4.z = r3.z ? r4.z : r4.y;
-                r4.yw = ~(int2)r3.zw;
-                r4.y = (int)r4.w | (int)r4.y;
+                r4.yw = asfloat(~asint(r3.zw));
+                r4.y = asfloat(asint(r4.w) | asint(r4.y));
                 r4.w = r2.x * 2 + r5.x;
                 r5.x = r3.w ? r5.x : r4.w;
                 r4.w = r2.w * 2 + r5.z;
@@ -249,8 +250,8 @@ void main(
                   r4.x = r3.z ? r4.x : r4.y;
                   r4.y = -r2.w * 2 + r4.z;
                   r4.z = r3.z ? r4.z : r4.y;
-                  r4.yw = ~(int2)r3.zw;
-                  r4.y = (int)r4.w | (int)r4.y;
+                  r4.yw = asfloat(~asint(r3.zw));
+                  r4.y = asfloat(asint(r4.w) | asint(r4.y));
                   r4.w = r2.x * 2 + r5.x;
                   r5.x = r3.w ? r5.x : r4.w;
                   r4.w = r2.w * 2 + r5.z;
@@ -271,8 +272,8 @@ void main(
                     r4.x = r3.z ? r4.x : r4.y;
                     r4.y = -r2.w * 2 + r4.z;
                     r4.z = r3.z ? r4.z : r4.y;
-                    r4.yw = ~(int2)r3.zw;
-                    r4.y = (int)r4.w | (int)r4.y;
+                    r4.yw = asfloat(~asint(r3.zw));
+                    r4.y = asfloat(asint(r4.w) | asint(r4.y));
                     r4.w = r2.x * 2 + r5.x;
                     r5.x = r3.w ? r5.x : r4.w;
                     r4.w = r2.w * 2 + r5.z;
@@ -293,8 +294,8 @@ void main(
                       r4.x = r3.z ? r4.x : r4.y;
                       r4.y = -r2.w * 4 + r4.z;
                       r4.z = r3.z ? r4.z : r4.y;
-                      r4.yw = ~(int2)r3.zw;
-                      r4.y = (int)r4.w | (int)r4.y;
+                      r4.yw = asfloat(~asint(r3.zw));
+                      r4.y = asfloat(asint(r4.w) | asint(r4.y));
                       r4.w = r2.x * 4 + r5.x;
                       r5.x = r3.w ? r5.x : r4.w;
                       r4.w = r2.w * 4 + r5.z;
@@ -337,7 +338,7 @@ void main(
     r1.z = r2.z ? r1.z : r2.x;
     r2.xw = cmp(r3.xy < float2(0,0));
     r3.x = r1.z + r1.x;
-    r2.xy = cmp((int2)r2.xw != (int2)r2.yy);
+    r2.xy = asfloat((asint(r2.xw) != asint(r2.yy)) ? 0xFFFFFFFF : 0);
     r2.w = 1 / r3.x;
     r3.x = cmp(r1.x < r1.z);
     r1.x = min(r1.x, r1.z);
@@ -345,7 +346,7 @@ void main(
     r1.w = r1.w * r1.w;
     r1.x = r1.x * -r2.w + 0.5;
     r1.w = 0.75 * r1.w;
-    r1.x = (int)r1.x & (int)r1.z;
+    r1.x = asfloat(asint(r1.x) & asint(r1.z));
     r1.x = max(r1.x, r1.w);
     r1.xy = r1.xx * r1.yy + v0.xy;
     r2.x = r2.z ? v0.x : r1.x;
@@ -353,6 +354,9 @@ void main(
     r0.xyz = t0.SampleLevel(s0_s, r2.xy, 0).xyz;
   }
   o0.xyzw = r0.xyzw;
-  //o0.w = saturate(o0.w);
+#if 0 // TODO: Luma - are these additions necessary?
+  o0.w = saturate(o0.w);
+#elif 1
   o0.w = 1.f;
+#endif
 }

@@ -27,9 +27,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::DEVELOPMENT_STATE = Globals::ModDevelopmentState::NonFunctional;
       Globals::VERSION = 1;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       // ### Check which of these are needed and remove the rest ###
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,

@@ -504,7 +504,7 @@ void main(
       r0.xyz = min(r7.xyz, r6.xyz);
     } else {
       r6.xy = cmp(asint(cb0[65].zz) == int2(3,5));
-      r0.w = (int)r6.y | (int)r6.x;
+      r0.w = asfloat(asint(r6.y) | asint(r6.x));
       if (r0.w != 0) {
         r6.xyz = float3(1.5,1.5,1.5) * r1.xyz;
         r7.y = dot(float3(0.439700812,0.382978052,0.1773348), r6.xyz);
@@ -959,7 +959,7 @@ void main(
         r0.xyz = exp2(r6.xyz);
       } else {
         r6.xy = cmp(asint(cb0[65].zz) == int2(4,6));
-        r0.w = (int)r6.y | (int)r6.x;
+        r0.w = asfloat(asint(r6.y) | asint(r6.x));
         if (r0.w != 0) {
           r6.xyz = float3(1.5,1.5,1.5) * r1.xyz;
           r7.y = dot(float3(0.439700812,0.382978052,0.1773348), r6.xyz);

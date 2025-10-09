@@ -52,6 +52,7 @@ cbuffer MaterialBuffer : register(b3)
 SamplerState p_default_Material_0B390A243201500_0851E8642221812_Texture_sampler_s : register(s0);
 Texture2D<float4> p_default_Material_0B390A243201500_0851E8642221812_Texture_texture : register(t0);
 
+// This can actually draw any geometry
 void main(
   float4 v0 : SV_POSITION0,
   float4 v1 : TEXCOORD0,
@@ -69,8 +70,55 @@ void main(
   r0.yzw = -MaterialParams[1].zzz * r0.yzw + FogColor.xyz;
   o0.xyz = r0.xxx * r0.yzw + r1.xyz;
   
-#if 0 // Luma: fix banding in the sky. Disabled as this doesn't do enough
-  float2 sceneUV = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
-  ApplyDithering(o0.xyz, sceneUV, true, 1.0, 5, LumaSettings.FrameIndex, true);
+#if 1 // Luma
+  uint width, height, mipCount;
+  p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.GetDimensions(0, width, height, mipCount);
+  bool skyboxType1 = width == 1024 && height == 1024;
+  bool skyboxType2 = width == 2048 && height == 2048 && mipCount == 12; // TODO: improve this test...
+  if (skyboxType1 || skyboxType2) // Skybox properties (of seemengly all levels)
+  {
+    // Skyboxes have black edges and only draw a circle in the middle
+    float4 samples[5];
+    if (skyboxType1)
+    {
+      samples[0] = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Load(int3(0, 0, 0)).xyzw;
+      samples[1] = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Load(int3(width - 1, 0, 0)).xyzw;
+      samples[2] = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Load(int3(0, height - 1, 0)).xyzw;
+      samples[3] = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Load(int3(width - 1, height - 1, 0)).xyzw;
+      samples[4] = p_default_Material_0B390A243201500_0851E8642221812_Texture_texture.Load(int3(width / 2, height / 2, 0)).xyzw;
+    }
+
+    // Heuristics. Slow and dumb but it works!
+    float threshold = 2.5 / 255.0; // Needed due to texture compression messing up blacks
+    float3 average = (samples[0].rgb + samples[1].rgb + samples[2].rgb + samples[3].rgb) / 4.0;
+    if (skyboxType2 || (all(samples[0].rgb <= threshold) && all(samples[1].rgb <= threshold) && all(samples[2].rgb <= threshold) && all(samples[3].rgb <= threshold) && all(samples[4].rgb > average * 2.0)))
+    {
+      float2 sceneUV = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+      bool forceSDR = ShouldForceSDR(sceneUV.xy, true);
+
+      // Make sky more HDR (barely does anything if it's not day)
+      if (LumaSettings.DisplayMode == 1 && !forceSDR)
+      {
+        float normalizationPoint = 0.05; // Found empyrically
+        float fakeHDRIntensity = 0.333 * LumaSettings.GameSettings.HDRBoostIntensity;
+        o0.xyz = gamma_to_linear(o0.xyz, GCT_MIRROR);
+        o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity);
+        o0.xyz = linear_to_gamma(o0.xyz, GCT_MIRROR);
+      }
+    
+      // Aid banding in the sky. This doesn't do much!
+      ApplyDithering(o0.xyz, sceneUV, true, 1.0, 6, LumaSettings.FrameIndex, true);
+      
+      // Luma: apply the inverse of the emissive intensity boost, to avoid it applying on the sky
+      // TODO: Note that during the day, "564A532D" is seemengly used instead sometimes, other times "AD488406", other times with "7047B218", however that's just a sky ceiling mesh
+      float emissiveScale = forceSDR ? 0.0 : LumaSettings.GameSettings.EmissiveIntensity;
+      float emissiveMaxReduction = 0.333; // Empryically found (they still need boosted visibility)
+      o0.rgb *= lerp(1.0, max(sqr(sqr(saturate(1.0 - o0.a))), 0.01), saturate(emissiveScale) * emissiveMaxReduction);
+
+#if (DEVELOPMENT || TEST) && 1 // Draw purple to find false positives or false negatives
+      o0.xyz = float3(1, 0, 1);
+#endif
+    }
+  }
 #endif
 }

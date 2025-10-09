@@ -151,21 +151,26 @@ void main(
 #endif
 
 #if TONEMAP_IN_WIDER_GAMUT && TONEMAP_TYPE > 0
-  blendedHDRColor = BT709_To_BT2020(blendedHDRColor);
+  if (LumaSettings.DisplayMode == 1)
+    blendedHDRColor = BT709_To_BT2020(blendedHDRColor);
 #endif
 
   // AMD Lottes tonemapper
+  float lottesExponent = cb0[1].x;
+  float lottesDivisorExponent = cb0[1].y;
+  float lottesDivisorMultiplier = cb0[1].z;
+  float lottesDivisorAddend = cb0[1].w;
   float colorPeakChannel = max(blendedHDRColor.r, max(blendedHDRColor.g, blendedHDRColor.b)); // Channels peak
   colorPeakChannel = max(5.96046448e-008, colorPeakChannel); //TODO: fix unnecessary loss (and in inverse reinhard above too!)
   float3 colorPeakRatio = blendedHDRColor / colorPeakChannel; // Color in the 0-1 range
   colorPeakRatio = pow(colorPeakRatio, cb0[2].xyz); // Enter ratio modulation space
-  // "Advanced" Reinhard on the color peak. the y and z cb parameters are very like 1 or close to it,
+  // "Advanced" Reinhard on the color peak. the y and z cb parameters are like 1 or close to it,
   // otherwise the results are borked, as if y is >1 the curve doesn't peak at 1, and goes back lower after an early peak,
   // though y could be lower than 1 to compress highlights, and z be smaller than one to cause early clipping, or bigger than one to compress the range.
-  float tonemappedColorPeakChannel = LottesPeakTM(colorPeakChannel, cb0[1].x, cb0[1].y, cb0[1].z, cb0[1].w);
+  float tonemappedColorPeakChannel = LottesPeakTM(colorPeakChannel, lottesExponent, lottesDivisorExponent, lottesDivisorMultiplier, lottesDivisorAddend);
 #if FIX_BAD_TONEMAP_PARAMETERS && TONEMAP_TYPE != 0 //TODO: re-enable these as they were?
-  cb0[1].y = lerp(cb0[1].y, 1.0, 0.5); // Balance found heuristically
-  cb0[1].z = 1.0;
+  lottesDivisorExponent = lerp(lottesDivisorExponent, 1.0, 0.5); // Balance found heuristically
+  lottesDivisorMultiplier = 1.0;
 #endif
   float tonemappedSDRColorPeakChannel = saturate(tonemappedColorPeakChannel); // If we don't saturate, we risk flipping the hues, as if the peak is beyond 1, it's going to go
   float desaturationMul = 1.0;
@@ -175,31 +180,35 @@ void main(
   // In this case, we can invert the formula, otherwise, it's not invertible, and thus we need to use an approximation.
   // The image might snap a bit if the game dynamically changes these parameters.
   // "z" is seemengly 1 too, but due to floating point error accumulation it ends up with a tiny difference from it.
-  if (abs(cb0[1].y - 1.0) <= 0.001)
+  if (abs(lottesDivisorExponent - 1.0) <= 0.001)
   {
-    inMidGray = InverseLottesPeakTM(outMidGray, cb0[1].x, cb0[1].z, cb0[1].w);
+    inMidGray = InverseLottesPeakTM(outMidGray, lottesExponent, lottesDivisorMultiplier, lottesDivisorAddend);
   }
   else
   {
     inMidGray = 0.3; // Output matches ~0.18 with the current set of parameters we had
-    outMidGray = LottesPeakTM(inMidGray, cb0[1].x, cb0[1].y, cb0[1].z, cb0[1].w);
+    outMidGray = LottesPeakTM(inMidGray, lottesExponent, lottesDivisorExponent, lottesDivisorMultiplier, lottesDivisorAddend);
   }
 
   colorPeakChannel *= outMidGray / inMidGray;
-	DICESettings settings = DefaultDICESettings();
-  settings.Type = DICE_TYPE_BY_LUMINANCE_PQ; // DICE_TYPE_BY_LUMINANCE_RGB
-  settings.ShoulderStart = 0.5;
-  settings.DesaturationAmount = 0.0;
-  settings.DarkeningAmount = 0.0;
-	const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
-	const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-	colorPeakChannel = DICETonemap(colorPeakChannel * paperWhite, peakWhite, settings).x / paperWhite;
+
+  if (LumaSettings.DisplayMode == 1)
+  {
+    DICESettings settings = DefaultDICESettings();
+    settings.Type = DICE_TYPE_BY_LUMINANCE_PQ; // DICE_TYPE_BY_LUMINANCE_RGB
+    settings.ShoulderStart = 0.5;
+    settings.DesaturationAmount = 0.0;
+    settings.DarkeningAmount = 0.0;
+    const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
+    const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+    colorPeakChannel = DICETonemap(colorPeakChannel * paperWhite, peakWhite, settings).x / paperWhite;
+  }
 
   tonemappedColorPeakChannel = lerp(tonemappedColorPeakChannel, colorPeakChannel, saturate(pow(tonemappedColorPeakChannel / outMidGray, hdrSdrPeakRestorationPow))); // This doesn't extract much peak brightnes unfortunately
   desaturationMul = hdrDesaturation;
 #elif TONEMAP_TYPE == 1 // Enable native HDR, using the same tonemapper but rebalanced to the HDR peak and paper white
   float dynamicRangeInv = LumaSettings.GamePaperWhiteNits / LumaSettings.PeakWhiteNits; // 1 for SDR, <1 for HDR
-  float tonemappedHDRColorPeakChannel = LottesPeakTM(colorPeakChannel, cb0[1].x, cb0[1].y, cb0[1].z * dynamicRangeInv, cb0[1].w / lerp(dynamicRangeInv, 1.0, hdrHighlightsStrength));
+  float tonemappedHDRColorPeakChannel = LottesPeakTM(colorPeakChannel, lottesExponent, lottesDivisorExponent, lottesDivisorMultiplier * dynamicRangeInv, lottesDivisorAddend / lerp(dynamicRangeInv, 1.0, hdrHighlightsStrength));
   tonemappedColorPeakChannel = lerp(tonemappedColorPeakChannel, tonemappedHDRColorPeakChannel, saturate(pow(tonemappedColorPeakChannel, hdrSdrPeakRestorationPow))); // Restore SDR gradually up until 1, otherwise mid gray changes too much (in both directions, depending on how we modulate the settings), and HDR could be blinding
   // We need to desaturate based on the original SDR tonemapped peak, as that one would have been in a 0-1 range.
   // Even if we try to remap the new HDR "tonemappedColorPeakChannel" into 0-1, it would be heavily unbalanced, either desaturating too much or too little.
@@ -217,7 +226,8 @@ void main(
   float3 finalColor = colorPeakRatio * tonemappedColorPeakChannel; // Denormalize color
   
 #if TONEMAP_IN_WIDER_GAMUT && TONEMAP_TYPE > 0
-  finalColor = BT2020_To_BT709(finalColor);
+  if (LumaSettings.DisplayMode == 1)
+    finalColor = BT2020_To_BT709(finalColor);
 #endif
 
 #if _AEDB562C && ENABLE_VIGNETTE
@@ -235,11 +245,9 @@ void main(
   finalColor = vignetteIntensity * r0.xyz + finalColor;
 #endif
 
-#if 1 // Output linear
+#if 1 // Luma: output linear directly, given we adjusted the sharpening/TAA shaders to take a linear color
   outColor.rgb = finalColor;
-#else // TAA output (gamma 2.0)
+#else // Sharpening/TAA output (gamma 2.0, which would then be turned to sRGB by TAA after sharpening)
   outColor.rgb = sqrt(max(finalColor, 0.0)); // AA shader does x*x as square so we need to clip negative values
-  //outColor.rgb += 0.03; // Fixes broken AA
-  //outColor.rgb = max(outColor.rgb, 0.03); // Fixes broken AA
 #endif
 }

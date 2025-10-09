@@ -1,5 +1,8 @@
 #define GAME_HEAVY_RAIN 1
 
+// See "strip_original_shaders_debug_data"
+#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
+
 #include "..\..\Core\core.hpp"
 
 #include "patches/Patches.h"
@@ -100,6 +103,45 @@ public:
       game_device_data.scene_color_rtv.reset();
       game_device_data.scene_color_resource.reset();
       game_device_data.sanitize_nans_data = {};
+   }
+
+   // Add a saturate on transparent materials
+   // Without this, some materials output alphas beyond 0-1, messing up the results if the render target is FLOAT (as opposed to the original UNORM)
+   std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash, const std::byte* shader_object, size_t shader_object_size) override
+   {
+      if (type != reshade::api::pipeline_subobject_type::pixel_shader) return nullptr;
+
+      // The bytes after specify the register and the channel (e.g. r3.x), but they are always different depending on the shader.
+      // This hardcodes the output register in its pattern so it will only be matching for render target 0 output writes!
+      // The first byte is the instruction code, and the second byte holds the saturate flag (0x00 without and 0x20 with).
+      const std::vector<std::byte> pattern_mov = { std::byte{0x36}, std::byte{0x00}, std::byte{0x00}, std::byte{0x05}, std::byte{0x82}, std::byte{0x20}, std::byte{0x10}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00} }; // mov
+
+      // All transparent materials have a CBuffer variable by this name
+      const char str_to_find[] = "ALPHA_TEST_PARAM";
+      const std::vector<std::byte> pattern_safety_check(reinterpret_cast<const std::byte*>(str_to_find), reinterpret_cast<const std::byte*>(str_to_find) + strlen(str_to_find));
+
+      if (shader_object)
+      {
+         if (System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(shader_object), shader_object_size, pattern_safety_check).empty())
+            return nullptr;
+      }
+
+      std::unique_ptr<std::byte[]> new_code = nullptr;
+
+      // Note: a few shaders end up not being found by this as they writing to the output with a mad instruction
+      std::vector<std::byte*> matches_mov = System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(code), size, pattern_mov);
+      if (!matches_mov.empty())
+      {
+         // Allocate new buffer and copy original shader code
+         new_code = std::make_unique<std::byte[]>(size);
+         std::memcpy(new_code.get(), code, size);
+
+         // Add the 0x20 saturate flag in the second byte, replacing the 0x00
+         size_t offset = matches_mov.back() - code;
+         new_code[offset + 1] = std::byte{ 0x20 };
+      }
+
+      return new_code;
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
@@ -222,6 +264,7 @@ public:
    {
       reshade::api::effect_runtime* runtime = nullptr;
       reshade::get_config_value(runtime, NAME, "BloomAndLensFlareIntensity", cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity);
+      reshade::get_config_value(runtime, NAME, "ColorGradingIntensity", cb_luma_global_settings.GameSettings.ColorGradingIntensity);
       reshade::get_config_value(runtime, NAME, "HDRBoostAmount", cb_luma_global_settings.GameSettings.HDRBoostAmount);
       // "device_data.cb_luma_global_settings_dirty" should already be true at this point
    }
@@ -249,7 +292,13 @@ public:
       }
       DrawResetButton(cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity, 1.f, "BloomAndLensFlareIntensity", runtime);
 
-      if (cb_luma_global_settings.DisplayMode == 1)
+      if (ImGui::SliderFloat("Color Grading Intensity", &cb_luma_global_settings.GameSettings.ColorGradingIntensity, 0.f, 1.f))
+      {
+         reshade::set_config_value(runtime, NAME, "ColorGradingIntensity", cb_luma_global_settings.GameSettings.ColorGradingIntensity);
+      }
+      DrawResetButton(cb_luma_global_settings.GameSettings.ColorGradingIntensity, 1.f, "ColorGradingIntensity", runtime);
+
+      if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR)
       {
          if (ImGui::SliderFloat("HDR Boost", &cb_luma_global_settings.GameSettings.HDRBoostAmount, 0.f, 1.f))
          {
@@ -367,11 +416,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
       Globals::SetGlobals(PROJECT_NAME, "Heavy Rain Luma mod");
-      Globals::VERSION = 1;
+      Globals::VERSION = 2;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       // Most of these are probably not needed, the game always uses B8G8R8A8_UNORM, with no SRGB views etc
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
@@ -411,7 +460,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       // Defaults are hardcoded in ImGUI too
       cb_luma_global_settings.GameSettings.BloomAndLensFlareIntensity = 1.f;
+      cb_luma_global_settings.GameSettings.ColorGradingIntensity = 1.f;
       cb_luma_global_settings.GameSettings.HDRBoostAmount = 0.5f;
+      // TODO: use "default_luma_global_game_settings"
+
+#if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS && 0 // We found another way
+      strip_original_shaders_debug_data = true;
+      sub_game_shaders_appendix = "Stripped"; // Just to not pollute the original shaders dump collection
+#endif
 
       game = new HeavyRain();
    }

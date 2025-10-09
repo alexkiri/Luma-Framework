@@ -135,7 +135,7 @@ void main(
     r3.x = 0.5 * r1.z;
     r3.y = r1.y ? 0 : r3.x;
     r4.x = v2.x + r3.y;
-    r3.x = r1.y ? r3.x : 0;
+    r3.x = asfloat(asint(r1.y) & asint(r3.x));
     r4.y = v2.y + r3.x;
     r1.w = 0.25 * r1.w;
     r3.yz = float2(0,0);
@@ -165,27 +165,27 @@ void main(
       r9.x = r9.y * 1.9632107 + r9.x;
       r9.y = r7.y + -r0.w;
       r9.y = cmp(abs(r9.y) >= r1.w);
-      r9.y = (int)r5.x | (int)r9.y;
+      r9.y = asfloat(asint(r5.x) | asint(r9.y));
       r9.z = r8.y + -r0.w;
       r9.z = cmp(abs(r9.z) >= r1.w);
-      r9.z = (int)r5.y | (int)r9.z;
+      r9.z = asfloat(asint(r5.y) | asint(r9.z));
       r9.w = r8.x + -r0.w;
       r9.w = cmp(abs(r9.w) >= r1.w);
-      r5.z = (int)r5.z | (int)r9.w;
+      r5.z = asfloat(asint(r5.z) | asint(r9.w));
       r9.w = r9.x + -r0.w;
       r9.w = cmp(abs(r9.w) >= r1.w);
-      r6.w = (int)r6.w | (int)r9.w;
-      r9.w = ~(int)r9.y;
-      r9.w = r9.w ? r5.z : 0;
+      r6.w = asfloat(asint(r6.w) | asint(r9.w));
+      r9.w = asfloat(~asint(r9.y));
+      r9.w = asfloat(asint(r9.w) & asint(r5.z));
       r5.w = r9.w ? r8.x : r7.y;
-      r7.y = ~(int)r9.z;
-      r7.y = (int)r6.w & (int)r7.y;
+      r7.y = asfloat(~asint(r9.z));
+      r7.y = asfloat(asint(r6.w) & asint(r7.y));
       r6.z = r7.y ? r9.x : r8.y;
       r7.zw = r9.ww ? r7.zw : r4.zw;
       r8.xy = r7.yy ? r8.zw : r6.xy;
-      r5.x = (int)r9.y | (int)r5.z;
-      r5.y = (int)r9.z | (int)r6.w;
-      r7.y = (int)r5.x & (int)r5.y;
+      r5.x = asfloat(asint(r9.y) | asint(r5.z));
+      r5.y = asfloat(asint(r9.z) | asint(r6.w));
+      r7.y = asfloat(asint(r5.x) & asint(r5.y));
       if (r7.y != 0) {
         r4.zw = r7.zw;
         r6.xy = r8.xy;
@@ -225,25 +225,40 @@ void main(
   o0.xyz = r2.xyz;
   o0.w = 1;
   
-  if (!LumaSettings.GameSettings.HasColorGradingPass) // Luma
+  float2 uv = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+  bool forceSDR = ShouldForceSDR(uv, true);
+  if (!LumaSettings.GameSettings.HasColorGradingPass && !forceSDR) // Luma
   {
     o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
     
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+    bool tonemapPerChannel = LumaSettings.DisplayMode != 1;
+#if ENABLE_HIGHLIGHTS_DESATURATION_TYPE == 1 || ENABLE_HIGHLIGHTS_DESATURATION_TYPE >= 3
+    tonemapPerChannel = true;
+#endif
     if (LumaSettings.DisplayMode == 1)
     {
-      DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+      DICESettings settings = DefaultDICESettings(tonemapPerChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
       o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
     }
     else
     {
-      o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
-      o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+      if (tonemapPerChannel)
+      {
+        o0.rgb = Reinhard::ReinhardRange(o0.rgb, MidGray, -1.0, peakWhite / paperWhite, false);
+      }
+      else
+      {
+        o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
+        o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite);
+      }
     }
   
 #if UI_DRAW_TYPE == 2
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
     o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif // UI_DRAW_TYPE == 2
 
     o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);

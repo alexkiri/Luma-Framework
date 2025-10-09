@@ -33,9 +33,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       Globals::DEVELOPMENT_STATE = Globals::ModDevelopmentState::NonFunctional;
       Globals::VERSION = 1;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = false; // Crashes on boot
+      texture_format_upgrades_type = TextureFormatUpgradesType::None; // Crashes on boot
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             reshade::api::format::r8g8b8a8_unorm_srgb,

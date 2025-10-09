@@ -23,6 +23,21 @@ namespace
    ShaderHashesList pixel_shader_hashes_Lighting;
    ShaderHashesList pixel_shader_hashes_SSAOGeneration;
 
+   // From "rrika"
+   const std::vector<uint8_t> pattern_1 = {
+      0x81, 0xFF, 0x00, 0x05, 0x00, 0x00, 0x7C, 0x05,
+      0xBF, 0x00, 0x05, 0x00, 0x00, 0xDB, 0x44, 0x24
+   };
+   const std::vector<uint8_t> pattern_2 = {
+      0x81, 0xFE, 0x00, 0x05, 0x00, 0x00, 0x7D, 0x08,
+      0x8B, 0xCE, 0x89, 0x74, 0x24, 0x20, 0xEB, 0x09,
+      0xB9, 0x00, 0x05, 0x00, 0x00, 0x89, 0x4C, 0x24,
+      0x20
+   };
+
+   std::vector<std::byte*> pattern_1_addresses;
+   std::vector<std::byte*> pattern_2_addresses;
+
    constexpr bool allow_lighting_modulation = true;
 
    // From shaders. The global scene buffer used across all pixel shaders.
@@ -62,10 +77,65 @@ namespace
       float4x4 WorldToPSSM0;
    };
    static_assert(game_scene_buffer_size >= sizeof(GameSceneBuffer));
+
+   float ui_scale = 1.f;
+
+   void PatchUIScale(float scale = 1.f)
+   {
+      // The game's UI became tiny beyond 1280 horizontal resolutions, as the auto scaling,
+      // (which would make it appear of the same size on the display) was limited to that, for some reason.
+      // Skip this if the user already modded the executable.
+      if (pattern_1_addresses.size() == 1 && pattern_2_addresses.size() == 1)
+      {
+         int screen_width = GetSystemMetrics(SM_CXSCREEN);
+         int screen_height = GetSystemMetrics(SM_CYSCREEN);
+         float screen_aspect_ratio = float(screen_width) / float(screen_height);
+         // The game's UI is scaled based on what would be your horizontal resolution
+         // if you screen was 16:9 (with its current vertical resolution as reference point).
+         // Not sure how it calculates that, but tests make it seem like that's the behaviour.
+         if (screen_aspect_ratio > (16.f / 9.f))
+         {
+            screen_width = static_cast<int>(std::lround(screen_height * (16.0 / 9.0) * scale));
+         }
+         else
+         {
+            screen_width = static_cast<int>(std::lround(screen_width * scale));
+         }
+
+         // Replace the pattern with your own horizontal resolution.
+         // As long as we are in 16:9, we could go as high as we want and it'd scale correctly, but in UW we need to set the right value or the UI will get huge.
+         std::vector<uint8_t> pattern_1_patch = pattern_1;
+         std::vector<uint8_t> pattern_2_patch = pattern_2;
+         std::memcpy(&pattern_1_patch[2], &screen_width, sizeof(screen_width));
+         std::memcpy(&pattern_1_patch[9], &screen_width, sizeof(screen_width));
+         std::memcpy(&pattern_2_patch[2], &screen_width, sizeof(screen_width));
+         std::memcpy(&pattern_2_patch[17], &screen_width, sizeof(screen_width));
+
+         DWORD old_protect;
+         BOOL success = VirtualProtect(pattern_1_addresses[0], pattern_1_patch.size(), PAGE_EXECUTE_READWRITE, &old_protect);
+         if (success)
+         {
+            std::memcpy(pattern_1_addresses[0], pattern_1_patch.data(), pattern_1_patch.size());
+
+            DWORD temp_protect;
+            VirtualProtect(pattern_1_addresses[0], pattern_1_patch.size(), old_protect, &temp_protect);
+
+            success = VirtualProtect(pattern_2_addresses[0], pattern_2_patch.size(), PAGE_EXECUTE_READWRITE, &old_protect);
+            if (success)
+            {
+               std::memcpy(pattern_2_addresses[0], pattern_2_patch.data(), pattern_2_patch.size());
+
+               VirtualProtect(pattern_2_addresses[0], pattern_2_patch.size(), old_protect, &temp_protect);
+            }
+         }
+         ASSERT_ONCE(success);
+      }
+   }
 }
 
 struct GameDeviceDataDeusExHumanRevolutionDC final : public GameDeviceData
 {
+   bool has_drawn_gold_filter = false;
    bool has_drawn_custom_gold_filter = false;
    bool has_drawn_supported_aa = false;
    bool has_drawn_opaque_geometry = false;
@@ -119,6 +189,7 @@ public:
          {"ENABLE_LUMA", '1', false, false, "Allows disabling some of the Luma's post processing modifications to improve the image and output HDR"},
          {"ENABLE_IMPROVED_BLOOM", '1', false, false, "The bloom radius was calibrated for 720p/1080p and looked too small at higher resolutions"},
          {"ENABLE_IMPROVED_COLOR_GRADING", '1', false, false, "Allow running a new, modernized, version of the color grading pass (e.g. the gold filter)"},
+         {"ENABLE_HIGHLIGHTS_DESATURATION_TYPE", '0', false, false, "If you found highlights to be too saturated, try different values for this (0-3)"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
 
@@ -128,8 +199,11 @@ public:
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('1');
 
+#if 0 // Disabled as it's actually too dark and contrasty
       // The game just looks better with gamma between 2.35 and 2.4
+      // See "default_luma_global_game_settings.AmbientLightingIntensity" too when changing this
       custom_sdr_gamma = 2.35f;
+#endif
 
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('2');
 
@@ -153,13 +227,14 @@ public:
             reshade::register_event<reshade::addon_event::unmap_buffer_region>(GameDeusExHumanRevolutionDC::OnUnmapBufferRegion);
          }
 
+         // TODO: make the mod pick the right (original) color filter preset by level/scene, given that they used to change by level in the og game
          if (GetModuleHandle(TEXT("DXHRDC-GFX.asi")) != NULL)
          {
             has_gold_filter_restoration_mod = true;
             has_gold_filter = true; // This isn't guaranteed as it can still be turned off
          }
 
-         // Original game already had the gold filter
+         // Original game already had the gold filter, even if it could optionally be turned off
          std::string exe_name = System::GetProcessExecutableName();
          if (exe_name == "DXHR.exe" || exe_name == "dxhr.exe")
          {
@@ -176,65 +251,10 @@ public:
          std::byte* base = reinterpret_cast<std::byte*>(module_handle);
          std::size_t section_size = nt_headers->OptionalHeader.SizeOfImage;
 
-         // From pcgw. Unknown author.
-         const std::vector<uint8_t> pattern_1 = {
-            0x81, 0xFF, 0x00, 0x05, 0x00, 0x00, 0x7C, 0x05,
-            0xBF, 0x00, 0x05, 0x00, 0x00, 0xDB, 0x44, 0x24
-         };
-         std::vector<std::byte*> pattern_1_addresses = System::ScanMemoryForPattern(base, section_size, pattern_1);
+         pattern_1_addresses = System::ScanMemoryForPattern(base, section_size, pattern_1);
+         pattern_2_addresses = System::ScanMemoryForPattern(base, section_size, pattern_2);
 
-         const std::vector<uint8_t> pattern_2 = {
-            0x81, 0xFE, 0x00, 0x05, 0x00, 0x00, 0x7D, 0x08,
-            0x8B, 0xCE, 0x89, 0x74, 0x24, 0x20, 0xEB, 0x09,
-            0xB9, 0x00, 0x05, 0x00, 0x00, 0x89, 0x4C, 0x24,
-            0x20
-         };
-         std::vector<std::byte*> pattern_2_addresses = System::ScanMemoryForPattern(base, section_size, pattern_2);
-
-         // The game's UI became tiny beyond 1280 horizontal resolutions, as the auto scaling,
-         // (which would make it appear of the same size on the display) was limited to that, for some reason.
-         // Skip this if the user already modded the executable.
-         if (pattern_1_addresses.size() == 1 && pattern_2_addresses.size() == 1)
-         {
-            int screen_width = GetSystemMetrics(SM_CXSCREEN);
-            int screen_height = GetSystemMetrics(SM_CYSCREEN);
-            float screen_aspect_ratio = float(screen_width) / float(screen_height);
-            // The game's UI is scaled based on what would be your horizontal resolution
-            // if you screen was 16:9 (with its current vertical resolution as reference point).
-            // Not sure how it calculates that, but tests make it seem like that's the behaviour.
-            if (screen_aspect_ratio >= (16.f / 9.f))
-            {
-               screen_width = static_cast<int>(std::lround(screen_height * (16.0 / 9.0)));
-            }
-
-            // Replace the pattern with your own horizontal resolution.
-            // As long as we are in 16:9, we could go as high as we want and it'd scale correctly, but in UW we need to set the right value or the UI will get huge.
-            std::vector<uint8_t> pattern_1_patch = pattern_1;
-            std::vector<uint8_t> pattern_2_patch = pattern_2;
-            std::memcpy(&pattern_1_patch[2], &screen_width, sizeof(screen_width));
-            std::memcpy(&pattern_1_patch[9], &screen_width, sizeof(screen_width));
-            std::memcpy(&pattern_2_patch[2], &screen_width, sizeof(screen_width));
-            std::memcpy(&pattern_2_patch[17], &screen_width, sizeof(screen_width));
-
-            DWORD old_protect;
-            BOOL success = VirtualProtect(pattern_1_addresses[0], pattern_1_patch.size(), PAGE_EXECUTE_READWRITE, &old_protect);
-            if (success)
-            {
-               std::memcpy(pattern_1_addresses[0], pattern_1_patch.data(), pattern_1_patch.size());
-
-               DWORD temp_protect;
-               VirtualProtect(pattern_1_addresses[0], pattern_1_patch.size(), old_protect, &temp_protect);
-
-               success = VirtualProtect(pattern_2_addresses[0], pattern_2_patch.size(), PAGE_EXECUTE_READWRITE, &old_protect);
-               if (success)
-               {
-                  std::memcpy(pattern_2_addresses[0], pattern_2_patch.data(), pattern_2_patch.size());
-
-                  VirtualProtect(pattern_2_addresses[0], pattern_2_patch.size(), old_protect, &temp_protect);
-               }
-            }
-            ASSERT_ONCE(success);
-         }
+         PatchUIScale(ui_scale);
       }
    }
 
@@ -246,7 +266,7 @@ public:
    // All materials color/lighting shaders in this game have a saturate at the end, that always gets bundled with a multiply+add instruction.
    // There's also luminance calculations for the alpha buffer, presumably for FXAA (in case it was used), or bloom (contained on alpha), but they were based of BT.601 instead of BT.709.
    // Given that there's possibly hundreds of them, we live patch them.
-   std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash) override
+   std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash, const std::byte* shader_object, size_t shader_object_size) override
    {
       if (type != reshade::api::pipeline_subobject_type::pixel_shader) return nullptr;
 
@@ -259,12 +279,21 @@ public:
       const std::vector<std::byte> pattern_mad = { std::byte{0x32}, std::byte{0x00}, std::byte{0x00}, std::byte{0x09} }; // mad
       const std::vector<std::byte> pattern_mul = { std::byte{0x38}, std::byte{0x00}, std::byte{0x00}, std::byte{0x0A} }; // mul
 
-      // float3(0.299000f, 0.587000f, 0.114000f)
-      const std::vector<std::byte> pattern_bt_601_luminance = {
+      // Used by original game code
+      // float3(0.299, 0.587, 0.114)
+      const std::vector<std::byte> pattern_bt_601_luminance_a = {
        std::byte{0x87}, std::byte{0x16}, std::byte{0x99}, std::byte{0x3E},
        std::byte{0xA2}, std::byte{0x45}, std::byte{0x16}, std::byte{0x3F},
        std::byte{0xD5}, std::byte{0x78}, std::byte{0xE9}, std::byte{0x3D}
       };
+      // Used by two FXAA shaders
+      // float3(0.3, 0.59, 0.11)
+      const std::vector<std::byte> pattern_bt_601_luminance_b = {
+       std::byte{0x9A}, std::byte{0x99}, std::byte{0x99}, std::byte{0x3E},
+       std::byte{0x3D}, std::byte{0x0A}, std::byte{0x17}, std::byte{0x3F},
+       std::byte{0xAE}, std::byte{0x47}, std::byte{0xE1}, std::byte{0x3D}
+      };
+
       const std::vector<std::byte> pattern_bt_709_luminance = {
        std::byte{0xD0}, std::byte{0xB3}, std::byte{0x59}, std::byte{0x3E},
        std::byte{0x59}, std::byte{0x17}, std::byte{0x37}, std::byte{0x3F},
@@ -276,7 +305,7 @@ public:
 
       std::unique_ptr<std::byte[]> new_code = nullptr;
 
-      std::vector<std::byte*> matches_bt_601_luminance = System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(code), size, pattern_bt_601_luminance);
+      std::vector<std::byte*> matches_bt_601_luminance = System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(code), size, pattern_bt_601_luminance_a);
       if (!matches_bt_601_luminance.empty())
       {
          // Allocate new buffer and copy original shader code
@@ -379,6 +408,22 @@ public:
             }
          }
       }
+      // These are mutually exclusive
+      else
+      {
+         matches_bt_601_luminance = System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(code), size, pattern_bt_601_luminance_b);
+         if (!matches_bt_601_luminance.empty())
+         {
+            new_code = std::make_unique<std::byte[]>(size);
+            std::memcpy(new_code.get(), code, size);
+
+            for (std::byte* match : matches_bt_601_luminance)
+            {
+               size_t offset = match - code;
+               std::memcpy(new_code.get() + offset, pattern_bt_709_luminance.data(), pattern_bt_709_luminance.size());
+            }
+         }
+      }
 
       return new_code;
    }
@@ -423,7 +468,7 @@ public:
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
-      if (!game_device_data.has_drawn_custom_gold_filter)
+      if (!game_device_data.has_drawn_gold_filter)
       {
          if (allow_lighting_modulation && !game_device_data.has_found_lighting_buffer && original_shader_hashes.Contains(pixel_shader_hashes_Lighting))
          {
@@ -440,6 +485,7 @@ public:
             game_device_data.swapchain_rtv.reset();
             native_device_context->OMGetRenderTargets(1, &game_device_data.swapchain_rtv, nullptr);
 
+#if DEVELOPMENT || TEST
             // Verify AA always draws on the swapchain, it seems to be the one pass that reliably does so!
             {
                com_ptr<ID3D11Resource> rt_resource;
@@ -449,10 +495,15 @@ public:
                }
                ASSERT_ONCE(device_data.back_buffers.contains((uint64_t)rt_resource.get()));
             }
+#endif
          }
-         else if (is_custom_pass && original_shader_hashes.Contains(pixel_shader_hashes_ColorGrading))
+         else if (original_shader_hashes.Contains(pixel_shader_hashes_ColorGrading))
          {
-            game_device_data.has_drawn_custom_gold_filter = true;
+            game_device_data.has_drawn_gold_filter = true;
+            if (is_custom_pass)
+            {
+               game_device_data.has_drawn_custom_gold_filter = true;
+            }
          }
          // This will always run
          else if (original_shader_hashes.Contains(pixel_shader_hashes_BloomComposition))
@@ -755,16 +806,16 @@ public:
                };
             auto pow3 = [](const float3& vec, float exp) -> float3 {
                return {
-                   std::pow(vec.x, exp),
-                   std::pow(vec.y, exp),
-                   std::pow(vec.z, exp)
+                   std::pow(std::abs(vec.x), exp) * Math::SignOf(vec.x),
+                   std::pow(std::abs(vec.y), exp) * Math::SignOf(vec.y),
+                   std::pow(std::abs(vec.z), exp) * Math::SignOf(vec.z)
                };
                };
             auto pow4 = [](const float4& vec, float exp) -> float4 {
                return {
-                   std::pow(vec.x, exp),
-                   std::pow(vec.y, exp),
-                   std::pow(vec.z, exp),
+                   std::pow(std::abs(vec.x), exp) * Math::SignOf(vec.x),
+                   std::pow(std::abs(vec.y), exp) * Math::SignOf(vec.y),
+                   std::pow(std::abs(vec.z), exp) * Math::SignOf(vec.z),
                    vec.w
                };
                };
@@ -838,6 +889,7 @@ public:
       if (device_data.has_drawn_main_post_processing)
       {
          has_custom_gold_filter = game_device_data.has_drawn_custom_gold_filter;
+         has_gold_filter = game_device_data.has_drawn_gold_filter;
          if (has_custom_gold_filter != bool(cb_luma_global_settings.GameSettings.HasColorGradingPass))
          {
             cb_luma_global_settings.GameSettings.HasColorGradingPass = has_custom_gold_filter ? 1 : 0; // Make shaders tonemap in the bloom composition
@@ -847,7 +899,7 @@ public:
          has_supported_aa_count += game_device_data.has_drawn_supported_aa ? 1 : -1; // Count up to two frames to avoid false positives when opening the menu
          has_supported_aa_count = std::clamp(has_supported_aa_count, 0, 100); // 100 seems like a fine value that doesn't trigger false positives when opening the menu (it might still do at very high frame rates)
          has_ssao = game_device_data.has_drawn_ssao;
-         ASSERT_ONCE(!allow_lighting_modulation || game_device_data.has_found_lighting_buffer); // Shouldn't happen unless no lighting drew or unless we missed some lighting shaders from the check
+         ASSERT_ONCE(!allow_lighting_modulation || game_device_data.has_found_lighting_buffer); // Shouldn't happen unless no lighting drew or unless we missed some lighting shaders from the check. Note: this might trigger in the first frame after loading, it's ok
       }
       else
       {
@@ -860,6 +912,7 @@ public:
       game_device_data.has_drawn_ssao = false;
       game_device_data.has_found_lighting_buffer = false;
       game_device_data.has_found_lighting_cbuffer = false;
+      game_device_data.has_drawn_gold_filter = false;
       game_device_data.has_drawn_custom_gold_filter = false;
       game_device_data.has_drawn_supported_aa = false;
       game_device_data.has_drawn_opaque_geometry = false;
@@ -877,6 +930,17 @@ public:
       reshade::get_config_value(runtime, NAME, "AmbientLightingIntensity", cb_luma_global_settings.GameSettings.AmbientLightingIntensity);
       reshade::get_config_value(runtime, NAME, "HDRBoostIntensity", cb_luma_global_settings.GameSettings.HDRBoostIntensity);
       // "device_data.cb_luma_global_settings_dirty" should already be true at this point
+
+      reshade::get_config_value(runtime, NAME, "UIScale", ui_scale);
+      if (ui_scale != 1.f)
+      {
+         PatchUIScale(ui_scale);
+      }
+   }
+
+   void OnDisplayModeChanged() override
+   {
+      // TODO: consider lowering "cb_luma_global_settings.GameSettings.EmissiveIntensity" depending on the "cb_luma_global_settings.DisplayMode" being HDR or not
    }
 
    void DrawImGuiSettings(DeviceData& device_data) override
@@ -900,7 +964,7 @@ public:
       {
          ImGui::SetTooltip("Luma slightly lowers bloom by default, as it was mostly there to simulate HDR. Set it to 1 for the vanilla behavior.");
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.BloomIntensity, 0.8f, "BloomIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.BloomIntensity, default_luma_global_game_settings.BloomIntensity, "BloomIntensity", runtime);
 
       if (ImGui::SliderFloat("Emissive Intensity", &cb_luma_global_settings.GameSettings.EmissiveIntensity, 0.f, 1.f))
       {
@@ -908,9 +972,9 @@ public:
       }
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
       {
-         ImGui::SetTooltip("Luma allows emissive surfaces to be boosted to increase the dynamic range of the scene.");
+         ImGui::SetTooltip("Luma allows emissive or lit surfaces to be boosted to increase the dynamic range of the scene.\nMostly suggested for HDR output. Avoid getting close to 1.");
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.EmissiveIntensity, 0.667f, "EmissiveIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.EmissiveIntensity, default_luma_global_game_settings.EmissiveIntensity, "EmissiveIntensity", runtime);
 
       if (is_dc)
       {
@@ -920,9 +984,9 @@ public:
          }
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
          {
-            ImGui::SetTooltip("Luma adds fog to the original game's bloom, to add some depth to the scene. Tweak it to your liking.");
+            ImGui::SetTooltip("Luma allows adding fog to the original game's bloom (in the DC), to add some depth to the scene, or to remove it completely. Tweak it to your liking.");
          }
-         DrawResetButton(cb_luma_global_settings.GameSettings.FogIntensity, 1.f, "FogIntensity", runtime);
+         DrawResetButton(cb_luma_global_settings.GameSettings.FogIntensity, default_luma_global_game_settings.FogIntensity, "FogIntensity", runtime);
       }
       // Fog isn't supported in the non DC version, it relies on cbuffers from the DC
       else
@@ -930,15 +994,19 @@ public:
          cb_luma_global_settings.GameSettings.FogIntensity = 0.f;
       }
 
-      if (ImGui::SliderFloat("Desaturation Intensity", &cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.f, 1.f))
+      // It won't do anything if the gold filter isn't enabled
+      if (has_gold_filter)
       {
-         reshade::set_config_value(runtime, NAME, "DesaturationIntensity", cb_luma_global_settings.GameSettings.DesaturationIntensity);
+         if (ImGui::SliderFloat("Desaturation Intensity", &cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.0f, 1.f))
+         {
+            reshade::set_config_value(runtime, NAME, "DesaturationIntensity", cb_luma_global_settings.GameSettings.DesaturationIntensity);
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("The color grading pass (e.g. the gold filter) often has a strong desaturation effect, turn this off to preserve the original saturation.\nLuma lowers this by default as it was the case with the \"Definitive Edition\", set to 1 for the vanilla behaviour.\nYou can force this to negative values to boost saturation.");
+         }
+         DrawResetButton(cb_luma_global_settings.GameSettings.DesaturationIntensity, default_luma_global_game_settings.DesaturationIntensity, "DesaturationIntensity", runtime);
       }
-      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-      {
-         ImGui::SetTooltip("The color grading pass (e.g. the gold filter) often has a strong desaturation effect, turn this off to preserve the original saturation.\nLuma disables this by default as it was the case with the \"Definitive Edition\", set to 1 for the vanilla behaviour.");
-      }
-      DrawResetButton(cb_luma_global_settings.GameSettings.DesaturationIntensity, 0.5f, "DesaturationIntensity", runtime);
 
       if (ImGui::SliderFloat("Ambient Lighting Intensity", &cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.f, 1.f))
       {
@@ -948,9 +1016,9 @@ public:
       {
          ImGui::SetTooltip("The game's ambient lighting was very strong, making everything glow, reduce this to increase the contrast between light and shadow (note that visibility might be decreased).");
       }
-      DrawResetButton(cb_luma_global_settings.GameSettings.AmbientLightingIntensity, 0.8f, "AmbientLightingIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.AmbientLightingIntensity, default_luma_global_game_settings.AmbientLightingIntensity, "AmbientLightingIntensity", runtime);
 
-      if (cb_luma_global_settings.DisplayMode == 1)
+      if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR)
       {
          if (ImGui::SliderFloat("HDR Boost Intensity", &cb_luma_global_settings.GameSettings.HDRBoostIntensity, 0.f, 2.f))
          {
@@ -960,26 +1028,39 @@ public:
          {
             ImGui::SetTooltip("Enable a \"Fake\" HDR boosting effect. Set to 0 for the vanilla look.");
          }
-         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostIntensity, 1.f, "HDRBoostIntensity", runtime);
+         DrawResetButton(cb_luma_global_settings.GameSettings.HDRBoostIntensity, default_luma_global_game_settings.HDRBoostIntensity, "HDRBoostIntensity", runtime);
       }
 
 #if DEVELOPMENT
-      if (allow_lighting_modulation)
-         ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+      ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 #endif
-      if (allow_lighting_modulation && ImGui::TreeNode("Advanced Settings"))
+      if (ImGui::TreeNode("Advanced Settings"))
       {
-         // Allows to make the scene darker or have arbitrary colors
-         ImGui::Text("Ambient Light Color");
-         ImGui::PushID(1);
-         ImGui::SliderFloat3("RGB", &cb_luma_global_settings.GameSettings.AmbientLightColor.x, 0.0f, 5.0f);
-         DrawResetButton<float4, false>(cb_luma_global_settings.GameSettings.AmbientLightColor, { 1.f, 1.f, 1.f, 1.f }, nullptr, runtime);
-         ImGui::PopID();
-         ImGui::Text("Lights Color");
-         ImGui::PushID(2);
-         ImGui::SliderFloat3("RGB", &cb_luma_global_settings.GameSettings.LightingColor.x, 0.0f, 5.0f);
-         DrawResetButton<float4, false>(cb_luma_global_settings.GameSettings.LightingColor, { 1.f, 1.f, 1.f, 1.f }, nullptr, runtime);
-         ImGui::PopID();
+         if (ImGui::SliderFloat("UI Scale", &ui_scale, 0.25f, 4.f))
+         {
+            reshade::set_config_value(runtime, NAME, "UIScale", ui_scale);
+            PatchUIScale(ui_scale); // Won't likely do anything unless the game internally re-initialized the UI (it doesn't seem to do so)
+         }
+         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+         {
+            ImGui::SetTooltip("Requires restart.");
+         }
+         DrawResetButton(ui_scale, 1.0f, "UIScale", runtime);
+
+         if (allow_lighting_modulation)
+         {
+            // Allows to make the scene darker or have arbitrary colors
+            ImGui::Text("Ambient Light Color");
+            ImGui::PushID(1);
+            ImGui::SliderFloat3("RGB", &cb_luma_global_settings.GameSettings.AmbientLightColor.x, 0.0f, 5.0f);
+            DrawResetButton<float4, false>(cb_luma_global_settings.GameSettings.AmbientLightColor, default_luma_global_game_settings.AmbientLightColor, nullptr, runtime);
+            ImGui::PopID();
+            ImGui::Text("Lights Color");
+            ImGui::PushID(2);
+            ImGui::SliderFloat3("RGB", &cb_luma_global_settings.GameSettings.LightingColor.x, 0.0f, 5.0f);
+            DrawResetButton<float4, false>(cb_luma_global_settings.GameSettings.LightingColor, default_luma_global_game_settings.LightingColor, nullptr, runtime);
+            ImGui::PopID();
+         }
 
          ImGui::TreePop();
       }
@@ -1075,11 +1156,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
    {
       Globals::SetGlobals(PROJECT_NAME, "Deus Ex: Human Revolution - Director's Cut Luma mod");
-      Globals::VERSION = 1;
+      Globals::VERSION = 2;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             //reshade::api::format::r8g8b8a8_typeless,
@@ -1097,6 +1178,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
+      // TODO: figure out why the game hangs after alt tabbing back in, or changing FSE resolution. It seems to happen without mods too sometimes though, the game is very crash prone. It also hangs on exit.
+      prevent_fullscreen_state = false; // Fixes hangs when alt tabbing out of the game
+      
+      // TODO: figure out how the game does gamma adjustments fullscreen (they only work in FSE and apply to ReShade too, but they don't seem to be the typical ones)
+      //allow_disabling_gamma_ramp = true; // Game uses Windows gamma functions to adjust brightness, but it defaults to a neutral one!
+
+      // TODO: add button to hide the UI (and gameplay overlay HUD)
+
       pixel_shader_hashes_ColorGrading.pixel_shaders = { Shader::Hash_StrToNum("BFF40A4D") }; // Only one ever
       pixel_shader_hashes_SupportedAA.pixel_shaders = { Shader::Hash_StrToNum("51BBB596"), Shader::Hash_StrToNum("FF6E347A") }; // MLAA and FXAA High (in any order)
       pixel_shader_hashes_BloomComposition.pixel_shaders = { Shader::Hash_StrToNum("29E509CF"), Shader::Hash_StrToNum("24314FFA") };
@@ -1104,15 +1193,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       pixel_shader_hashes_UI.pixel_shaders = { Shader::Hash_StrToNum("E5757FCE"), Shader::Hash_StrToNum("D07AC030"), Shader::Hash_StrToNum("B8813A2F"), Shader::Hash_StrToNum("3773AC30"), Shader::Hash_StrToNum("9CB44B83"), Shader::Hash_StrToNum("6BAF4A32") };
       pixel_shader_hashes_Lighting.pixel_shaders = { Shader::Hash_StrToNum("5EF35A1E"), Shader::Hash_StrToNum("C7F2C455"), Shader::Hash_StrToNum("EBE2567F"), Shader::Hash_StrToNum("0AB7755C"), Shader::Hash_StrToNum("7E526193"), Shader::Hash_StrToNum("C7B58EF0") };
 
-      cb_luma_global_settings.GameSettings.BloomIntensity = 0.8f; // Not vanilla like!
-      cb_luma_global_settings.GameSettings.FogIntensity = is_dc ? 1.f : 0.f;
-      cb_luma_global_settings.GameSettings.DesaturationIntensity = 0.5f; // Not vanilla like!
-      cb_luma_global_settings.GameSettings.AmbientLightingIntensity = 0.8f; // Not vanilla like!
-      cb_luma_global_settings.GameSettings.EmissiveIntensity = 0.667f; // Not vanilla like!
-      cb_luma_global_settings.GameSettings.HDRBoostIntensity = 1.f;
-      cb_luma_global_settings.GameSettings.HasColorGradingPass = has_gold_filter ? 1 : 0;
-      cb_luma_global_settings.GameSettings.AmbientLightColor = { 1.f, 1.f, 1.f, 1.f };
-      cb_luma_global_settings.GameSettings.LightingColor = { 1.f, 1.f, 1.f, 1.f };
+      default_luma_global_game_settings.BloomIntensity = 0.8f; // Not vanilla like!
+      default_luma_global_game_settings.FogIntensity = is_dc ? 0.f : 0.f; // Not vanilla like!
+      default_luma_global_game_settings.DesaturationIntensity = 0.333f; // Not vanilla like!
+      default_luma_global_game_settings.AmbientLightingIntensity = 0.8f; // Not vanilla like! 0.75 is generally better but breaks in day time scenes, ideally we'd detect the scene and set it accordingly
+      default_luma_global_game_settings.EmissiveIntensity = 0.667f; // Not vanilla like!
+      default_luma_global_game_settings.HDRBoostIntensity = 1.f;
+      default_luma_global_game_settings.HasColorGradingPass = has_gold_filter ? 1 : 0;
+      default_luma_global_game_settings.AmbientLightColor = { 1.f, 1.f, 1.f, 1.f };
+      default_luma_global_game_settings.LightingColor = { 1.f, 1.f, 1.f, 1.f };
+      cb_luma_global_settings.GameSettings = default_luma_global_game_settings;
 
 #if !DEVELOPMENT
       old_shader_file_names.emplace("UI_0xB8813A2F.ps_5_0.hlsl");

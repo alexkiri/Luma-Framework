@@ -4,3 +4,4 @@
 #include "utils/system.cpp"
 
 #include "dlss/DLSS.cpp"
+#include "fsr/FSR.cpp"

@@ -85,13 +85,20 @@ void main(
 
   bool forceSDR = ShouldForceSDR(r0.xy, true);
 
+  // Extra safety to guarantee the vanilla look
+  if (forceSDR)
+  {
+    bloomedColor = saturate(bloomedColor);
+    sceneColor = saturate(sceneColor);
+  }
+
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that. Do it before bloom to avoid bloom going crazy too
   if (LumaSettings.DisplayMode == 1 && !forceSDR)
   {
     float normalizationPoint = 0.05; // Found empyrically
     float fakeHDRIntensity = 0.1 * LumaSettings.GameSettings.HDRBoostIntensity;
     sceneColor.xyz = gamma_to_linear(sceneColor.xyz, GCT_MIRROR);
-    sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity, false);
+    sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity);
     sceneColor.xyz = linear_to_gamma(sceneColor.xyz, GCT_MIRROR);
   }
 #endif // ENABLE_FAKE_HDR
@@ -118,7 +125,7 @@ void main(
   r0.xyz = r0.x * (InstanceParams[5].xyz * r0.x - sceneColor.xyz);
   float3 foggedColor = r0.xyz + sceneColor.xyz; // This shouldn't ever result in negative colors
 #if !ENABLE_LUMA // Otherwise we already scaled the scene by its alpha (emissiveness)
-  foggedColor += sceneColor.xyz * sceneColor.w * emissiveScale;
+  foggedColor += sceneColor.xyz * sceneColor.w;
 #endif
 
   bloomedColor.xyzw *= forceSDR ? 1.f : LumaSettings.GameSettings.BloomIntensity; // Luma: scale bloom

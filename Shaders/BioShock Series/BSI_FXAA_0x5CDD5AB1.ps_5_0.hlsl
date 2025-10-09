@@ -71,7 +71,7 @@ void main(
     r2.z = max(abs(r2.z), abs(r2.w));
     r1.z = r3.x ? -r1.z : r1.z;
     r1.w = saturate(abs(r2.y) * r1.w);
-    r2.y = r1.y ? fxaaQualityRcpFrame.x : 0;
+    r2.y = asfloat(asint(r1.y) & asint(fxaaQualityRcpFrame.x));
     r2.w = r1.y ? 0 : fxaaQualityRcpFrame.y;
     r3.yz = r1.zz * float2(0.5,0.5) + v1.xy;
     r3.y = r1.y ? v1.x : r3.y;

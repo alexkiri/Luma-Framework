@@ -139,6 +139,7 @@ float3 ApplyColorFilter(float3 color, float3 colorFilter)
 }
 
 // Cubic polynomial
+// This actually seems to take a log encoded color and linearize it, outputting what would be the final gamma 2.2 image
 float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAdditive, float4 polynomialParams, float midtonesHDRBoost = 0.0, float highlightsHDRBoost = 0.0)
 {
   // Params:
@@ -188,7 +189,8 @@ float3 ApplyCustomCurve(float3 color, float levelMultiplication, float levelAddi
 
 // Luma: added support for scRGB (negative colors), though given that the curve might not return 0 for 0, and thus already shift the sign, we need to carefully work around that
 // Note that this original TM might have actually expected to receive negative values due to the code that came just before it generating some, so it's not 100% guaranteed this wrapped formula is good in all cases,
-// but I couldn't spot any negatives
+// but I couldn't spot any negative effects of doing this, also, all negative values in the og tonemapper would likely get lost to multiplications by itself and additions.
+// One thing to note though is that possibly the input color here was encoded in "log" space, thus can't have values beyond 0-1? That doesn't seem to be the case as they are preserved fine.
 float3 ApplyCustomCurveWrapped(float3 color, float levelMultiplication, float levelAdditive, float4 polynomialParams, float midtonesHDRBoost = 0.0, float highlightsHDRBoost = 0.0)
 {
   const float3 zeroShift = ApplyCustomCurve(0.0, levelMultiplication, levelAdditive, polynomialParams, midtonesHDRBoost, highlightsHDRBoost);
@@ -198,6 +200,12 @@ float3 ApplyCustomCurveWrapped(float3 color, float levelMultiplication, float le
   color *= colorSigns;
   color += zeroShift;
   return color;
+}
+
+float3 LinearizeLog2(float3 v, float minL, float maxL)
+{
+    float ratio = (maxL + minL) / minL;
+    return minL * pow(ratio, v) - minL;
 }
 
 // Applies bloom and some minor color filtering, and lens distortion
@@ -365,13 +373,31 @@ void main(
 #endif // ENABLE_LUMA
   float3 scaledComposedColor = 1.0 - invertedScaledComposedColor;
 
-#if ENABLE_LUMA && 1 // Luma: replace the clipped min black + black crush, with a lerp to black, given it killed near black detail (this lowers brightness usually). There's a few scenes where this was meant to hide detail, but overall it's not nice.
-  const float blackFloorScale = 2.0; // Empyrically found value that keeps the blacks level roughly the same without clipping it (note that this is calibrated to also match the original black level with the additive film grain). Values like 5 would be a better match in some scenes, but they'd completely destroy other scenes.
-  float3 blackFloorCorrectionRatio = blackFloor == 0.0 ? 1.0 : sqr(saturate(scaledComposedColor / (blackFloor * blackFloorScale)));
+#if ENABLE_LUMA && ENABLE_BLACK_FLOOR_TWEAKS_TYPE >= 1 // Luma: replace the clipped min black + black crush, with a lerp to black, given it killed near black detail (this lowers brightness usually). There's a few scenes where this was meant to hide detail, but overall it's not nice. It's possibly it was done to hide dithering near black
+
+#if DEVELOPMENT && 1 // Draw green if it's negative, as it'd raise brightness
+  if (blackFloor < 0)
+  {
+    outColor.rgb = float3(0, 1, 0); return;
+  }
+#endif
+
+#if ENABLE_BLACK_FLOOR_TWEAKS_TYPE <= 2 // Allow boosting visibility by skipping darkening
+  // Empyrically found value that keeps the blacks level roughly the same without clipping it (note that this is calibrated to also match the original black level with the additive film grain). Values like 5 would be a better match in some scenes, but they'd completely destroy other scenes.
+  const float blackFloorScale = 2.0;
+#if 1 // New improved version (we also tried doing it by luminance and preserving the clipped hue, but it makes little sense, by channel is best)
+  scaledComposedColor = (blackFloor < FLT_EPSILON) ? max(scaledComposedColor - blackFloor, min(scaledComposedColor, 0.0)) : max(scaledComposedColor - (blackFloor * saturate(scaledComposedColor / (blackFloor * blackFloorScale))), min(scaledComposedColor, 0.0)); // Don't allow it to go lower the possible negative value it already had, to avoid artifacts
+#else // This version posterized too much
+  float3 blackFloorCorrectionRatio = (blackFloor < FLT_EPSILON) ? 1.0 : sqr(saturate(scaledComposedColor / (blackFloor * blackFloorScale))); // This will ignore a negative black floor that would raise the whole image
   scaledComposedColor = lerp(0.0, scaledComposedColor, blackFloorCorrectionRatio);
-#else // !ENABLE_LUMA
-  scaledComposedColor = max(blackFloor, scaledComposedColor) - blackFloor;
-#endif // ENABLE_LUMA
+#endif
+#endif // ENABLE_BLACK_FLOOR_TWEAKS_TYPE <= 2
+
+#else
+
+  scaledComposedColor = max(scaledComposedColor - blackFloor, 0.0);
+
+#endif // ENABLE_LUMA && ENABLE_BLACK_FLOOR_TWEAKS_TYPE >= 1
   scaledComposedColor /= cb0[10].y - blackFloor; // Raises brightness usually
 
 #if ENABLE_LUMA // Luma: added abs*sign to preserve negative colors (the alternaitve would have caused NaNs in SDR too anyway)
@@ -379,8 +405,13 @@ void main(
 #else // !ENABLE_LUMA
   scaledComposedColor = pow(scaledComposedColor, colorPow); // Lowers brightness usually
 #endif // ENABLE_LUMA
-  scaledComposedColor = lerp(scaledComposedColor, 1.0, fadeToWhite); // Raises brightness usually // TODO: avoid this raising the black floor? See below
-#if DEVELOPMENT // Draw purple if it's used
+
+#if ENABLE_LUMA && ENABLE_BLACK_FLOOR_TWEAKS_TYPE == 2 // Luma: anchor the black floor and only raise above it. This isn't really necessary as blacks were already crushed anyway so raising the black floor is usually fine
+  scaledComposedColor = lerp(scaledComposedColor, 1.0, fadeToWhite * saturate(scaledComposedColor)); // TODO: make sure this is never used to do fades to white, but I don't think so.
+#else
+  scaledComposedColor = lerp(scaledComposedColor, 1.0, fadeToWhite); // Raises brightness and black floor when active
+#endif // ENABLE_LUMA && ENABLE_BLACK_FLOOR_TWEAKS_TYPE == 2
+#if DEVELOPMENT && 0 // Draw purple if it's used
   if (fadeToWhite != 0)
   {
     outColor.rgb = float3(1, 0, 1); return;
@@ -418,6 +449,9 @@ void main(
   }
 
   bool TM_BT2020 = LumaSettings.DisplayMode == 1 && !forceSDR; // It seems to look a bit better, usually it barely makes any difference
+#if 1 // TODO: disabled, this currently makes no sense and causes posterization. Before applying the curve, the color is log encoded, though we don't know the encoding! Note: we could try something like "LinearizeLog2()" above
+  TM_BT2020 = false;
+#endif
   const bool TM_ByLuminance = false;
   float TM_ByLuminance_Amount_Shadow = 1.0;
   float TM_ByLuminance_Amount_Highlights = 1.0;
@@ -450,11 +484,26 @@ void main(
 
       scaledComposedColor = desaturateInLinear ? gamma_to_linear(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
       float saturation = 1.0 - saturate(GetLuminance(scaledComposedColor, TM_BT2020 ? CS_BT2020 : CS_BT709) - (desaturateInLinear ? MidGray : 0.5)) * saturate(desaturation);
-      scaledComposedColor = Saturation(scaledComposedColor, saturation, TM_BT2020 ? CS_BT2020 : CS_BT709); // TODO: eesat with oklab or something?
+      scaledComposedColor = Saturation(scaledComposedColor, saturation, TM_BT2020 ? CS_BT2020 : CS_BT709); // TODO: desat with oklab or something?
       scaledComposedColor = desaturateInLinear ? linear_to_gamma(scaledComposedColor, GCT_MIRROR) : scaledComposedColor;
     }
     
-    scaledComposedColor = TM_BT2020 ? linear_to_gamma(BT2020_To_BT709(gamma_to_linear(scaledComposedColor, GCT_MIRROR)), GCT_MIRROR) : scaledComposedColor; // Note: we could skip some gamma conversions through the desaturation branch, but whatever
+    if (TM_BT2020)
+    {
+      // Note: we could skip some gamma conversions through the desaturation branch, but whatever
+      scaledComposedColor = gamma_to_linear(scaledComposedColor, GCT_MIRROR);
+
+      // Needed to avoid occasional red botches on dark texels when entering the water. Each of these seem to help and play a part in fixing it (the actual reason is not clear, it could be an inf, denorm or nan), it only happens in BT.2020
+      // the issue is triggerable in the "Clockwork - Shadows at noon" orb location, when entering and exiting the water
+      outColor.rgb = (IsNaN_Strict(outColor.rgb) || IsInfinite_Strict(outColor.rgb)) ? 0.0 : outColor.rgb;
+	    FixColorGradingLUTNegativeLuminance(outColor.rgb, 1, CS_BT2020);
+      scaledComposedColor = max(scaledComposedColor, 0.0); // Clip gamut beyond BT.2020, it's all "random" anyway
+
+      scaledComposedColor = linear_to_gamma(BT2020_To_BT709(scaledComposedColor), GCT_MIRROR);
+    }
+#if 0 // Test: passthrough color
+    outColor.rgb = scaledComposedColor.rgb; return;
+#endif
   }
   else
   {
@@ -501,7 +550,7 @@ void main(
 #if ENABLE_FAKE_HDR // Not really needed anymore after tweaking the original tonemapper
   float normalizationPoint = 0.25; // Found empyrically (could be improved)
   float fakeHDRIntensity = 0.5;
-  bool boostSaturation = false;
+  float boostSaturation = 0.0;
   outColor.rgb = FakeHDR(outColor.rgb, normalizationPoint, fakeHDRIntensity, boostSaturation);
 #endif // ENABLE_FAKE_HDR
 

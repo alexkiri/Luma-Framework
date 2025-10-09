@@ -115,7 +115,7 @@ void main(
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
   float normalizationPoint = 1.0; // Found empyrically
   float fakeHDRIntensity = 0.5;
-  mixedSceneColor = FakeHDR(mixedSceneColor, normalizationPoint, fakeHDRIntensity, false, COLOR_SPACE); //TODO: try to restore saturation
+  mixedSceneColor = FakeHDR(mixedSceneColor, normalizationPoint, fakeHDRIntensity, 0.2, 0, COLOR_SPACE); //TODO: try to restore saturation, and tweak "normalizationPoint"
 #endif
 
   // Match HDR with vanilla tonemaper SDR mid gray

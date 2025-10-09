@@ -3,6 +3,14 @@
 #include "shader_types.h"
 #include "matrix.h"
 
+namespace
+{
+   namespace
+   {
+      enum class DisplayModeType : uint;
+   }
+}
+
 namespace CB
 {
    using namespace Math;
@@ -43,11 +51,11 @@ namespace CB
    // This is mirrored in shaders (it's described there).
    struct LumaGlobalSettings
    {
-      uint DisplayMode;
+      DisplayModeType DisplayMode;
       float ScenePeakWhite;
       float ScenePaperWhite;
       float UIPaperWhite;
-      uint DLSS;
+      uint SRType;
       uint FrameIndex;
 
 #if DEVELOPMENT // In case we disabled the "DEVELOPMENT" shader define while the code is compiled in "DEVELOPMENT" mode, we'll simply push values that aren't read by shaders (see "CPU_DEVELOPMENT")

@@ -15,7 +15,7 @@ cbuffer cb2 : register(b2)
   float4 cb2[3];
 }
 
-#define cmp -
+#define cmp
 
 // Controls the intensity of blurring
 void main(

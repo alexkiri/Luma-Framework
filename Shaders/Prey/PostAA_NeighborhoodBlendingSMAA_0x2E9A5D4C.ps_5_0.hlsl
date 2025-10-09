@@ -18,7 +18,7 @@ void main(
 {
   // SMAA ruins DLSS and is simply useless when DLSS is running. We can't really detect whether the user has set AA to TAA or SMAA 2TX in game so we have to skip the pass on the spot instead.
   // If we wanted, we could also disable the previous two passes for SMAA edge detection when DLSS is engaged.
-  bool skipSMAA = LumaSettings.DLSS;
+  bool skipSMAA = LumaSettings.SRType > 0;
 #if !ENABLE_AA || !ENABLE_SMAA
   skipSMAA = true;
 #endif

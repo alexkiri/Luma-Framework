@@ -1,4 +1,5 @@
 #include "Includes/Common.hlsl"
+#include "../Includes/ColorGradingLUT.hlsl"
 
 cbuffer DrawableBuffer : register(b1)
 {
@@ -31,10 +32,16 @@ void main(
   uint2 size;
   p_default_Material_051164A4424935531_Param_texture.GetDimensions(size.x, size.y);
   // The size of the main videos (matches "DevelopmentVerticalResolution")
+  // Do AutoHDR before any color filter
   if (size.x == 1280 && size.y == 720)
   {
     r2.rgb = gamma_to_linear(r2.rgb);
     r2.rgb = PumboAutoHDR(r2.rgb, lerp(sRGB_WhiteLevelNits, 250.0, LumaSettings.GameSettings.HDRBoostIntensity), LumaSettings.GamePaperWhiteNits); // The videos were in low quality and have compression artifacts in highlights, so avoid going too high
+#if UI_DRAW_TYPE == 2 // This is drawn in the UI phase but it's not UI (it's a video), so make sure it scales with the game brightness instead
+    ColorGradingLUTTransferFunctionInOutCorrected(r2.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
+    r2.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(r2.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
+#endif
     r2.rgb = linear_to_gamma(r2.rgb);
   }
 #endif

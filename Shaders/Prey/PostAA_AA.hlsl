@@ -143,7 +143,7 @@ float2 CalcPreviousTC(float2 _baseTC, float _depth)
 	const float4 vPosHPrev = mul(LumaData.GameData.ReprojectionMatrix, float4(_baseTC, _depth, 1.0));
 #else
 	// LUMA FT: use "fixed" matrix with jitters too when calculating motion vectors for DLSS (we wouldn't want (previous and current) jitters in the raw TAA as it would just blur things too much)
-	const float4 vPosHPrev = mul(LumaSettings.DLSS ? LumaData.GameData.ReprojectionMatrix : cbPostAA.matReprojection, float4(_baseTC, _depth, 1.0));
+	const float4 vPosHPrev = mul(LumaSettings.SRType ? LumaData.GameData.ReprojectionMatrix : cbPostAA.matReprojection, float4(_baseTC, _depth, 1.0));
 #endif
 	return vPosHPrev.xy / vPosHPrev.w;
 }

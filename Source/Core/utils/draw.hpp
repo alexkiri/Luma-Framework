@@ -746,7 +746,7 @@ void SetViewportFullscreen(ID3D11DeviceContext* device_context, uint2 size = {})
 
 #if DEVELOPMENT
       // Scissors are often set after viewports in games (e.g. Prey), so check them separately.
-      // We need to make sure that all the draw calls after DLSS upscaling run at full resolution and not rendering resolution.
+      // We need to make sure that all the draw calls after SR upscaling run at full resolution and not rendering resolution.
       com_ptr<ID3D11RasterizerState> state;
       device_context->RSGetState(&state);
       if (state.get())
@@ -762,7 +762,7 @@ void SetViewportFullscreen(ID3D11DeviceContext* device_context, uint2 size = {})
             ASSERT_ONCE(scissor_rects_num == 1); // Possibly innocuous as long as it's > 0, but we should only ever have one viewport and one RT!
             device_context->RSGetScissorRects(&scissor_rects_num, &scissor_rects[0]);
 
-            // If this ever triggered, we'd need to replace scissors too after DLSS (and make them full resolution).
+            // If this ever triggered, we'd need to replace scissors too after SR upscaling (and make them full resolution).
             ASSERT_ONCE(scissor_rects[0].left == 0 && scissor_rects[0].top == 0 && scissor_rects[0].right == render_target_texture_2d_desc.Width && scissor_rects[0].bottom == render_target_texture_2d_desc.Height);
          }
       }
@@ -960,7 +960,7 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, ID3
                ASSERT_ONCE(rtv_desc.Format == texture_2d_desc.Format); // TODO: if this triggers, add support for view formats that don't match the texture format (in case it was typeless)
 #endif
 
-               if (IsSignedFloatFormat(texture_2d_desc.Format)) // They couldn't have NaNs otherwise
+               if (IsSignedFloatFormat(texture_2d_desc.Format)) // They couldn't have NaNs otherwise, so we don't even need to worry about supporting sRGB UNORM formats as UAV
                {
                   data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE | (smoothed ? D3D11_BIND_UNORDERED_ACCESS : 0), D3D11_BIND_RENDER_TARGET, false, false, device_context, smoothed ? 0 : -1); // Create texture with mips for NaN filtering
                   if (data.texture_2d)
@@ -970,15 +970,7 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, ID3
                      data.width = texture_2d_desc.Width;
                      data.height = texture_2d_desc.Height;
 
-                     data.levels = GetTextureMaxMipLevels(data.width, data.width);
-
                      data.smoothed = smoothed;
-
-#if DEVELOPMENT
-                     D3D11_TEXTURE2D_DESC new_texture_2d_desc;
-                     data.texture_2d->GetDesc(&new_texture_2d_desc);
-                     ASSERT_ONCE(data.levels == new_texture_2d_desc.MipLevels);
-#endif
 
                      HRESULT hr;
 
@@ -993,11 +985,19 @@ void SanitizeNaNs(ID3D11Device* device, ID3D11DeviceContext* device_context, ID3
 
                      if (data.smoothed)
                      {
+                        data.levels = GetTextureMaxMipLevels(data.width, data.height);
+
+#if DEVELOPMENT
+                        D3D11_TEXTURE2D_DESC new_texture_2d_desc;
+                        data.texture_2d->GetDesc(&new_texture_2d_desc);
+                        ASSERT_ONCE(data.levels == new_texture_2d_desc.MipLevels);
+#endif
+
                         // Create UAVs for each specific downscale pass
                         for (UINT i = 0; i < data.levels; ++i)
                         {
                            D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
-                           uav_desc.Format = texture_2d_desc.Format; // TODO: add SRGB formats support
+                           uav_desc.Format = texture_2d_desc.Format;
                            uav_desc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE2D;
                            uav_desc.Texture2D.MipSlice = i;
                            hr = device->CreateUnorderedAccessView(data.texture_2d.get(), &uav_desc, &data.uavs[i]);

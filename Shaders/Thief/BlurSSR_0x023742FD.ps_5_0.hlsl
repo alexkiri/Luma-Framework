@@ -7,7 +7,7 @@ cbuffer cb0 : register(b0)
   float4 cb0[2];
 }
 
-#define cmp -
+#define cmp
 
 void main(
   float2 v0 : TEXCOORD0,

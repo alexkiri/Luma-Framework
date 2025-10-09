@@ -435,7 +435,7 @@ void main(
 #endif
     lutIntensity *= saturate(cb1[6].y);
 #if ENABLE_LUMA // This branch isn't needed with Luma, even if it was ever active
-    applyLUTByMaxChannel = false;
+    applyLUTByMaxChannel = false; // TODO: actually try this with Luma
 #endif
     // This is supposedly the game's original HDR implementation, in case it skipped the tonemapper or something, however it seems like it was never used.
     // The same identical code is also in "Dying Light: The Beast", so it was either written by a shared developer, or can be found somewhere online (I couldn't find a rerence).

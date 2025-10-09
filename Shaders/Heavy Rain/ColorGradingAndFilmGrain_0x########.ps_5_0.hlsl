@@ -116,7 +116,6 @@ void main(
 #endif // COMPOSE_EFFECTS
 
   // This fixes NaNs expanding in the pause menu too!
-  // TODO: NaNs happen less with FXAA???
   sceneColor.xyz = IsNaN_Strict(sceneColor.xyz) ? 0.0 : sceneColor.xyz;
 
 #if FILM_GRAIN
@@ -134,7 +133,7 @@ void main(
 #endif
   
   float3 gradedSceneColor = postProcessedColor.rgb;
-#if ENABLE_COLOR_GRADING
+#if ENABLE_COLOR_GRADING // Mostly a global desaturation pass (usually)
   float4 filter;
   filter.x = register0._m00;
   filter.y = register0._m01;
@@ -153,7 +152,7 @@ void main(
   gradedSceneColor.b = dot(postProcessedColor, filter.xyzw);
 #endif // ENABLE_COLOR_GRADING
 
-#if COLOR_GRADING && ENABLE_COLOR_GRADING
+#if COLOR_GRADING && ENABLE_COLOR_GRADING // Highlights boost and shadow tint
 #if 0 // Luma: add saturate on source color to clip to original range, it seems to look best
   const float postProcessedColorAverage = dot(saturate(postProcessedColor.rgb), 1.0 / 3.0);
 #elif 0 // Alterantive version that clips after, might look different from Vanilla, but maybe better
@@ -161,20 +160,18 @@ void main(
 #else // Leave it as it was given it wasn't clamped in vanilla
   const float postProcessedColorAverage = dot(postProcessedColor.rgb, 1.0 / 3.0);
 #endif
+  // Usually this is a grey scale
   float3 shadowTint = saturate(postProcessedColorAverage * register6.xyz + register7.xyz); // Leave this saturate in as it's just a multiplier
-  
+
   // This will generate colors beyond Rec.709 in the shadow
 #if ENABLE_LUMA
+
 #if 0
-  // Compress back to 1 to apply the filter. This will desaturate a lot more.
-  float maxGradedSceneColor = max3(gradedSceneColor.rgb);
-  if (maxGradedSceneColor >= FLT_EPSILON)
-  {
-    maxGradedSceneColor = max(maxGradedSceneColor, 1.0);
-    gradedSceneColor.rgb /= maxGradedSceneColor;
-    gradedSceneColor.rgb = (gradedSceneColor.rgb > 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
-    gradedSceneColor.rgb *= maxGradedSceneColor;
-  }
+  // Compress back to 1 to apply the filter. This will desaturate highlights a lot more, but also, better boost highlights that were already > 1
+  float maxGradedSceneColor = max(max3(gradedSceneColor.rgb), 1.0);
+  gradedSceneColor.rgb /= maxGradedSceneColor;
+  gradedSceneColor.rgb = (gradedSceneColor.rgb > 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
+  gradedSceneColor.rgb *= maxGradedSceneColor;
 #elif 1
   gradedSceneColor.rgb = (gradedSceneColor.rgb > 0.0 && gradedSceneColor.rgb < 1.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : gradedSceneColor.rgb;
 #else
@@ -182,14 +179,22 @@ void main(
   // Attempted idea to add negative scRGB values support, but I don't think it's needed (applying the filter through oklab might be better)
   gradedSceneColor.rgb = (gradedSceneColor.rgb < 1.0) ? ((gradedSceneColor.rgb >= 0.0) ? (1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb))) : (1.0 - ((1.0 - gradedSceneColor.rgb) / shadowTint.rgb))) : gradedSceneColor.rgb;
 #endif
-#if 0 // TEST: draw shadow ting
+
+#if 0 // TEST: draw shadow tint
   o0.xyz = 1.0 / shadowTint.rgb; return;
 #endif
+
 #else // !ENABLE_LUMA
+
   gradedSceneColor.rgb = saturate(gradedSceneColor.rgb);
   gradedSceneColor.rgb = 1.0 - (shadowTint.rgb * (1.0 - gradedSceneColor.rgb));
+
 #endif // ENABLE_LUMA
 #endif // COLOR_GRADING && ENABLE_COLOR_GRADING
+
+#if ENABLE_COLOR_GRADING
+  gradedSceneColor.rgb = lerp(postProcessedColor.rgb, gradedSceneColor.rgb, LumaSettings.GameSettings.ColorGradingIntensity);
+#endif // ENABLE_COLOR_GRADING
 
   // Gamma adjustments (usually neutral, based on the user gamma, but maybe influenced by scene too)
   float3 gamma;
@@ -211,7 +216,7 @@ void main(
   {
     float normalizationPoint = 0.025; // Found empyrically
     float fakeHDRIntensity = LumaSettings.GameSettings.HDRBoostAmount * 0.25; // 0.1-0.15 looks good in most places. 0.2 looks better in dim scenes, but is too much AutoHDR like in bright scenes
-    gradedSceneColor.rgb = FakeHDR(gradedSceneColor.rgb, normalizationPoint, fakeHDRIntensity, false);
+    gradedSceneColor.rgb = FakeHDR(gradedSceneColor.rgb, normalizationPoint, fakeHDRIntensity, 0.2);
   }
 #endif
 
@@ -221,8 +226,10 @@ void main(
   bool allowReinhard = true;
   if (LumaSettings.DisplayMode == 1 || !allowReinhard)
   {
-    bool perChannel = true; // Per channel causes hue shifts, which this game doesn't seem to expect that much, but bloom either forms steps with "DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" (especially on blue, police sirens), or clips, with "DICE_TYPE_BY_LUMINANCE_PQ".
+    bool perChannel = true; // Per channel causes hue shifts, which this game doesn't seem to expect that much, but bloom either forms steps with "DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE" (especially on blue, police cars sirens), or clips, with "DICE_TYPE_BY_LUMINANCE_PQ".
     DICESettings settings = DefaultDICESettings(perChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
+    settings.DarkeningAmount = 0.0; // Darkening makes some stuff like police cars sirens bloom, become a blob of blue, because by ratio all colors were similar, so we scale them by peak, they won't be distinguishable anymore.
+    settings.DesaturationAmount = 1.0 - settings.DarkeningAmount; // Desaturation too much also causes visible steps/blobs, but it's less worse
     gradedSceneColor = DICETonemap(gradedSceneColor * paperWhite, peakWhite, settings) / paperWhite;
   }
   else

@@ -43,7 +43,7 @@ public:
          {"ENABLE_VIGNETTE", '1', false, false, "Set to 0 to disable vanilla vignette"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
-      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1'); // TODO: set this to 1???? Also fix TAA.
+      GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
@@ -117,6 +117,8 @@ public:
    void DrawImGuiDevSettings(DeviceData& device_data) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
+
+      ImGui::NewLine();
 
       if (ImGui::Checkbox("Skip Sharpening", &game_device_data.skip_sharpen))
       {
@@ -209,14 +211,14 @@ public:
          game_device_data.drew_tonemap = true;
 
          // If we upgrade all R10G10B10A2 textures, there's no need to do this live texture format swap
-         if (enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::scRGB && (!enable_texture_format_upgrades || !texture_upgrade_formats.contains(reshade::api::format::r10g10b10a2_unorm)))
+         if (swapchain_format_upgrade_type > TextureFormatUpgradesType::None && swapchain_upgrade_type == SwapchainUpgradeType::scRGB && (texture_format_upgrades_type == TextureFormatUpgradesType::None || !texture_upgrade_formats.contains(reshade::api::format::r10g10b10a2_unorm)))
          {
             // We manually upgrade the R10G10B10A2 texture that is used as tonemapper output and sharpening input (after which the game uses the swapchain as RT).
             // If we upgrade all R10G10B10A2 the game can crash.
             com_ptr<ID3D11RenderTargetView> rtv;
             native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
             ASSERT_ONCE(rtv);
-            if (rtv && is_custom_pass)
+            if (rtv && is_custom_pass && test_index != 17)
             {
                com_ptr<ID3D11Resource> target_resource;
                rtv->GetResource(&target_resource);
@@ -231,6 +233,12 @@ public:
                   native_device->CreateShaderResourceView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_srv);
                   native_device->CreateRenderTargetView(game_device_data.upgraded_post_process_texture.get(), nullptr, &game_device_data.upgraded_post_process_rtv);
                }
+            }
+            else if (test_index == 17)
+            {
+               game_device_data.upgraded_post_process_texture = nullptr;
+               game_device_data.upgraded_post_process_srv = nullptr;
+               game_device_data.upgraded_post_process_rtv = nullptr;
             }
          }
          // Restoring the state isn't necessary in this game
@@ -274,23 +282,17 @@ public:
             return true;
          }
 #endif
-			// TODO: if we don't skip this, we need to fix it to work with HDR linear colors (but we could just plug in our own AMD CAS implementation anyway)
+         if (game_device_data.upgraded_post_process_srv.get())
+         {
+            ID3D11ShaderResourceView* const upgraded_post_process_srv_const = game_device_data.upgraded_post_process_srv.get();
+            native_device_context->CSSetShaderResources(2, 1, &upgraded_post_process_srv_const);
+         }
       }
 
-#if !DEVELOPMENT
-      // TODO: maybe we could just rely on pixel_shader_hashes_SharpenPreparation?
-      if (original_shader_hashes.Contains(pixel_shader_hashes_TAA))
-      {
-         static bool warning_sent = false;
-			if (!warning_sent)
-			{
-				warning_sent = true;
-            MessageBoxA(game_window, "Luma detected that TAA was enabled in the game graphics settings.\nPlease select a form of Anti Aliasing that is not TAA or DLSS for compatibility with Luma.", NAME, MB_SETFOREGROUND);
-			}
-      }
-#endif
-
-      // Sharpening
+      // Sharpening.
+      // These optionally include TAA too.
+      // If sharpening is disabled, it's just a swapchain copy.
+      // The texture this writes to is always directly the swapchain.
       if (game_device_data.drew_tonemap && !game_device_data.drew_sharpen && original_shader_hashes.Contains(pixel_shader_hashes_Sharpen))
       {
          game_device_data.drew_sharpen = true; // Set to true even if we skip it
@@ -326,6 +328,7 @@ public:
          }
          else
 #endif
+         // This is only used by some of the shaders in the list above
          if (game_device_data.upgraded_post_process_srv.get())
          {
             ID3D11ShaderResourceView* const upgraded_post_process_srv_const = game_device_data.upgraded_post_process_srv.get();
@@ -372,17 +375,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // For now upgrading R8G8B8A8 textures is disabled because the game creates typeless ones which are then used as RTV or SRV of different types (e.g. unsigned/signed int, etc), so we'd need to add handling it.
       // Upgrading R8G8B8A8 allows the game's unfinished DLSS implementation to work, but it still has multiple problems, because DLSS runs in sRGB (linear) color space, thus it clips all colors beyond sRGB.
       // In the vanilla game DLSS was hidden, possibly because it was untested and also it had wrong gamma, given it was run instead of the TAA/sharpening pass which took gamma 2.0 and spit out gamma sRGB,
-      // DLSS wouldn't have done that gamma correction (it misses it, so it outputs gamma 2.0). It also probably misses the "HDR" flag and thus would interpret colors as sRGB gamma space, which is not what LUMA does.
-      // That said, if DLSS ever was upgraded to support negative scRGB colors without clipping them, we could use "DLSSTweaks" to force the HDR flag on and run it in HDR (we could even force DLAA).
-      enable_swapchain_upgrade = true;
+      // DLSS wouldn't have done that gamma correction (it misses it, so it outputs gamma 2.0). It also probably misses the "HDR" flag and thus would interpret colors as sRGB gamma space, which is not what LUMA does/needs.
+      // That said, if DLSS ever was upgraded to support negative scRGB colors without clipping them, we could use "DLSSTweaks" to force the HDR flag on and run it in HDR (we could even force DLAA),
+      // or we could pre-compress colors to BT.2020 and re-convert them to scRGB after, or even just make our own DLSS implementation!
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
 
+      // TODO: use "default_luma_global_game_settings"
       cb_luma_global_settings.GameSettings.HDRHighlights = default_hdr_highlights;
       cb_luma_global_settings.GameSettings.HDRDesaturation = default_hdr_desaturation;
 
       pixel_shader_hashes_SharpenPreparation.compute_shaders = { Shader::Hash_StrToNum("F5503D2E") };
-		pixel_shader_hashes_Sharpen.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("AA97F987"), Shader::Hash_StrToNum("0910AE0F") }; // The last one is for DLSS (which doesn't do sharpening), the others are for sharpening and some for TAA too
-      pixel_shader_hashes_TAA.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("0910AE0F") };
+		pixel_shader_hashes_Sharpen.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("AA97F987"), Shader::Hash_StrToNum("0910AE0F") }; // The last one is for DLSS (which doesn't do sharpening, but just a swapchain copy), the others are for sharpening and some for TAA too
+      pixel_shader_hashes_TAA.compute_shaders = { Shader::Hash_StrToNum("78D8400E"), Shader::Hash_StrToNum("C0EF3F88"), Shader::Hash_StrToNum("0910AE0F") }; // Last one is just a swapchain copy that runs if TAA is off
       pixel_shader_hashes_Tonemap.pixel_shaders = { Shader::Hash_StrToNum("2B825C00"), Shader::Hash_StrToNum("480558AD"), Shader::Hash_StrToNum("AEDB562C") };
 
       game = new Trine5();

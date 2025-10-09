@@ -190,7 +190,7 @@ cbuffer LumaSettings : register(LUMA_SETTINGS_CB_INDEX)
     float PeakWhiteNits; // Access this through the global variables below
     float GamePaperWhiteNits; // Access this through the global variables below (this either applies to the game scene colors, or to the whole final image)
     float UIPaperWhiteNits; // Access this through the global variables below (only usable in certain "UI_DRAW_TYPE" modes)
-    uint DLSS; // Is DLSS enabled (implies it engaged and it's compatible) (this is on even in fullscreen UI menus that don't use upscaling)
+    uint SRType; // Which SR is enabled if any (implies it'd be engaged and compatible) (this is on even in fullscreen UI menus that don't use upscaling)
     uint FrameIndex; // Frame counter, no need for this to be by device or swapchain
     
 // These ideally should be after anything else or if we toggled the "DEVELOPMENT" flag, the rest would get misaligned,

@@ -206,6 +206,8 @@ public:
       forced_shader_names.emplace(Shader::Hash_StrToNum("65DF6B49"), "Water");
       forced_shader_names.emplace(Shader::Hash_StrToNum("EC3A9A46"), "Water");
       forced_shader_names.emplace(Shader::Hash_StrToNum("FC028A8B"), "Water");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("3B5689CF"), "Water");
+      forced_shader_names.emplace(Shader::Hash_StrToNum("26918C4A"), "Water");
 
       forced_shader_names.emplace(Shader::Hash_StrToNum("0406BFD1"), "Water Foam");
 
@@ -255,6 +257,7 @@ public:
          {"ENABLE_FILM_GRAIN", '1', false, false, "Allow disabling the game's film grain effect"},
          {"ENABLE_LENS_DISTORTION", '1', false, false, "Allow disabling the game's lens distortion effect"},
          {"ENABLE_CHROMATIC_ABERRATION", '1', false, false, "Allow disabling the game's chromatic aberration effect"},
+         {"ENABLE_BLACK_FLOOR_TWEAKS_TYPE", '1', false, false, "Allows customizing how the game handles the black floor. Set to 0 for the vanilla look. Set to 3 for increased visibility."},
 #if DEVELOPMENT || TEST
          {"ENABLE_FAKE_HDR", '0', false, false, "Enable a \"Fake\" HDR boosting effect (not usually necessary as the game's tonemapper can already extract highlights)"},
 #endif
@@ -394,6 +397,7 @@ public:
          }
 #endif
       }
+      // TODO: use live patching to add a saturate on the alpha output of materials, and max(0, color) on the rgb of materials (we already do it manually for a billion shaders, possibly a few are still missing as they can be hard to notice), we could also remove part of the dithering (blue noise?)
       else if (original_shader_hashes.Contains(shader_hashes_MaterialsEnd) && game_device_data.is_drawing_materials)
       {
          ASSERT_ONCE(game_device_data.scene_color_rtv.get());
@@ -576,7 +580,7 @@ public:
       ImGui::SetNextItemOpen(true, ImGuiCond_Once);
       if (ImGui::TreeNode("Advanced Settings"))
       {
-         if (cb_luma_global_settings.DisplayMode == 1)
+         if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR)
          {
             if (ImGui::SliderFloat("HDR Intensity", &cb_luma_global_settings.GameSettings.HDRIntensity, 0.f, 2.f))
             {
@@ -713,9 +717,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio | (uint32_t)TextureFormatUpgrades2DSizeFilters::RenderAspectRatio;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
@@ -800,7 +804,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Defaults are hardcoded in ImGUI too
       cb_luma_global_settings.GameSettings.HDRIntensity = 1.f;
       cb_luma_global_settings.GameSettings.HighlightsDesaturation = 0.4f;
-      // TODO: add a global "Default" game settigns struct that we can save on boot and re-use later
+      // TODO: use "default_luma_global_game_settings"
 
       game = new INSIDE();
    }

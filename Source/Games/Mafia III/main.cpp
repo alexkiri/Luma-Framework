@@ -1,6 +1,7 @@
 #define GAME_MAFIA_III 1
 
 #define ENABLE_NGX 1
+#define ENABLE_FIDELITY_SK 1
 // Needed for DLSS mips in case there's jitters
 #define UPGRADE_SAMPLERS 1
 
@@ -214,6 +215,8 @@ namespace
 {
    ShaderHashesList shader_hashes_LinearizeDepth;
    ShaderHashesList shader_hashes_ShadowMapProjections;
+   ShaderHashesList shader_hashes_PreTAAFogNearMask;
+   ShaderHashesList shader_hashes_PreTAACopy;
    ShaderHashesList shader_hashes_TAA; // Temporal AA
    ShaderHashesList shader_hashes_AA; // Non temporal AA
    ShaderHashesList shader_hashes_Tonemap;
@@ -232,6 +235,7 @@ namespace
    float sharpening = 0.0;
    bool enable_vignette = true;
    bool allow_motion_blur = true;
+   bool taa_enabled = true; // Guess it's enabled as it will be unless the user edited the binary
 
    // User live settings:
    bool hide_gameplay_ui = false;
@@ -240,6 +244,9 @@ namespace
    float3 camera_mode_rotation = {};
    float camera_mode_fov_scale = 1.0;
 
+   static std::vector<std::byte*> pattern_1_addresses;
+   static std::vector<std::byte*> pattern_2_addresses;
+   static std::vector<std::byte*> pattern_3_addresses;
 
 #if DEVELOPMENT //TODOFT5: delete
    std::map<ID3D11Buffer*, void*> res_map;
@@ -282,6 +289,8 @@ struct GameDeviceDataMafiaIII final : public GameDeviceData
    DirectX::XMMATRIX view_projection_mat;
 
    float2 taa_jitters = {};
+
+   bool try_draw_dlss_next = false;
 
    bool has_drawn_taa = false;
    bool has_drawn_aa = false;
@@ -351,6 +360,22 @@ public:
          reshade::register_event<reshade::addon_event::map_buffer_region>(MafiaIII::OnMapBufferRegion);
          reshade::register_event<reshade::addon_event::unmap_buffer_region>(MafiaIII::OnUnmapBufferRegion);
          reshade::register_event<reshade::addon_event::update_buffer_region>(MafiaIII::OnUpdateBufferRegion);
+
+         HMODULE module_handle = GetModuleHandle(nullptr); // Handle to the current executable
+         auto dos_header = reinterpret_cast<PIMAGE_DOS_HEADER>(module_handle);
+         auto nt_headers = reinterpret_cast<PIMAGE_NT_HEADERS>(reinterpret_cast<std::byte*>(module_handle) + dos_header->e_lfanew);
+
+         std::byte* base = reinterpret_cast<std::byte*>(module_handle);
+         std::size_t section_size = nt_headers->OptionalHeader.SizeOfImage;
+
+         std::vector<std::byte> pattern;
+
+         // Unknown author. From pcgw.
+         pattern = { std::byte{0x60}, std::byte{0x81}, std::byte{0x00}, std::byte{0x00}, std::byte{0x10}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x10} };
+         pattern_1_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
+
+         pattern = { std::byte{0x88}, std::byte{0x48}, std::byte{0x38}, std::byte{0x48}, std::byte{0x8B}, std::byte{0x4E}, std::byte{0x08}, std::byte{0x80}, std::byte{0x79}, std::byte{0x38}, std::byte{0x00}, std::byte{0x74} };
+         pattern_2_addresses = System::ScanMemoryForPattern(base, section_size, pattern);
       }
    }
 
@@ -372,7 +397,7 @@ public:
    {
       // The vanilla swapchain was last written by the game's AA with an sRGB view, so in linear.
       // The UI would be written to the swapchain with non sRGB views, so with texture upgrades, the UI is broken, but the game should be linear nonetheless.
-      return enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::scRGB;
+      return swapchain_format_upgrade_type > TextureFormatUpgradesType::None && swapchain_upgrade_type == SwapchainUpgradeType::scRGB;
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
@@ -440,163 +465,231 @@ public:
       }
 #endif
 
-      if (original_shader_hashes.Contains(shader_hashes_TAA))
-      {
-         bool had_drawn_taa = game_device_data.has_drawn_taa;
-         game_device_data.has_drawn_taa = true; // This happens 3 times, for different parts of the image
-         device_data.taa_detected = true;
+      bool do_dlss = false;
 
-#if ENABLE_NGX
-         if (device_data.dlss_sr && !device_data.dlss_sr_suppressed)
+      if (taa_enabled)
+      {
+         if (original_shader_hashes.Contains(shader_hashes_TAA))
          {
-            // Skip following passes
-            if (had_drawn_taa || device_data.has_drawn_dlss_sr)
+#if ENABLE_SR
+            if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed)
             {
-               return true;
+               // Skip following TAA passes
+               if (!game_device_data.has_drawn_taa && !device_data.has_drawn_sr)
+               {
+                  do_dlss = true;
+               }
+            }
+#endif // ENABLE_SR
+            game_device_data.has_drawn_taa = true; // This happens 3 times, for different parts of the image
+            device_data.taa_detected = true;
+         }
+      }
+      // The game's TAA shaders don't run if TAA is disabled (which is essential for proper DLSS),
+      // so hook to the calls just before it would have been
+      else
+      {
+         if (original_shader_hashes.Contains(shader_hashes_PreTAAFogNearMask))
+         {
+            game_device_data.try_draw_dlss_next = true;
+         }
+         else
+         {
+            if (original_shader_hashes.Contains(shader_hashes_PreTAACopy) && game_device_data.try_draw_dlss_next)
+            {
+               // Finish up the current draw call, as we don't want to skip it
+               native_device_context->Draw(6, 0); // TODO: verify
+
+#if ENABLE_SR
+               if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed)
+               {
+                  do_dlss = true;
+
+                  // Pretend TAA has happened, because it will happen (with DLSS)
+                  game_device_data.has_drawn_taa = true;
+                  device_data.taa_detected = true;
+               }
+#endif // ENABLE_SR
+            }
+            game_device_data.try_draw_dlss_next = false;
+         }
+      }
+
+#if ENABLE_SR
+      if (do_dlss)
+      {
+         assert(device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && !device_data.has_drawn_sr);
+
+         // 0 Raw Jitter Source Color (HDR/Linear)
+         // 1 Previous TAA output (smooth)
+         // 2 Encoded Motion Vectors (in a weird format, not usable by DLSS, but there's raw ones from previous passes)
+         com_ptr<ID3D11ShaderResourceView> ps_shader_resources[3];
+         native_device_context->PSGetShaderResources(0, ARRAYSIZE(ps_shader_resources), &ps_shader_resources[0]);
+
+         ASSERT_ONCE(game_device_data.found_per_view_globals);
+
+         com_ptr<ID3D11RenderTargetView> render_target_views[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]; // There should only be 1 or 2
+         com_ptr<ID3D11DepthStencilView> depth_stencil_view;
+         native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
+         const bool dlss_inputs_valid = ps_shader_resources[0].get() != nullptr && render_target_views[0].get() != nullptr;
+         ASSERT_ONCE(dlss_inputs_valid);
+
+         if (dlss_inputs_valid)
+         {
+            auto* sr_instance_data = device_data.GetSRInstanceData();
+            ASSERT_ONCE(sr_instance_data);
+
+            com_ptr<ID3D11Resource> output_color_resource;
+            render_target_views[0]->GetResource(&output_color_resource);
+            com_ptr<ID3D11Texture2D> output_color;
+            HRESULT hr = output_color_resource->QueryInterface(&output_color);
+            ASSERT_ONCE(SUCCEEDED(hr));
+
+            D3D11_TEXTURE2D_DESC taa_output_texture_desc;
+            output_color->GetDesc(&taa_output_texture_desc);
+
+            SR::SettingsData settings_data;
+            settings_data.output_width = unsigned int(device_data.output_resolution.x + 0.5);
+            settings_data.output_height = unsigned int(device_data.output_resolution.y + 0.5);
+            settings_data.render_width = unsigned int(device_data.render_resolution.x + 0.5);
+            settings_data.render_height = unsigned int(device_data.render_resolution.y + 0.5);
+            settings_data.hdr = true;
+            settings_data.inverted_depth = true;
+            settings_data.mvs_jittered = true;
+            settings_data.auto_exposure = true;
+            // MVs in UV space, so we need to scale by the render resolution to transform to pixel space
+            settings_data.mvs_x_scale = device_data.render_resolution.x;
+            settings_data.mvs_y_scale = device_data.render_resolution.y;
+            settings_data.use_experimental_features = sr_user_type == SR::UserType::DLSS_TRANSFORMER;
+            sr_implementations[device_data.sr_type]->UpdateSettings(sr_instance_data, native_device_context, settings_data);
+
+            bool skip_dlss = taa_output_texture_desc.Width < sr_instance_data->min_resolution || taa_output_texture_desc.Height < sr_instance_data->min_resolution;
+            bool dlss_output_changed = false;
+
+            constexpr bool dlss_use_native_uav = true;
+            bool dlss_output_supports_uav = dlss_use_native_uav && (taa_output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
+            // Create a copy that supports Unordered Access if it wasn't already supported
+            if (!dlss_output_supports_uav)
+            {
+               D3D11_TEXTURE2D_DESC dlss_output_texture_desc = taa_output_texture_desc;
+               dlss_output_texture_desc.Width = std::lrintf(device_data.output_resolution.x);
+               dlss_output_texture_desc.Height = std::lrintf(device_data.output_resolution.y);
+               dlss_output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
+
+               if (device_data.sr_output_color.get())
+               {
+                  D3D11_TEXTURE2D_DESC prev_dlss_output_texture_desc;
+                  device_data.sr_output_color->GetDesc(&prev_dlss_output_texture_desc);
+                  dlss_output_changed = prev_dlss_output_texture_desc.Width != dlss_output_texture_desc.Width || prev_dlss_output_texture_desc.Height != dlss_output_texture_desc.Height || prev_dlss_output_texture_desc.Format != dlss_output_texture_desc.Format;
+               }
+               if (!device_data.sr_output_color.get() || dlss_output_changed)
+               {
+                  device_data.sr_output_color = nullptr; // Make sure we discard the previous one
+                  hr = native_device->CreateTexture2D(&dlss_output_texture_desc, nullptr, &device_data.sr_output_color);
+                  ASSERT_ONCE(SUCCEEDED(hr));
+               }
+               // Texture creation failed, we can't proceed with DLSS
+               if (!device_data.sr_output_color.get())
+               {
+                  skip_dlss = true;
+               }
+            }
+            else
+            {
+               ASSERT_ONCE(device_data.sr_output_color == nullptr);
+               device_data.sr_output_color = output_color;
             }
 
-            // 0 Raw Jitter Source Color (HDR/Linear)
-            // 1 Previous TAA output (smooth)
-            // 2 Encoded Motion Vectors (in a weird format, not usable by DLSS, but there's raw ones from previous passes)
-            com_ptr<ID3D11ShaderResourceView> ps_shader_resources[3];
-            native_device_context->PSGetShaderResources(0, ARRAYSIZE(ps_shader_resources), &ps_shader_resources[0]);
-
-            ASSERT_ONCE(game_device_data.found_per_view_globals);
-
-            com_ptr<ID3D11RenderTargetView> render_target_views[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT]; // There should only be 1 or 2
-            com_ptr<ID3D11DepthStencilView> depth_stencil_view;
-            native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &render_target_views[0], &depth_stencil_view);
-            const bool dlss_inputs_valid = ps_shader_resources[0].get() != nullptr && render_target_views[0].get() != nullptr;
-            ASSERT_ONCE(dlss_inputs_valid);
-
-            if (dlss_inputs_valid)
+            if (!skip_dlss)
             {
-               com_ptr<ID3D11Resource> output_color_resource;
-               render_target_views[0]->GetResource(&output_color_resource);
-               com_ptr<ID3D11Texture2D> output_color;
-               HRESULT hr = output_color_resource->QueryInterface(&output_color);
-               ASSERT_ONCE(SUCCEEDED(hr));
-
-               D3D11_TEXTURE2D_DESC taa_output_texture_desc;
-               output_color->GetDesc(&taa_output_texture_desc);
-
-               constexpr bool dlss_hdr = true;
-               NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, unsigned int(device_data.render_resolution.x + 0.5), unsigned int(device_data.render_resolution.y + 0.5), unsigned int(device_data.output_resolution.x + 0.5), unsigned int(device_data.output_resolution.y + 0.5), dlss_hdr, false);
-
-               bool skip_dlss = taa_output_texture_desc.Width < 32 || taa_output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
-               bool dlss_output_changed = false;
-
-               constexpr bool dlss_use_native_uav = true;
-               bool dlss_output_supports_uav = dlss_use_native_uav && (taa_output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
-               // Create a copy that supports Unordered Access if it wasn't already supported
-               if (!dlss_output_supports_uav)
-               {
-                  D3D11_TEXTURE2D_DESC dlss_output_texture_desc = taa_output_texture_desc;
-                  dlss_output_texture_desc.Width = std::lrintf(device_data.output_resolution.x);
-                  dlss_output_texture_desc.Height = std::lrintf(device_data.output_resolution.y);
-                  dlss_output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
-
-                  if (device_data.dlss_output_color.get())
-                  {
-                     D3D11_TEXTURE2D_DESC prev_dlss_output_texture_desc;
-                     device_data.dlss_output_color->GetDesc(&prev_dlss_output_texture_desc);
-                     dlss_output_changed = prev_dlss_output_texture_desc.Width != dlss_output_texture_desc.Width || prev_dlss_output_texture_desc.Height != dlss_output_texture_desc.Height || prev_dlss_output_texture_desc.Format != dlss_output_texture_desc.Format;
-                  }
-                  if (!device_data.dlss_output_color.get() || dlss_output_changed)
-                  {
-                     device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
-                     hr = native_device->CreateTexture2D(&dlss_output_texture_desc, nullptr, &device_data.dlss_output_color);
-                     ASSERT_ONCE(SUCCEEDED(hr));
-                  }
-                  // Texture creation failed, we can't proceed with DLSS
-                  if (!device_data.dlss_output_color.get())
-                  {
-                     skip_dlss = true;
-                  }
-               }
-               else
-               {
-                  ASSERT_ONCE(device_data.dlss_output_color == nullptr);
-                  device_data.dlss_output_color = output_color;
-               }
-
-               if (!skip_dlss)
-               {
-                  com_ptr<ID3D11Resource> dlss_source_color;
-                  ps_shader_resources[0]->GetResource(&dlss_source_color);
+               com_ptr<ID3D11Resource> sr_source_color;
+               ps_shader_resources[0]->GetResource(&sr_source_color);
 #if 0
-                  com_ptr<ID3D11Resource> depth_buffer;
-                  if (depth_buffer == nullptr)
-                  {
-                     depth_buffer = nullptr;
-                     depth_stencil_view->GetResource(&depth_buffer);
-                  }
-                  ASSERT_ONCE(!depth_buffer.get());
+               com_ptr<ID3D11Resource> depth_buffer;
+               if (depth_buffer == nullptr)
+               {
+                  depth_buffer = nullptr;
+                  depth_stencil_view->GetResource(&depth_buffer);
+               }
+               ASSERT_ONCE(!depth_buffer.get());
 #endif
-                  ASSERT_ONCE(game_device_data.motion_vectors.get() && game_device_data.depth);
+               ASSERT_ONCE(game_device_data.motion_vectors.get() && game_device_data.depth);
 
-                  bool reset_dlss = device_data.force_reset_dlss_sr || dlss_output_changed;
-                  device_data.force_reset_dlss_sr = false;
+               bool reset_dlss = device_data.force_reset_sr || dlss_output_changed;
+               device_data.force_reset_sr = false;
 
-                  float dlss_pre_exposure = 0.f; // TODO: find exposure? It's t4 of the tonemap shader, mixed up with some other value just before, but the auto exposure is calculated earlier (not sure with what formula, some log stuff).
-                  float2 jitters = game_device_data.taa_jitters;
+               float dlss_pre_exposure = 0.f; // TODO: find exposure? It's t4 of the tonemap shader, mixed up with some other value just before, but the auto exposure is calculated earlier (not sure with what formula, some log stuff).
+               float2 jitters = game_device_data.taa_jitters;
 #if DEVELOPMENT
-                  //TODOFT: delete
-                  {
-                     jitters.x *= cb_luma_global_settings.DevSettings[8];
-                     jitters.y *= cb_luma_global_settings.DevSettings[9];
-                  }
+               //TODOFT: delete
+               {
+                  jitters.x *= cb_luma_global_settings.DevSettings[8];
+                  jitters.y *= cb_luma_global_settings.DevSettings[9];
+               }
 #endif
 
-                  bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), dlss_source_color.get(), game_device_data.motion_vectors.get(), game_device_data.depth.get(),
-                     nullptr, dlss_pre_exposure, jitters.x, jitters.y, reset_dlss);
-                  if (dlss_succeeded)
-                  {
-                     device_data.has_drawn_dlss_sr = true;
-                  }
+               SR::SuperResolutionImpl::DrawData draw_data;
+               draw_data.source_color = sr_source_color.get();
+               draw_data.output_color = device_data.sr_output_color.get();
+               draw_data.motion_vectors = game_device_data.motion_vectors.get();
+               draw_data.depth_buffer = game_device_data.depth.get();
+               draw_data.pre_exposure = dlss_pre_exposure;
+#if 1
+               draw_data.jitter_x = jitters.x;
+               draw_data.jitter_y = jitters.y;
+#else // TODO
+               draw_data.jitter_x = jitters.x * device_data.render_resolution.x * -0.5f;
+               draw_data.jitter_y = jitters.y * device_data.render_resolution.y * -0.5f;
+#endif
+               draw_data.reset = reset_dlss;
 
-                  if (device_data.has_drawn_dlss_sr)
-                  {
+               bool dlss_succeeded = sr_implementations[device_data.sr_type]->Draw(sr_instance_data, native_device_context, draw_data);
+               if (dlss_succeeded)
+               {
+                  device_data.has_drawn_sr = true;
+               }
+
+               if (device_data.has_drawn_sr)
+               {
 #if DEVELOPMENT
-                     const std::shared_lock lock_trace(s_mutex_trace);
-                     if (trace_running)
-                     {
-                        const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
-                        TraceDrawCallData trace_draw_call_data;
-                        trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
-                        trace_draw_call_data.command_list = native_device_context;
-                        trace_draw_call_data.custom_name = "DLSS";
-                        // Re-use the RTV data for simplicity
-                        GetResourceInfo(device_data.dlss_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
-                        cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
-                     }
+                  const std::shared_lock lock_trace(s_mutex_trace);
+                  if (trace_running)
+                  {
+                     const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
+                     TraceDrawCallData trace_draw_call_data;
+                     trace_draw_call_data.type = TraceDrawCallData::TraceDrawCallType::Custom;
+                     trace_draw_call_data.command_list = native_device_context;
+                     trace_draw_call_data.custom_name = "DLSS";
+                     // Re-use the RTV data for simplicity
+                     GetResourceInfo(device_data.sr_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+                     cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
+                  }
 #endif
 
-                     if (!dlss_output_supports_uav)
-                     {
-                        native_device_context->CopyResource(output_color.get(), device_data.dlss_output_color.get()); // DX11 doesn't need barriers
-                     }
-                     else
-                     {
-                        device_data.dlss_output_color = nullptr;
-                     }
-
-                     return true;
+                  if (!dlss_output_supports_uav)
+                  {
+                     native_device_context->CopyResource(output_color.get(), device_data.sr_output_color.get()); // DX11 doesn't need barriers
                   }
                   else
                   {
-                     device_data.force_reset_dlss_sr = true;
+                     device_data.sr_output_color = nullptr;
                   }
+
+                  return true;
                }
-               if (dlss_output_supports_uav)
+               else
                {
-                  device_data.dlss_output_color = nullptr;
+                  device_data.force_reset_sr = true;
                }
             }
+            if (dlss_output_supports_uav)
+            {
+               device_data.sr_output_color = nullptr;
+            }
          }
-#endif // ENABLE_NGX
          return false;
       }
+#endif // ENABLE_SR
 
       // There's probably faster ways of skipping it but this will do
       if (!allow_motion_blur && original_shader_hashes.Contains(shader_hashes_MotionBlur))
@@ -903,7 +996,7 @@ public:
          // Needed to branch on gamma conversions in the shaders.
          // If we are writing on the swapchain, then we need to convert to gamma space.
          uint32_t custom_data_1 = is_rt_swapchain ? 1 : 0;
-         uint32_t custom_data_2 = is_rt_swapchain_or_back_buffer ? (device_data.dlss_sr && !device_data.dlss_sr_suppressed) : 0;
+         uint32_t custom_data_2 = is_rt_swapchain_or_back_buffer ? (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed) : 0;
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2);
          updated_cbuffers = true;
@@ -1086,7 +1179,7 @@ public:
 
       if (!game_device_data.has_drawn_taa)
       {
-			device_data.force_reset_dlss_sr = true; // If the frame didn't draw the scene, DLSS needs to reset to prevent the old history from blending with the new scene
+			device_data.force_reset_sr = true; // If the frame didn't draw the scene, DLSS needs to reset to prevent the old history from blending with the new scene
       }
 
       game_device_data.motion_vectors = nullptr;
@@ -1094,7 +1187,8 @@ public:
 
       device_data.has_drawn_main_post_processing = false;
       device_data.taa_detected = false;
-      device_data.has_drawn_dlss_sr = false;
+      device_data.has_drawn_sr = false;
+      game_device_data.try_draw_dlss_next = false;
       //ASSERT_ONCE(game_device_data.found_per_view_globals);
       game_device_data.has_drawn_taa = false;
       game_device_data.has_drawn_tonemap = false;
@@ -1131,7 +1225,7 @@ public:
 #endif
       bool no_jitters = false;
       static bool force_native_taa_jitters = false; // The original TAA used depth jitters, but it doesn't seem able to properly handle horizontal and vertical jitters
-      if ((!device_data.dlss_sr || device_data.dlss_sr_suppressed) && !force_native_taa_jitters)
+      if ((device_data.sr_type == SR::Type::None || device_data.sr_suppressed) && !force_native_taa_jitters)
       {
          no_jitters = true;
          game_device_data.taa_jitters = {};
@@ -1145,7 +1239,7 @@ public:
 
       {
          std::shared_lock shared_lock_samplers(s_mutex_samplers);
-         if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && !no_jitters)
+         if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && !no_jitters)
          {
             device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / device_data.output_resolution.y) - 1.f; // This results in -1 at output res
          }
@@ -1278,6 +1372,73 @@ public:
          ImGui::EndDisabled();
 
          ImGui::TreePop();
+      }
+
+      // This happens during present so it should be safe
+      if (!pattern_1_addresses.empty() && !pattern_2_addresses.empty() && (taa_enabled ? ImGui::Button("Disable TAA") : ImGui::Button("Enable TAA")))
+      {
+         DWORD old_protect;
+         BOOL success = VirtualProtect(pattern_1_addresses[0], 1, PAGE_EXECUTE_READWRITE, &old_protect);
+         if (success)
+         {
+            uint8_t replacement_data_1 = taa_enabled ? 0x00 : 0x60;
+            std::memcpy(pattern_1_addresses[0], &replacement_data_1, 1);
+
+            DWORD temp_protect;
+            VirtualProtect(pattern_1_addresses[0], 1, old_protect, &temp_protect);
+
+            success = VirtualProtect(pattern_2_addresses[0], 3, PAGE_EXECUTE_READWRITE, &old_protect);
+            if (success)
+            {
+               std::array<uint8_t, 3> replacement_data_2 = taa_enabled ? std::array<uint8_t, 3>{ 0x90, 0x90, 0x90 } : std::array<uint8_t, 3>{ 0x88, 0x48, 0x38 };
+               std::memcpy(pattern_2_addresses[0], replacement_data_2.data(), 3);
+
+               VirtualProtect(pattern_2_addresses[0], 3, old_protect, &temp_protect);
+
+               taa_enabled = !taa_enabled;
+            }
+            else
+            {
+               assert(false); // Only one of the two failed
+            }
+         }
+      }
+      static bool taa_enabled_1 = true;
+      if (!pattern_1_addresses.empty()  && (taa_enabled_1 ? ImGui::Button("Disable TAA 1") : ImGui::Button("Enable TAA 1")))
+      {
+         DWORD old_protect;
+         BOOL success = VirtualProtect(pattern_1_addresses[0], 2, PAGE_EXECUTE_READWRITE, &old_protect);
+         if (success)
+         {
+            uint8_t replacement_data_1 = taa_enabled_1 ? 0x00 : 0x60;
+            std::memcpy(pattern_1_addresses[0], &replacement_data_1, 1);
+
+            DWORD temp_protect;
+            VirtualProtect(pattern_1_addresses[0], 2, old_protect, &temp_protect);
+
+            taa_enabled_1 = !taa_enabled_1;
+            taa_enabled = !taa_enabled;
+         }
+      }
+      static bool taa_enabled_2 = true;
+      if (!pattern_2_addresses.empty() && (taa_enabled_2 ? ImGui::Button("Disable TAA 2") : ImGui::Button("Enable TAA 2")))
+      {
+         DWORD old_protect;
+         BOOL success = VirtualProtect(pattern_2_addresses[0], 3, PAGE_EXECUTE_READWRITE, &old_protect);
+         if (success)
+         {
+            std::array<uint8_t, 3> replacement_data_2 = taa_enabled_2 ? std::array<uint8_t, 3>{ 0x90, 0x90, 0x90 } : std::array<uint8_t, 3>{ 0x88, 0x48, 0x38 };
+            std::memcpy(pattern_2_addresses[0], replacement_data_2.data(), 3);
+
+            DWORD temp_protect;
+            VirtualProtect(pattern_2_addresses[0], 3, old_protect, &temp_protect);
+
+            taa_enabled_2 = !taa_enabled_2;
+         }
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("Works on the 2025 version of the Steam and GOG game. Use at your own risk if you have any other store version or patch.\nIf you've already applied a \"No TAA\" binary patch, this will fail to do anything.");
       }
    }
 
@@ -1665,7 +1826,7 @@ public:
 
                memcpy(&game_device_data.view_projection_mat, &float_data[22], sizeof(DirectX::XMMATRIX));
 
-               if (dlss_sr && game_device_data.last_motion_vectors_rtv.get()) // TODO: do it for non DLSS SR path too?
+               if (sr_user_type != SR::UserType::None && game_device_data.last_motion_vectors_rtv.get()) // TODO: do it for non DLSS SR path too?
                {
 #if DEVELOPMENT
                   ASSERT_ONCE(game_device_data.has_cleared_motion_vectors); // Might happen in menus?
@@ -1675,7 +1836,7 @@ public:
                   // We know the first time this is called, the jitters and view projection matrix are already final
                   ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
 
-                  DrawStateStack<DrawStateStackType::SimpleGraphics> draw_state_stack;
+                  DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
                   draw_state_stack.Cache(device_data.primary_command_list.get(), device_data.uav_max_count);
 
                   CommandListData& cmd_list_data = *device_data.primary_command_list_data; // The game always uses the immediate device context (primary command list)
@@ -1689,7 +1850,7 @@ public:
                      trace_draw_call_data.command_list = device_data.primary_command_list.get();
                      trace_draw_call_data.custom_name = "Draw Sky Motion Vectors";
                      // Re-use the RTV data for simplicity
-                     GetResourceInfo(device_data.dlss_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+                     GetResourceInfo(device_data.sr_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
                      cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
                   }
 #endif
@@ -1759,6 +1920,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       shader_hashes_LinearizeDepth.pixel_shaders.emplace(std::stoul("E4A815CF", nullptr, 16));
 
       shader_hashes_ShadowMapProjections.vertex_shaders.emplace(std::stoul("AC56CA1A", nullptr, 16));
+
+      shader_hashes_PreTAAFogNearMask.vertex_shaders.emplace(std::stoul("1B8BCBA8", nullptr, 16));
+      shader_hashes_PreTAAFogNearMask.pixel_shaders.emplace(std::stoul("FD1D320F", nullptr, 16));
+
+      shader_hashes_PreTAACopy.vertex_shaders.emplace(std::stoul("6FDEE99B", nullptr, 16));
+      shader_hashes_PreTAACopy.pixel_shaders.emplace(std::stoul("4671BB12", nullptr, 16));
 
       shader_hashes_TAA.pixel_shaders = { std::stoul("2200CBD7", nullptr, 16), std::stoul("E781A41B", nullptr, 16), std::stoul("A8D4D208", nullptr, 16) };
 
@@ -1910,9 +2077,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Sun and City Lights scale when zooming in!
       // Test debug layer for errors.
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       // Note that this game has an optional rear view mirror HUD, which has its own rendering, by default it renders to r8g8b8a8_typeless with an sRGB view. It seemengly follows the main rendering aspect ratio, or is ~32:9 anyway (low res)
       texture_upgrade_formats = {
 #if 0 // Not needed really, swapchain is all we need, though the rest wouldn't hurt.

@@ -356,7 +356,7 @@ public:
 
       if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
       {
-         if (cb_luma_global_settings.DisplayMode == 1)
+         if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR)
          {
             if (ImGui::SliderFloat("HDR Boost", &fake_hdr_effect, 0.f, 1.f)) // Call it "HDR Boost" instead of "Fake HDR" to make it more appealing (it's cool, it's just a highlights curve)
             {
@@ -553,9 +553,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution;
       // PoPTLC only requires r8g8b8a8_typeless but will work with others regardless
       texture_upgrade_formats = {

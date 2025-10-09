@@ -49,10 +49,9 @@ public:
    }
 
    // Optionally returns a modified shader.
-   // The size is in bytes and at the moment cannot be changed.
    // Requires "ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS" to be enabled.
    // "shader_hash" is 32bit, will be set to -1 if it's not specified.
-   virtual std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash = -1) { return nullptr; }
+   virtual std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash = -1, const std::byte* shader_object = nullptr, size_t shader_object_size = 0) { return nullptr; }
 
    // TODO: call OnDrawOrComputeCustom?
    // Called for every game's valid draw call (any type),
@@ -89,8 +88,8 @@ public:
    virtual bool IsGamePaused(const DeviceData& device_data) const { return false; }
    // Values between 0 and 0.25 are usually good
    virtual float GetTonemapUIBackgroundAmount(const DeviceData& device_data) const { return 0.f; }
-   // In case your DLSS implementation had any extra resources, you can clean them up here
-   virtual void CleanExtraDLSSResources(DeviceData& device_data) {}
+   // In case your SR implementation had any extra resources, you can clean them up here
+   virtual void CleanExtraSRResources(DeviceData& device_data) {}
 	// Some games use a non linear swapchain, but always write to it through sRGB view, so we should essentially treat it as linear
    virtual bool ForceVanillaSwapchainLinear() const { return false; }
 };

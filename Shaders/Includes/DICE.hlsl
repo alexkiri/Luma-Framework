@@ -152,7 +152,7 @@ float3 DICETonemap(
 
         if (Settings.Type == DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE || Settings.Type == DICE_TYPE_BY_LUMINANCE_PQ_WITH_BY_CHANNEL_CHROMINANCE_PLUS_CORRECT_CHANNELS_BEYOND_PEAK_WHITE)
         {
-          Color = CorrectOutOfRangeColor(BT2020 ? Color : BT709_To_BT2020(Color), false, true, Settings.DesaturationAmount, Settings.DarkeningAmount, PeakWhite, CS_BT2020);
+          Color = CorrectOutOfRangeColor(BT2020 ? Color : BT709_To_BT2020(Color), false, true, Settings.DesaturationAmount, Settings.DarkeningAmount, PeakWhite, CS_BT2020); // TODO: review this code, does it work as expected for all input settings? Maybe not (see in Heavy Rain, the first police scene)
           BT2020 = true;
         }
 
