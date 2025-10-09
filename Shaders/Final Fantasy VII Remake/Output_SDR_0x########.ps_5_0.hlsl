@@ -4,56 +4,128 @@
 #include "../Includes/ColorGradingLUT.hlsl"
 #include "../Includes/RCAS.hlsl"
 
-#if _F68D39B5 || _51E2B894 || _803889E8 || _D96EF76D
-Texture3D<float4> ditherTex : register(t0);
-Texture2D<float4> colorTex : register(t1);
-Texture3D<float4> lut1Tex : register(t2);
-Texture3D<float4> lut2Tex : register(t3);
-Texture2D<float4> uiTex : register(t4);
+// ---- Resource/sampler aliasing to reduce branch duplication ----
+#define HAS_BASE_RESOURCES (_F68D39B5 || _51E2B894 || _803889E8 || _D96EF76D || _506D5998 || _BBB9CE42 || _5C2D3A71 || _66162229)
 
-SamplerState colorSampler : register(s0);
-SamplerState lutSampler : register(s1);
-SamplerState uiSampler : register(s2);
+// Texture register aliases
+#if _BBB9CE42
+  // vignette variant
+  #define REG_DITHER    t0
+  #define REG_COLOR     t1
+  #define REG_VIGNETTE  t2
+  #define REG_LUT1      t3
+  #define REG_LUT2      t4
+  #define REG_UI        t5
+#elif _506D5998
+  // noise variant
+  #define REG_DITHER    t0
+  #define REG_COLOR     t1
+  #define REG_LUT1      t2
+  #define REG_LUT2      t3
+  #define REG_NOISE     t4
+  #define REG_UI        t5
+#elif _5C2D3A71
+  // video + monochrome mask
+  #define REG_DITHER    t0
+  #define REG_COLOR     t1
+  #define REG_LUT1      t2
+  #define REG_LUT2      t3
+  #define REG_MASK      t4
+  #define REG_UI        t5
+  #define REG_VIDEO     t6
+#elif _66162229
+  // overlay + monochrome mask
+  #define REG_DITHER    t0
+  #define REG_COLOR     t1
+  #define REG_LUT1      t2
+  #define REG_LUT2      t3
+  #define REG_MASK      t4
+  #define REG_UI        t5
+  #define REG_OVERLAY   t6
+#else
+  // default layout
+  #define REG_DITHER    t0
+  #define REG_COLOR     t1
+  #define REG_LUT1      t2
+  #define REG_LUT2      t3
+  #define REG_UI        t4
 #endif
 
-#if _803889E8 || _D96EF76D
-Texture2D<float4> fogTex : register(t5);
-SamplerState fogSampler : register(s3);
+// Sampler register aliases
+#define SAMP_COLOR s0
+#if _BBB9CE42
+  #define SAMP_VIGNETTE s1
+  #define SAMP_LUT      s2
+  #define SAMP_UI       s3
+#else
+  #define SAMP_LUT      s1
+  #define SAMP_UI       s2
 #endif
 
+// Fog pass aliases
+#if (_803889E8 || _D96EF76D)
+  #define REG_FOG    t5
+  #define SAMP_FOG   s3
+#endif
+
+// Video pass aliases
 #if _51E2B894
-Texture2D<float4> videoTex : register(t5);
-SamplerState videoSampler : register(s3);
+  #define REG_VIDEO  t5
+  #define SAMP_VIDEO s3
 #elif _803889E8
-Texture2D<float4> videoTex : register(t6);
-SamplerState videoSampler : register(s4);
+  #define REG_VIDEO  t6
+  #define SAMP_VIDEO s4
+#elif _5C2D3A71
+  // REG_VIDEO set above to t6
+  #define SAMP_VIDEO s3
+#endif
+
+// Overlay pass aliases
+#if _66162229
+  #define SAMP_OVERLAY s3
+#endif
+
+// Common declarations using the alias mappings above
+#if HAS_BASE_RESOURCES
+Texture3D<float4> ditherTex : register(REG_DITHER);
+Texture2D<float4> colorTex  : register(REG_COLOR);
+Texture3D<float4> lut1Tex   : register(REG_LUT1);
+Texture3D<float4> lut2Tex   : register(REG_LUT2);
+Texture2D<float4> uiTex     : register(REG_UI);
+
+SamplerState colorSampler : register(SAMP_COLOR);
+SamplerState lutSampler   : register(SAMP_LUT);
+SamplerState uiSampler    : register(SAMP_UI);
+#endif
+
+#if (_803889E8 || _D96EF76D)
+Texture2D<float4> fogTex : register(REG_FOG);
+SamplerState fogSampler  : register(SAMP_FOG);
+#endif
+
+#if (_51E2B894 || _803889E8 || _5C2D3A71)
+Texture2D<float4> videoTex : register(REG_VIDEO);
+SamplerState videoSampler  : register(SAMP_VIDEO);
 #endif
 
 #if _506D5998
-Texture3D<float4> ditherTex : register(t0);
-Texture2D<float4> colorTex : register(t1);
-Texture3D<float4> lut1Tex : register(t2);
-Texture3D<float4> lut2Tex : register(t3);
-Texture2D<float4> noiseTex : register(t4);
-Texture2D<float4> uiTex : register(t5);
-
-SamplerState colorSampler : register(s0);
-SamplerState lutSampler : register(s1);
-SamplerState uiSampler : register(s2);
+Texture2D<float4> noiseTex : register(REG_NOISE);
 #endif
 
 #if _BBB9CE42
-Texture3D<float4> ditherTex : register(t0);
-Texture2D<float4> colorTex : register(t1);
-Texture2D<float4> vignetteTex : register(t2);
-Texture3D<float4> lut1Tex : register(t3);
-Texture3D<float4> lut2Tex : register(t4);
-Texture2D<float4> uiTex : register(t5);
+Texture2D<float4> vignetteTex : register(REG_VIGNETTE);
+SamplerState vignetteSampler  : register(SAMP_VIGNETTE);
+#endif
 
-SamplerState colorSampler : register(s0);
-SamplerState vignetteSampler : register(s1);
-SamplerState lutSampler : register(s2);
-SamplerState uiSampler : register(s3);
+#if _5C2D3A71 || _66162229
+// Use the LUT sampler for the mask to avoid duplicate sampler declarations
+Texture2D<float>  noiseTex : register(REG_MASK);
+#define maskSampler lutSampler
+#endif
+
+#if _66162229
+Texture2D<float4> overlayTex : register(REG_OVERLAY);
+SamplerState      overlaySampler : register(SAMP_OVERLAY);
 #endif
 
 Texture2D<float2> dummyFloat2Texture : register(t8);
@@ -84,7 +156,7 @@ float3 SampleLUT(Texture3D<float4> lut, float3 color)
     return lut.SampleLevel(lutSampler, coord, 0).xyz;
 }
 
-#if _51E2B894 || _803889E8
+#if _51E2B894 || _803889E8 || _5C2D3A71
 float3 SampleVideoTexture(float2 pos, float2 v0)
 {
     float4 r0,r1,r3,r4,r5,r6;
@@ -113,8 +185,7 @@ float3 SampleVideoTexture(float2 pos, float2 v0)
       r1.z = 78.84375 * r1.z;
       r1.z = exp2(r1.z);
       r5.z = min(1, r1.z);
-      // r4.xyz = r5.xyz * r0.www + r4.yyy;
-      // r4.xyz = t3.SampleLevel(s1_s, r4.xyz, 0).xyz;
+      // LUT2 via helper to match existing pipeline
       r4.xyz = SampleLUT(lut2Tex, r5.xyz);
       r5.xyz = cmp(r4.xyz < float3(0.0404499993,0.0404499993,0.0404499993));
       r6.xyz = float3(0.0773993805,0.0773993805,0.0773993805) * r4.xyz;
@@ -140,12 +211,33 @@ float3 SampleVideoTexture(float2 pos, float2 v0)
 }
 #endif
 
-#if _803889E8 || _D96EF76D
-float3 SampleFogTexture(float3 color, float2 pos)
+// #if _5C2D3A71 || _66162229
+// // Generic monochrome mask effect (Rec.709 luma). Mask in REG_MASK using LUT sampler slot.
+// float3 ApplyMonochromeEffect(float3 color, float2 pos)
+// {
+//     float mask = saturate(maskTex.SampleLevel(maskSampler, pos, 0).x);
+//     float luma = dot(color, float3(0.212599993, 0.715200007, 0.0722000003));
+//     return lerp(color, luma.xxx, mask);
+// }
+// #endif
+
+// #if _66162229
+// // Overlay in REG_OVERLAY. Matches decompiled blend: saturate(color * a + rgb) with a scaled by cb0[23].x.
+// float3 ApplyOverlay(float3 color, float2 pos)
+// {
+//     float4 ov = overlayTex.SampleLevel(overlaySampler, pos, 0);
+//     float s = saturate(cb0[23].x);
+//     ov = s * (ov - float4(0, 0, 0, 1)) + float4(0, 0, 0, 1);
+//     return saturate(color * ov.w + ov.xyz);
+// }
+// #endif
+
+#if _803889E8 || _D96EF76D || _66162229
+float3 ApplyOverlay(float3 color, Texture2D<float4> overlayTex, SamplerState overlaySampler, float2 pos)
 {
   float4 r0,r1,r2,r3;
   r2.xyz = color;
-  r3.xyzw = fogTex.SampleLevel(fogSampler, pos.xy, 0).xyzw;
+  r3.xyzw = overlayTex.SampleLevel(overlaySampler, pos.xy, 0).xyzw;
   r0.w = saturate(cb0[23].x);
   r3.xyzw = float4(-0,-0,-0,-1) + r3.xyzw;
   r3.xyzw = r0.wwww * r3.xyzw + float4(0,0,0,1);
@@ -154,7 +246,7 @@ float3 SampleFogTexture(float3 color, float2 pos)
 }
 #endif
 
-#if _506D5998
+#if _506D5998 || _5C2D3A71 || _66162229
 float SampleNoiseTexture(float3 color, float4 v0)
 {
   float4 r0,r1,r2,r3,r4,r5;
@@ -306,7 +398,7 @@ void main(
     r3.xyz = r2.xyz;
     r0.w = 1;
 #if _D96EF76D
-    r3.xyz = SampleFogTexture(r3.xyz, pixelPos.xy);
+    r3.xyz = ApplyOverlay(r3.xyz, fogTex, fogSampler, pixelPos.xy);
 #endif
     
 #if _BBB9CE42
@@ -326,13 +418,29 @@ void main(
     r0.w = 1;
 #endif
 
-#if _51E2B894 || _803889E8
+#if _66162229
+    // Apply overlay, then monochrome mask (t6 overlay, t4 mask)
+    r2.xyz = ApplyOverlay(r2.xyz, overlayTex, overlaySampler, pixelPos.xy);
+    float2 uv = trunc(v0.xy);
+    float noise = SampleNoiseTexture(r2.xyz, v0);
+    r2.xyz = r2.xyz * noise;
+    // r2.xyz = ApplyMonochromeEffect(r2.xyz, pixelPos.xy);
+    r3.xyz = r2.xyz;
+    r0.w = 1;
+#endif
+
+#if _51E2B894 || _803889E8 || _5C2D3A71
     float3 videoColor = SampleVideoTexture(pixelPos.xy, v0.xy / cb0[34].zw);
     r3.xyz = videoColor + -r2.xyz;
     float2 blendFactor = saturate(cb0[24].xz);
     r2.xyz = r3.xyz * blendFactor.x + r2.xyz;
 #if _803889E8
-    r2.xyz = SampleFogTexture(r2.xyz, pixelPos.xy);
+    r2.xyz = ApplyOverlay(r2.xyz, fogTex, fogSampler, pixelPos.xy);
+#endif
+#if _5C2D3A71
+    // Apply monochrome mask using t4 (same sampler slot as LUT)
+    float noise = SampleNoiseTexture(r2.xyz, v0);
+    r2.xyz = r2.xyz * noise;
 #endif
     r3.xyz = r2.xyz;
     r0.w = 1;
