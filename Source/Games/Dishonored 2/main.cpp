@@ -79,8 +79,8 @@ namespace
 
    // Dev or User settings:
 #if DEVELOPMENT
-   float dlss_custom_exposure = 0.f; // Ignored at 0
-   float dlss_custom_pre_exposure = 0.f; // Ignored at 0
+   float sr_custom_exposure = 0.f; // Ignored at 0
+   float sr_custom_pre_exposure = 0.f; // Ignored at 0
    int dlss_test = 0; //TODOFT
    int force_taa_jitter_phases = 0; // Ignored if 0 (automatic mode), set to 1 to basically disable jitters
    bool disable_taa_jitters = false;
@@ -90,10 +90,10 @@ namespace
 struct GameDeviceDataDishonored2 final : public GameDeviceData
 {
    // If this is valid, the game's TAA was running on a deferred command list, and thus we delay DLSS
-   std::atomic<void*> dlss_sr_deferred_command_list = nullptr;
-   com_ptr<ID3D11Resource> dlss_source_color;
-   com_ptr<ID3D11Resource> dlss_motion_vectors;
-   //com_ptr<ID3D11Texture2D> dlss_output_color_2; //TODOFT: delete this and related code
+   std::atomic<void*> sr_deferred_command_list = nullptr;
+   com_ptr<ID3D11Resource> sr_source_color;
+   com_ptr<ID3D11Resource> sr_motion_vectors;
+   //com_ptr<ID3D11Texture2D> sr_output_color_2; //TODOFT: delete this and related code
 
    // Game state
    com_ptr<ID3D11Resource> depth_buffer;
@@ -238,7 +238,7 @@ public:
          // Once we detect the user enabled DRS, we can't ever know it's been disabled because the game only occasionally drops to lower rendering resolutions, so we couldn't know if it was ever disabled
          if (game_device_data.prey_drs_active)
          {
-            device_data.dlss_sr_suppressed = true;
+            device_data.sr_suppressed = true;
             game_device_data.prey_drs_detected = true;
 
             float resolution_scale = device_data.render_resolution.y / device_data.output_resolution.y;
@@ -253,22 +253,22 @@ public:
             if (resolution_scale < 0.5f - FLT_EPSILON)
             {
 #if 1 // Unfortunately no quality mode with a res scale below 0.5 supports dynamic resolution scaling, so we are forced to change the quality mode every frame or so (or at least, every time Prey changes DRS value, which might further slow down the DRS detection mechanism...)
-               device_data.dlss_render_resolution_scale = resolution_scale;
+               device_data.sr_render_resolution_scale = resolution_scale;
 #else // If we do this, DLSS would fail if any resolution that didn't exactly match 33% render scale was used by the game
-               device_data.dlss_render_resolution_scale = 1.f / 3.f;
+               device_data.sr_render_resolution_scale = 1.f / 3.f;
 #endif
             }
             else
             {
                // This should pick quality or balanced mode, with a range from 100% to 50% resolution scale
-               device_data.dlss_render_resolution_scale = 1.f / 1.5f;
+               device_data.sr_render_resolution_scale = 1.f / 1.5f;
             }
          }
          // Reset to DLAA and try again (once), given that we can't go from a 1/3 to a 1 rend scale (e.g. in case DRS was disabled in the menu)
-         else if (false && device_data.dlss_sr_suppressed && device_data.dlss_render_resolution_scale != 1.f)
+         else if (false && device_data.sr_suppressed && device_data.sr_render_resolution_scale != 1.f)
          {
-            device_data.dlss_render_resolution_scale = 1.f;
-            device_data.dlss_sr_suppressed = false;
+            device_data.sr_render_resolution_scale = 1.f;
+            device_data.sr_suppressed = false;
          }
 
          // NOTE: we could just save the first one we found, it should always be jittered and "correct".
@@ -304,16 +304,16 @@ public:
             bool middle_value_different = (game_device_data.prey_taa_active == game_device_data.previous_prey_taa_active[0]) != (game_device_data.prey_taa_active == game_device_data.previous_prey_taa_active[1]);
             ASSERT_ONCE(!middle_value_different);
          }
-         bool drew_dlss = cb_luma_global_settings.DLSS; // If this was true, DLSS would have been enabled and probably drew
+         bool drew_sr = cb_luma_global_settings.SRType > 0; // If this was true, SR would have been enabled and probably drew
          device_data.taa_detected = game_device_data.prey_taa_active || game_device_data.previous_prey_taa_active[0]; // This one has a two frames tolerance. We let it persist even if the game stopped drawing the 3D scene.
-         cb_luma_global_settings.DLSS = (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected) ? 1 : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
-         device_data.cb_luma_global_settings_dirty |= (bool)cb_luma_global_settings.DLSS != drew_dlss;
-         if (cb_luma_global_settings.DLSS && !drew_dlss)
+         cb_luma_global_settings.SRType = (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected) ? (uint(device_data.sr_type) + 1) : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
+         device_data.cb_luma_global_settings_dirty |= (cb_luma_global_settings.SRType > 0) != drew_sr;
+         if (cb_luma_global_settings.SRType > 0 && !drew_sr)
          {
             // Reset DLSS history when we toggle DLSS on and off manually, or when the user in the game changes the AA mode,
             // otherwise the history from the last time DLSS was active will be kept (DLSS doesn't know time passes since it was last used).
             // We could also clear DLSS resources here when we know it's unused for a while, but it would possibly lead to stutters.
-            device_data.force_reset_dlss_sr = true;
+            device_data.force_reset_sr = true;
          }
 
 #if DEVELOPMENT
@@ -323,7 +323,7 @@ public:
             std::shared_lock shared_lock_samplers(s_mutex_samplers);
 
             const auto prev_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
-            if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
+            if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
             {
                device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / device_data.output_resolution.y) - 1.f; // This results in -1 at output res
             }
@@ -387,7 +387,7 @@ public:
       device_data.has_drawn_main_post_processing = false;
 
       device_data.taa_detected = true;
-      device_data.has_drawn_dlss_sr = false;
+      device_data.has_drawn_sr = false;
       game_device_data.found_per_view_globals = false;
    }
 
@@ -465,9 +465,9 @@ public:
          device_data.taa_detected = true;
       }
 
-   #if ENABLE_NGX
-      // DLSS upscaling/TAA
-      if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && original_shader_hashes.Contains(shader_hashes_TAA))
+   #if ENABLE_SR
+      // SR/TAA
+      if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && original_shader_hashes.Contains(shader_hashes_TAA))
       {
          com_ptr<ID3D11ShaderResourceView> srvs[2]; // TODO: rename
          // 1 motion vectors
@@ -481,6 +481,9 @@ public:
          ASSERT_ONCE(dlss_inputs_valid);
          if (dlss_inputs_valid)
          {
+            auto* sr_instance_data = device_data.GetSRInstanceData();
+            ASSERT_ONCE(sr_instance_data);
+
             com_ptr<ID3D11Resource> output_color_resource;
             uav->GetResource(&output_color_resource);
             com_ptr<ID3D11Texture2D> output_color;
@@ -495,13 +498,10 @@ public:
    #endif
 
             ASSERT_ONCE(std::lrintf(device_data.output_resolution.x) == taa_output_texture_desc.Width && std::lrintf(device_data.output_resolution.y) == taa_output_texture_desc.Height);
-            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * (double)device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Height * (double)device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Width / (double)taa_output_texture_desc.Height);
-            // The "HDR" flag in DLSS SR actually means whether the color is in linear space or "sRGB gamma" (apparently not 2.2) (SDR) space, colors beyond 0-1 don't seem to be clipped either way
-            //bool dlss_hdr = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) >= 1; // we are assuming the value was always a number and not empty
-            bool dlss_hdr = true;
+            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * (double)device_data.sr_render_resolution_scale, (double)taa_output_texture_desc.Height * (double)device_data.sr_render_resolution_scale, (double)taa_output_texture_desc.Width / (double)taa_output_texture_desc.Height);
+            
 
             bool delay_dlss = native_device_context->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE;
-
             //native_device->GetImmediateContext(&native_device_context);
 
             // TODO: we could do this async from the beginning of rendering (when we can detect res changes), to here, with a mutex, to avoid potential stutters when DRS first engages (same with creating DLSS textures?) or changes resolution? (we could allow for creating more than one DLSS feature???)
@@ -512,10 +512,20 @@ public:
             // This function doesn't alter the pipeline state (e.g. shaders, cbuffers, RTs, ...), if not, we need to move it to the "Present()" function, it doesn't seem like we can do it async though (DLSS rendering crashes in deferred context, possibly this would too)
             if (!delay_dlss)
             {
-               NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, taa_output_texture_desc.Width, taa_output_texture_desc.Height, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.prey_drs_detected);
+               SR::SettingsData settings_data;
+               settings_data.output_width = taa_output_texture_desc.Width;
+               settings_data.output_height = taa_output_texture_desc.Height;
+               settings_data.render_width = dlss_render_resolution[0];
+               settings_data.render_height = dlss_render_resolution[1];
+               settings_data.dynamic_resolution = game_device_data.prey_drs_detected;
+               settings_data.hdr = true; // The "HDR" flag in DLSS SR actually means whether the color is in linear space or "sRGB gamma" (apparently not 2.2) (SDR) space, colors beyond 0-1 don't seem to be clipped either way
+               settings_data.inverted_depth = false;
+               settings_data.mvs_jittered = false;
+               settings_data.use_experimental_features = sr_user_type == SR::UserType::DLSS_TRANSFORMER;
+               sr_implementations[device_data.sr_type]->UpdateSettings(sr_instance_data, native_device_context, settings_data);
             }
 
-            bool skip_dlss = taa_output_texture_desc.Width < 32 || taa_output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
+            bool skip_dlss = taa_output_texture_desc.Width < sr_instance_data->min_resolution || taa_output_texture_desc.Height < sr_instance_data->min_resolution;
             bool dlss_output_changed = false;
             constexpr bool dlss_use_native_uav = true;
             bool dlss_output_supports_uav = dlss_use_native_uav && (taa_output_texture_desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
@@ -525,62 +535,62 @@ public:
 
                taa_output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
 
-               if (device_data.dlss_output_color.get())
+               if (device_data.sr_output_color.get())
                {
                   D3D11_TEXTURE2D_DESC dlss_taa_output_texture_desc;
-                  device_data.dlss_output_color->GetDesc(&dlss_taa_output_texture_desc);
+                  device_data.sr_output_color->GetDesc(&dlss_taa_output_texture_desc);
                   dlss_output_changed = dlss_taa_output_texture_desc.Width != taa_output_texture_desc.Width || dlss_taa_output_texture_desc.Height != taa_output_texture_desc.Height || dlss_taa_output_texture_desc.Format != taa_output_texture_desc.Format;
                }
-               if (!device_data.dlss_output_color.get() || dlss_output_changed)
+               if (!device_data.sr_output_color.get() || dlss_output_changed)
                {
-                  device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
-                  hr = native_device->CreateTexture2D(&taa_output_texture_desc, nullptr, &device_data.dlss_output_color);
+                  device_data.sr_output_color = nullptr; // Make sure we discard the previous one
+                  hr = native_device->CreateTexture2D(&taa_output_texture_desc, nullptr, &device_data.sr_output_color);
                   ASSERT_ONCE(SUCCEEDED(hr));
                }
-               if (!device_data.dlss_output_color.get())
+               if (!device_data.sr_output_color.get())
                {
                   skip_dlss = true;
                }
             }
             else
             {
-               ASSERT_ONCE(device_data.dlss_output_color == nullptr);
-               device_data.dlss_output_color = output_color;
+               ASSERT_ONCE(device_data.sr_output_color == nullptr);
+               device_data.sr_output_color = output_color;
             }
 
             if (!skip_dlss)
             {
-               game_device_data.dlss_source_color = nullptr;
-               game_device_data.dlss_motion_vectors = nullptr;
-               srvs[1]->GetResource(&game_device_data.dlss_source_color);
-               srvs[0]->GetResource(&game_device_data.dlss_motion_vectors);
+               game_device_data.sr_source_color = nullptr;
+               game_device_data.sr_motion_vectors = nullptr;
+               srvs[1]->GetResource(&game_device_data.sr_source_color);
+               srvs[0]->GetResource(&game_device_data.sr_motion_vectors);
 
                // TODO
                com_ptr<ID3D11Texture2D> source_color_2d;
-               HRESULT hr = game_device_data.dlss_source_color->QueryInterface(&source_color_2d);
+               HRESULT hr = game_device_data.sr_source_color->QueryInterface(&source_color_2d);
                ASSERT_ONCE(SUCCEEDED(hr));
                D3D11_TEXTURE2D_DESC source_color_2d_desc;
                source_color_2d->GetDesc(&source_color_2d_desc);
                com_ptr<ID3D11Texture2D> motion_vectors_2d;
-               hr = game_device_data.dlss_motion_vectors->QueryInterface(&motion_vectors_2d);
+               hr = game_device_data.sr_motion_vectors->QueryInterface(&motion_vectors_2d);
                ASSERT_ONCE(SUCCEEDED(hr));
                D3D11_TEXTURE2D_DESC motion_vectors_2d_desc;
                motion_vectors_2d->GetDesc(&motion_vectors_2d_desc);
 
                // Generate "fake" exposure texture
                bool exposure_changed = false;
-               float dlss_scene_exposure = device_data.dlss_scene_exposure;
+               float sr_scene_exposure = device_data.sr_scene_exposure;
    #if DEVELOPMENT
-               if (dlss_custom_exposure > 0.f)
+               if (sr_custom_exposure > 0.f)
                {
-                  dlss_scene_exposure = dlss_custom_exposure;
+                  sr_scene_exposure = sr_custom_exposure;
                }
    #endif // DEVELOPMENT
-               exposure_changed = dlss_scene_exposure != device_data.dlss_exposure_texture_value;
-               device_data.dlss_exposure_texture_value = dlss_scene_exposure;
-               // TODO: optimize this for the "DLSS_RELATIVE_PRE_EXPOSURE" false case! Avoid re-creating the texture every frame the exposure changes and instead make it dynamic and re-write it from the CPU? Or simply make our exposure calculation shader write to a texture directly
+               exposure_changed = sr_scene_exposure != device_data.sr_exposure_texture_value;
+               device_data.sr_exposure_texture_value = sr_scene_exposure;
+               // TODO: optimize this for the "SR_RELATIVE_PRE_EXPOSURE" false case! Avoid re-creating the texture every frame the exposure changes and instead make it dynamic and re-write it from the CPU? Or simply make our exposure calculation shader write to a texture directly
                // (though in that case it wouldn't have the same delay as the CPU side pre-exposure buffer readback)
-               if (!device_data.dlss_exposure.get() || exposure_changed)
+               if (!device_data.sr_exposure.get() || exposure_changed)
                {
                   D3D11_TEXTURE2D_DESC exposure_texture_desc; // DLSS fails if we pass in a 1D texture so we have to make a 2D one
                   exposure_texture_desc.Width = 1;
@@ -598,22 +608,22 @@ public:
                   // It's best to force an exposure of 1 given that DLSS runs after the auto exposure is applied (in tonemapping).
                   // Theoretically knowing the average exposure of the frame would still be beneficial to it (somehow) so maybe we could simply let the auto exposure in,
                   D3D11_SUBRESOURCE_DATA exposure_texture_data;
-                  exposure_texture_data.pSysMem = &dlss_scene_exposure; // This needs to be "static" data in case the texture initialization was somehow delayed and read the data after the stack destroyed it
+                  exposure_texture_data.pSysMem = &sr_scene_exposure; // This needs to be "static" data in case the texture initialization was somehow delayed and read the data after the stack destroyed it
                   exposure_texture_data.SysMemPitch = 32;
                   exposure_texture_data.SysMemSlicePitch = 32;
 
-                  device_data.dlss_exposure = nullptr; // Make sure we discard the previous one
-                  hr = native_device->CreateTexture2D(&exposure_texture_desc, &exposure_texture_data, &device_data.dlss_exposure);
+                  device_data.sr_exposure = nullptr; // Make sure we discard the previous one
+                  hr = native_device->CreateTexture2D(&exposure_texture_desc, &exposure_texture_data, &device_data.sr_exposure);
                   assert(SUCCEEDED(hr));
                }
 
                // Reset DLSS history if we did not draw motion blur (and we previously did). Based on CryEngine source code, mb is skipped on the first frame after scene cuts, so we want to re-use that information (this works even if MB was disabled).
                // Reset DLSS history if for one frame we had stopped tonemapping. This might include some scene cuts, but also triggers when entering full screen UI menus or videos and then leaving them (it shouldn't be a problem).
                // Reset DLSS history if the output resolution or format changed (just an extra safety mechanism, it might not actually be needed).
-               bool reset_dlss = device_data.force_reset_dlss_sr || dlss_output_changed;
+               bool reset_dlss = device_data.force_reset_sr || dlss_output_changed;
                if (!delay_dlss)
                {
-                  device_data.force_reset_dlss_sr = false;
+                  device_data.force_reset_sr = false;
                }
 
                uint32_t render_width_dlss = std::lrintf(device_data.render_resolution.x);
@@ -632,50 +642,63 @@ public:
    #else // Alternative that considers a value of 1 in the DLSS color textures to match 203 nits
                   dlss_pre_exposure = cb_luma_global_settings.ScenePaperWhite / srgb_white_level;
    #endif
-                  dlss_pre_exposure *= device_data.dlss_scene_pre_exposure;
+                  dlss_pre_exposure *= device_data.sr_scene_pre_exposure;
                }
    #if DEVELOPMENT
-               if (dlss_custom_pre_exposure > 0.f)
-                  dlss_pre_exposure = dlss_custom_pre_exposure;
+               if (sr_custom_pre_exposure > 0.f)
+                  dlss_pre_exposure = sr_custom_pre_exposure;
    #endif
 
                // Clean up random stuff to default values and copy resources to make sure it's all clear
                //dlss_pre_exposure = 1.0;
-               //device_data.dlss_exposure = nullptr;
+               //device_data.sr_exposure = nullptr;
                ////game_device_data.depth_buffer = nullptr;
                //reset_dlss = false;
                //projection_jitters.x = 0;
                //projection_jitters.y = 0;
-               //device_data.dlss_output_color_2 = CloneTexture<ID3D11Texture2D>(cmd_list, device_data.dlss_output_color.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
-               //device_data.source_color_2 = CloneTexture<ID3D11Texture2D>(cmd_list, dlss_source_color.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
-               //device_data.motion_vectors_2 = CloneTexture<ID3D11Texture2D>(cmd_list, dlss_motion_vectors.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
-               //game_device_data.dlss_source_color = (ID3D11Texture2D*)dlss_source_color.get();
-               //game_device_data.dlss_motion_vectors = (ID3D11Texture2D*)dlss_motion_vectors.get();
+               //device_data.sr_output_color_2 = CloneTexture<ID3D11Texture2D>(cmd_list, device_data.sr_output_color.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
+               //device_data.source_color_2 = CloneTexture<ID3D11Texture2D>(cmd_list, sr_source_color.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
+               //device_data.motion_vectors_2 = CloneTexture<ID3D11Texture2D>(cmd_list, sr_motion_vectors.get(), D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS, 0, false);
+               //game_device_data.sr_source_color = (ID3D11Texture2D*)sr_source_color.get();
+               //game_device_data.sr_motion_vectors = (ID3D11Texture2D*)sr_motion_vectors.get();
 
                // There doesn't seem to be a need to restore the DX state to whatever we had before (e.g. render targets, cbuffers, samplers, UAVs, texture shader resources, viewport, scissor rect, ...), CryEngine always sets everything it needs again for every pass.
                // DLSS internally keeps its own frames history, we don't need to do that ourselves (by feeding in an output buffer that was the previous frame's output, though we do have that if needed, it should be in srvs[1]).
-               if (!delay_dlss && NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), device_data.dlss_exposure.get(), dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss))
+               SR::SuperResolutionImpl::DrawData draw_data;
+               draw_data.source_color = game_device_data.sr_source_color.get();
+               draw_data.output_color = device_data.sr_output_color.get();
+               draw_data.motion_vectors = game_device_data.sr_motion_vectors.get();
+               draw_data.depth_buffer = game_device_data.depth_buffer.get();
+               draw_data.exposure = device_data.sr_exposure.get();
+               draw_data.pre_exposure = dlss_pre_exposure;
+               draw_data.jitter_x = projection_jitters.x;
+               draw_data.jitter_y = projection_jitters.y;
+               draw_data.reset = reset_dlss;
+               draw_data.render_width = render_width_dlss;
+               draw_data.render_height = render_height_dlss;
+
+               if (!delay_dlss && sr_implementations[device_data.sr_type]->Draw(sr_instance_data, native_device_context, draw_data))
                {
-                  device_data.has_drawn_dlss_sr = true;
-                  game_device_data.dlss_sr_deferred_command_list = native_device_context;
+                  device_data.has_drawn_sr = true;
+                  game_device_data.sr_deferred_command_list = native_device_context;
                }
 
                if (!delay_dlss)
                {
-                  game_device_data.dlss_source_color = nullptr;
-                  game_device_data.dlss_motion_vectors = nullptr;
+                  game_device_data.sr_source_color = nullptr;
+                  game_device_data.sr_motion_vectors = nullptr;
                }
 
-               if (device_data.has_drawn_dlss_sr)
+               if (device_data.has_drawn_sr)
                {
                   if (!dlss_output_supports_uav)
                   {
-                     native_device_context->CopyResource(output_color.get(), device_data.dlss_output_color.get()); // DX11 doesn't need barriers
+                     native_device_context->CopyResource(output_color.get(), device_data.sr_output_color.get()); // DX11 doesn't need barriers
                   }
                   // In this case it's not our buisness to keep alive this "external" texture
                   else
                   {
-                     device_data.dlss_output_color = nullptr;
+                     device_data.sr_output_color = nullptr;
                   }
 
                   return true; // "Cancel" the previously set draw call, DLSS has taken care of it
@@ -684,24 +707,24 @@ public:
                else if (!delay_dlss)
                {
                   ASSERT_ONCE(false);
-                  cb_luma_global_settings.DLSS = 0;
+                  cb_luma_global_settings.SRType = 0;
                   device_data.cb_luma_global_settings_dirty = true;
-                  device_data.dlss_sr_suppressed = true;
-                  device_data.force_reset_dlss_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
+                  device_data.sr_suppressed = true;
+                  device_data.force_reset_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
                }
                else // "delay_dlss"
                {
-                  game_device_data.dlss_sr_deferred_command_list = native_device_context;
+                  game_device_data.sr_deferred_command_list = native_device_context;
                   return true;
                }
             }
             if (dlss_output_supports_uav)
             {
-               device_data.dlss_output_color = nullptr;
+               device_data.sr_output_color = nullptr;
             }
          }
       }
-   #endif // ENABLE_NGX
+   #endif // ENABLE_SR
       return false; // Return true to cancel this draw call
    }
 
@@ -757,7 +780,7 @@ public:
 
    static void OnExecuteSecondaryCommandList(reshade::api::command_list* cmd_list, reshade::api::command_list* secondary_cmd_list)
    {
-#if ENABLE_NGX
+#if ENABLE_SR
       com_ptr<ID3D11DeviceContext> native_device_context;
       com_ptr<ID3D11CommandList> native_command_list;
       ID3D11DeviceChild* device_child = (ID3D11DeviceChild*)(cmd_list->get_native());
@@ -786,56 +809,80 @@ public:
                }
             }
 
-            if (game_device_data.dlss_sr_deferred_command_list != native_command_list.get())
+            if (game_device_data.sr_deferred_command_list != native_command_list.get())
             {
                return;
             }
-            game_device_data.dlss_sr_deferred_command_list = nullptr;
+            game_device_data.sr_deferred_command_list = nullptr;
 
             ASSERT_ONCE(game_device_data.depth_buffer.get());
 
-            if (!device_data.dlss_output_color.get())
+            if (!device_data.sr_output_color.get())
             {
                ASSERT_ONCE(false); // This shouldn't happen so we don't really handle it properly
-               game_device_data.dlss_source_color = nullptr;
-               game_device_data.dlss_motion_vectors = nullptr;
-               device_data.dlss_output_color = nullptr;
+               game_device_data.sr_source_color = nullptr;
+               game_device_data.sr_motion_vectors = nullptr;
+               device_data.sr_output_color = nullptr;
                return;
             }
 
             // Do "delayed" DLSS:
 
-            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)device_data.output_resolution.x * (double)device_data.dlss_render_resolution_scale, (double)device_data.output_resolution.y * (double)device_data.dlss_render_resolution_scale, (double)device_data.output_resolution.x / (double)device_data.output_resolution.y);
-            // The "HDR" flag in DLSS SR actually means whether the color is in linear space or "sRGB gamma" (apparently not 2.2) (SDR) space, colors beyond 0-1 don't seem to be clipped either way
-            bool dlss_hdr = true; // We are assuming the value was always a number and not empty
-            NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context.get(), device_data.output_resolution.x, device_data.output_resolution.y, dlss_render_resolution[0], dlss_render_resolution[1], dlss_hdr, game_device_data.prey_drs_detected);
+            auto* sr_instance_data = device_data.GetSRInstanceData();
+            ASSERT_ONCE(sr_instance_data);
 
-            bool reset_dlss = device_data.force_reset_dlss_sr;
-            device_data.force_reset_dlss_sr = false;
+            std::array<uint32_t, 2> dlss_render_resolution = FindClosestIntegerResolutionForAspectRatio((double)device_data.output_resolution.x * (double)device_data.sr_render_resolution_scale, (double)device_data.output_resolution.y * (double)device_data.sr_render_resolution_scale, (double)device_data.output_resolution.x / (double)device_data.output_resolution.y);
+            SR::SettingsData settings_data;
+            settings_data.output_width = device_data.output_resolution.x;
+            settings_data.output_height = device_data.output_resolution.y;
+            settings_data.render_width = dlss_render_resolution[0];
+            settings_data.render_height = dlss_render_resolution[1];
+            settings_data.dynamic_resolution = game_device_data.prey_drs_detected;
+            settings_data.hdr = true; // The "HDR" flag in DLSS SR actually means whether the color is in linear space or "sRGB gamma" (apparently not 2.2) (SDR) space, colors beyond 0-1 don't seem to be clipped either way
+            settings_data.inverted_depth = false;
+            settings_data.mvs_jittered = false;
+            settings_data.use_experimental_features = sr_user_type == SR::UserType::DLSS_TRANSFORMER;
+            sr_implementations[device_data.sr_type]->UpdateSettings(sr_instance_data, native_device_context.get(), settings_data);
+
+            bool reset_dlss = device_data.force_reset_sr;
+            device_data.force_reset_sr = false;
 
             uint32_t render_width_dlss = std::lrintf(device_data.render_resolution.x);
             uint32_t render_height_dlss = std::lrintf(device_data.render_resolution.y);
 
             float dlss_pre_exposure = 1.0;
-            bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context.get(), device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), device_data.dlss_exposure.get(), dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
+            SR::SuperResolutionImpl::DrawData draw_data;
+            draw_data.source_color = game_device_data.sr_source_color.get();
+            draw_data.output_color = device_data.sr_output_color.get();
+            draw_data.motion_vectors = game_device_data.sr_motion_vectors.get();
+            draw_data.depth_buffer = game_device_data.depth_buffer.get();
+            draw_data.exposure = device_data.sr_exposure.get();
+            draw_data.pre_exposure = dlss_pre_exposure;
+            draw_data.jitter_x = projection_jitters.x;
+            draw_data.jitter_y = projection_jitters.y;
+            draw_data.reset = reset_dlss;
+            draw_data.render_width = render_width_dlss;
+            draw_data.render_height = render_height_dlss;
+
+            bool dlss_succeeded = sr_implementations[device_data.sr_type]->Draw(sr_instance_data, native_device_context.get(), draw_data);
             ASSERT_ONCE(dlss_succeeded); // We can't restore the original TAA pass at this point (well, we could, but it's pointless, we'll just skip one frame) // TODO: copy the resource instead?
 
-            game_device_data.dlss_source_color = nullptr;
-            game_device_data.dlss_motion_vectors = nullptr;
-            device_data.dlss_output_color = nullptr;
+            game_device_data.sr_source_color = nullptr;
+            game_device_data.sr_motion_vectors = nullptr;
+            device_data.sr_output_color = nullptr;
 
             if (dlss_succeeded)
             {
-               device_data.has_drawn_dlss_sr = true;
+               device_data.has_drawn_sr = true;
             }
             // DLSS Failed, suppress it for this frame and fall back on SMAA/TAA, hoping that anything before would have been rendered correctly for it already (otherwise it will start being correct in the next frame, given we suppress it (until manually toggled again, given that it'd likely keep failing))
             else
             {
                ASSERT_ONCE(false);
-               cb_luma_global_settings.DLSS = 0;
+               cb_luma_global_settings.SRType = 0;
                device_data.cb_luma_global_settings_dirty = true;
-               device_data.dlss_sr_suppressed = true;
-               device_data.force_reset_dlss_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
+               device_data.sr_suppressed = true;
+               device_data.force_reset_sr = true; // We missed frames so it's good to do this, it might also help prevent further errors
             }
          }
          return;
@@ -852,15 +899,15 @@ public:
             {
                game_device_data.final_post_process_command_list = native_command_list.get();
             }
-            if (game_device_data.dlss_sr_deferred_command_list == native_device_context.get())
+            if (game_device_data.sr_deferred_command_list == native_device_context.get())
             {
-               game_device_data.dlss_sr_deferred_command_list = native_command_list.get();
+               game_device_data.sr_deferred_command_list = native_command_list.get();
             }
             return;
          }
       }
       ASSERT_ONCE(false); // Invalid case?
-#endif // ENABLE_NGX
+#endif // ENABLE_SR
    }
 
    void PrintImGuiAbout() override
@@ -1001,9 +1048,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       enable_ui_separation = false;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             reshade::api::format::r8g8b8a8_unorm_srgb,

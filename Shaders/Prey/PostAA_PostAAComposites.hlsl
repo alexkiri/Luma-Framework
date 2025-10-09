@@ -260,7 +260,7 @@ void PostAAComposites_PS(float4 WPos, float4 baseTC, out float4 outColor)
 #endif
 
   sharpenAmount -= 1.0; // Scale to the expected range
-  if (LumaSettings.DLSS) // Heuristically found scale to match the native game's TAA sharpness with DLAA (maybe we go a bit stronger)
+  if (LumaSettings.SRType > 0) // Heuristically found scale to match the native game's TAA sharpness with DLAA (maybe we go a bit stronger)
   {
     sharpenAmount *= 2.5;
   }

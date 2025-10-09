@@ -29,7 +29,7 @@ namespace
 	ShaderHashesList shader_hashes_Velocity_Gather;
 	const uint32_t CBPerViewGlobal_buffer_size = 4096;
 	float enabled_custom_exposure = 1.f;
-	float dlss_custom_pre_exposure = 0.f; // Ignored at 0
+	float sr_custom_pre_exposure = 0.f; // Ignored at 0
 	float ignore_warnings = 0.f;
 
 	Luma::Settings::Settings settings = {
@@ -47,8 +47,8 @@ namespace
 					.labels = { "ACES 1", "ACES 2" },
 					.min = 0.f,
 					.max = 1.f,
-					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); },
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); }
+					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR && (DEVELOPMENT || TEST); },
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR && (DEVELOPMENT || TEST); }
 				},
 				new Luma::Settings::Setting{
 					.key = "FXBloom",
@@ -84,7 +84,7 @@ namespace
 					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
-					// .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					//.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR; },
 					.parse = [](float value) { return value * 0.02f; }
 				},
 				new Luma::Settings::Setting{
@@ -97,7 +97,7 @@ namespace
 					.tooltip = "RCAS strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
-					.is_visible = []() { return dlss_sr == 1; },
+					.is_visible = []() { return sr_user_type != SR::UserType::None; },
 					.parse = [](float value) { return value * 0.01f; }
 				},
 				new Luma::Settings::Setting{
@@ -110,7 +110,7 @@ namespace
 					.tooltip = "LUT strength multiplier. Default is 100.",
 					.min = 0.f,
 					.max = 100.f,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR; },
 					.parse = [](float value) { return value * 0.01f; }
 				},
 				new Luma::Settings::Setting{
@@ -123,7 +123,7 @@ namespace
 					.tooltip = "Enable or disable HDR video playback. Default is On.",
 					.min = 0,
 					.max = 1,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR; }
 				}
 			}
 		},
@@ -144,24 +144,24 @@ namespace
 					.type = Luma::Settings::SettingValueType::BOOLEAN,
 					.default_value = 1.f,
 					.can_reset = true,
-					.label = "Enable Custom Pre-Exposure for DLSS",
-					.tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
-					.is_visible = []() { return dlss_sr != 0; }
+					.label = "Enable Custom Pre-Exposure for Super Resolution",
+					.tooltip = "Computes custom pre-exposure value for Super Resolution (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
+					.is_visible = []() { return sr_user_type != SR::UserType::None; }
 				},
 				// ,
 				//new Luma::Settings::Setting{
 				//	.key = "CustomPreExposure",
-				//	.binding = &dlss_custom_pre_exposure,
+				//	.binding = &sr_custom_pre_exposure,
 				//	.type = Luma::Settings::SettingValueType::FLOAT,
 				//	.default_value = 0.f,
 				//	.can_reset = true,
-				//	.label = "DLSS Pre Exposure",
-				//	.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
+				//	.label = "Super Resolution Pre Exposure",
+				//	.tooltip = "Manually set pre-exposure value for Super Resolution. This is for testing only.",
     //                .min = 0.f,
     //                .max = 10.f,
     //                .format = "%.3f",
-				//	.is_enabled = []() { return dlss_sr != 0 && enabled_custom_exposure == 0.f && (DEVELOPMENT || TEST); },
-				//	.is_visible = []() { return dlss_sr != 0 && (DEVELOPMENT || TEST); },
+				//	.is_enabled = []() { return sr_user_type != SR::UserType::None && enabled_custom_exposure == 0.f && (DEVELOPMENT || TEST); },
+				//	.is_visible = []() { return sr_user_type != SR::UserType::None && (DEVELOPMENT || TEST); },
 				//}
 			}
 		}
@@ -170,13 +170,13 @@ namespace
 }
 struct GameDeviceDataFF7Remake final : public GameDeviceData
 {
-#if ENABLE_NGX
-	// DLSS SR
-	com_ptr<ID3D11Texture2D> dlss_motion_vectors;
-	com_ptr<ID3D11Resource> dlss_source_color;
+#if ENABLE_SR
+	// SR
+	com_ptr<ID3D11Texture2D> sr_motion_vectors;
+	com_ptr<ID3D11Resource> sr_source_color;
 	com_ptr<ID3D11Resource> depth_buffer;
-	com_ptr<ID3D11RenderTargetView> dlss_motion_vectors_rtv;
-#endif // ENABLE_NGX
+	com_ptr<ID3D11RenderTargetView> sr_motion_vectors_rtv;
+#endif // ENABLE_SR
 	std::atomic<bool> has_drawn_title = false;
 	std::atomic<bool> has_drawn_taa = false;
 	std::atomic<bool> has_drawn_upscaling = false;
@@ -337,11 +337,11 @@ public:
 			device_data.has_drawn_main_post_processing = true; // Post processing is finished, nothing more to fix
 		}
 
-#if ENABLE_NGX
-		if (is_taa && device_data.dlss_sr && !device_data.dlss_sr_suppressed)
+#if ENABLE_SR
+		if (is_taa && device_data.sr_type != SR::Type::None && !device_data.sr_suppressed)
 		{
 			if (device_data.native_pixel_shaders[CompileTimeStringHash("Decode MVs")].get() == nullptr) {
-				device_data.force_reset_dlss_sr = true;
+				device_data.force_reset_sr = true;
 				return false;
 			}
 			// 1 depth
@@ -359,6 +359,9 @@ public:
 
 			if (dlss_inputs_valid)
 			{
+				auto* sr_instance_data = device_data.GetSRInstanceData();
+				ASSERT_ONCE(sr_instance_data);
+
 				com_ptr<ID3D11Resource> output_color_resource;
 				render_target_views[0]->GetResource(&output_color_resource);
 				com_ptr<ID3D11Texture2D> output_color;
@@ -378,35 +381,44 @@ public:
 				// Once DRS has engaged once, we can't really detect if it's been turned off ever again, anyway it's always active by default in this game (unless one has mods to disable it, or fix a scaled render resolution)
 				if (!game_device_data.drs_active && game_device_data.resolution_scale == 1.0f)
 				{
-					device_data.dlss_render_resolution_scale = 1.0f;
+					device_data.sr_render_resolution_scale = 1.0f;
 				}
 				else if (game_device_data.resolution_scale < 0.5f - FLT_EPSILON)
 				{
-					device_data.dlss_render_resolution_scale = game_device_data.resolution_scale;
+					device_data.sr_render_resolution_scale = game_device_data.resolution_scale;
 					game_device_data.drs_active = true;
 				}
 				else
 				{
 					// This should pick quality or balanced mode, with a range from 100% to 50% resolution scale
-					device_data.dlss_render_resolution_scale = 1.f / 1.5f;
+					device_data.sr_render_resolution_scale = 1.f / 1.5f;
 					game_device_data.drs_active = true;
 				}
 
 				// The TAA input and output textures were guaranteed to be of the same size, so we pass in the output one as render res,
 				// scaled by the DLSS render resolution scaling factor (which is a fixed multiplication to enabled dynamic res scaling in DLSS, it doesn't change every frame, as long as the res doesn't drop below 50%).
 				double target_aspect_ratio = (double)game_device_data.upscaled_render_resolution.x / (double)game_device_data.upscaled_render_resolution.y;
-				std::array<uint32_t, 2> dlss_input_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * device_data.dlss_render_resolution_scale, (double)taa_output_texture_desc.Height * device_data.dlss_render_resolution_scale, target_aspect_ratio);
+				std::array<uint32_t, 2> dlss_input_resolution = FindClosestIntegerResolutionForAspectRatio((double)taa_output_texture_desc.Width * device_data.sr_render_resolution_scale, (double)taa_output_texture_desc.Height * device_data.sr_render_resolution_scale, target_aspect_ratio);
 				
 				if (dlss_input_resolution[0] > game_device_data.upscaled_render_resolution.x || dlss_input_resolution[1] > game_device_data.upscaled_render_resolution.y)
 				{
-					device_data.force_reset_dlss_sr = true;
+					device_data.force_reset_sr = true;
 					return false;
 				}
 
-				bool dlss_hdr = true; // Unreal Engine does DLSS before tonemapping, in HDR linear space
-				NGX::DLSS::UpdateSettings(device_data.dlss_sr_handle, native_device_context, game_device_data.upscaled_render_resolution.x, game_device_data.upscaled_render_resolution.y, dlss_input_resolution[0], dlss_input_resolution[1], dlss_hdr, game_device_data.drs_active);
+				SR::SettingsData settings_data;
+				settings_data.output_width = game_device_data.upscaled_render_resolution.x;
+				settings_data.output_height = game_device_data.upscaled_render_resolution.y;
+				settings_data.render_width = dlss_input_resolution[0];
+				settings_data.render_height = dlss_input_resolution[1];
+				settings_data.dynamic_resolution = game_device_data.drs_active;
+				settings_data.hdr = true; // Unreal Engine does DLSS before tonemapping, in HDR linear space
+				settings_data.inverted_depth = true;
+				settings_data.mvs_jittered = false;
+				settings_data.use_experimental_features = sr_user_type == SR::UserType::DLSS_TRANSFORMER;
+				sr_implementations[device_data.sr_type]->UpdateSettings(sr_instance_data, native_device_context, settings_data);
 
-				bool skip_dlss = taa_output_texture_desc.Width < 32 || taa_output_texture_desc.Height < 32; // DLSS doesn't support output below 32x32
+				bool skip_dlss = taa_output_texture_desc.Width < sr_instance_data->min_resolution || taa_output_texture_desc.Height < sr_instance_data->min_resolution;
 				bool dlss_output_changed = false;
 
 				constexpr bool dlss_use_native_uav = true;
@@ -419,34 +431,34 @@ public:
 					dlss_output_texture_desc.Height = std::lrintf(game_device_data.upscaled_render_resolution.y);
 					dlss_output_texture_desc.BindFlags |= D3D11_BIND_UNORDERED_ACCESS;
 
-					if (device_data.dlss_output_color.get())
+					if (device_data.sr_output_color.get())
 					{
 						D3D11_TEXTURE2D_DESC prev_dlss_output_texture_desc;
-						device_data.dlss_output_color->GetDesc(&prev_dlss_output_texture_desc);
+						device_data.sr_output_color->GetDesc(&prev_dlss_output_texture_desc);
 						dlss_output_changed = prev_dlss_output_texture_desc.Width != dlss_output_texture_desc.Width || prev_dlss_output_texture_desc.Height != dlss_output_texture_desc.Height || prev_dlss_output_texture_desc.Format != dlss_output_texture_desc.Format;
 					}
-					if (!device_data.dlss_output_color.get() || dlss_output_changed)
+					if (!device_data.sr_output_color.get() || dlss_output_changed)
 					{
-						 device_data.dlss_output_color = nullptr; // Make sure we discard the previous one
-						 hr = native_device->CreateTexture2D(&dlss_output_texture_desc, nullptr, &device_data.dlss_output_color);
+						 device_data.sr_output_color = nullptr; // Make sure we discard the previous one
+						 hr = native_device->CreateTexture2D(&dlss_output_texture_desc, nullptr, &device_data.sr_output_color);
 						 ASSERT_ONCE(SUCCEEDED(hr));
 					}
 					// Texture creation failed, we can't proceed with DLSS
-					if (!device_data.dlss_output_color.get())
+					if (!device_data.sr_output_color.get())
 					{
 						skip_dlss = true;
 					}
 				}
 				else
 				{
-					ASSERT_ONCE(device_data.dlss_output_color == nullptr);
-					device_data.dlss_output_color = output_color;
+					ASSERT_ONCE(device_data.sr_output_color == nullptr);
+					device_data.sr_output_color = output_color;
 				}
 
 				if (!skip_dlss)
 				{
-					game_device_data.dlss_source_color = nullptr;
-					ps_shader_resources[2]->GetResource(&game_device_data.dlss_source_color);
+					game_device_data.sr_source_color = nullptr;
+					ps_shader_resources[2]->GetResource(&game_device_data.sr_source_color);
 					game_device_data.depth_buffer = nullptr;
 					ps_shader_resources[1]->GetResource(&game_device_data.depth_buffer);
 					com_ptr<ID3D11Resource> object_velocity;
@@ -456,7 +468,7 @@ public:
 
 					// Decode the motion vector from pixel shader
 					{
-						if (!AreResourcesEqual(object_velocity.get(), game_device_data.dlss_motion_vectors.get(), false /*check_format*/))
+						if (!AreResourcesEqual(object_velocity.get(), game_device_data.sr_motion_vectors.get(), false /*check_format*/))
 						{
 							com_ptr<ID3D11Texture2D> object_velocity_texture;
 							hr = object_velocity->QueryInterface(&object_velocity_texture);
@@ -470,14 +482,14 @@ public:
 							object_velocity_texture_desc.Format = DXGI_FORMAT_R16G16_FLOAT;
 #endif
 
-							game_device_data.dlss_motion_vectors = nullptr; // Make sure we discard the previous one
-							hr = native_device->CreateTexture2D(&object_velocity_texture_desc, nullptr, &game_device_data.dlss_motion_vectors);
+							game_device_data.sr_motion_vectors = nullptr; // Make sure we discard the previous one
+							hr = native_device->CreateTexture2D(&object_velocity_texture_desc, nullptr, &game_device_data.sr_motion_vectors);
 							ASSERT_ONCE(SUCCEEDED(hr));
 
-							game_device_data.dlss_motion_vectors_rtv = nullptr; // Make sure we discard the previous one
+							game_device_data.sr_motion_vectors_rtv = nullptr; // Make sure we discard the previous one
 							if (SUCCEEDED(hr))
 							{
-								hr = native_device->CreateRenderTargetView(game_device_data.dlss_motion_vectors.get(), nullptr, &game_device_data.dlss_motion_vectors_rtv);
+								hr = native_device->CreateRenderTargetView(game_device_data.sr_motion_vectors.get(), nullptr, &game_device_data.sr_motion_vectors_rtv);
 								ASSERT_ONCE(SUCCEEDED(hr));
 							}
 						}
@@ -490,7 +502,7 @@ public:
 						native_device_context->IAGetPrimitiveTopology(&primitive_topology);
 
 						// Set up for motion vector shader
-						ID3D11RenderTargetView* const dlss_motion_vectors_rtv_const = game_device_data.dlss_motion_vectors_rtv.get();
+						ID3D11RenderTargetView* const dlss_motion_vectors_rtv_const = game_device_data.sr_motion_vectors_rtv.get();
 						native_device_context->OMSetRenderTargets(1, &dlss_motion_vectors_rtv_const, nullptr);
 
 						// We only need to swap the pixel/vertex shaders, depth and blend were already in the right state
@@ -516,7 +528,7 @@ public:
 							trace_draw_call_data.command_list = native_device_context;
 							trace_draw_call_data.custom_name = "DLSS Decode Motion Vectors";
 							// Re-use the RTV data for simplicity
-							GetResourceInfo(game_device_data.dlss_motion_vectors.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+							GetResourceInfo(game_device_data.sr_motion_vectors.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
 							cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
 						}
 #endif
@@ -528,8 +540,8 @@ public:
 						native_device_context->IASetPrimitiveTopology(primitive_topology);
 					}
 
-					bool reset_dlss = device_data.force_reset_dlss_sr || dlss_output_changed;
-					device_data.force_reset_dlss_sr = false;
+					bool reset_dlss = device_data.force_reset_sr || dlss_output_changed;
+					device_data.force_reset_sr = false;
 
 					// Render resolution doesn't necessarily match with the source texture size, DRS draws on the top left of textures
 					uint32_t render_width_dlss = 0;
@@ -548,25 +560,37 @@ public:
 					float dlss_pre_exposure = 0.f;
 					if (enabled_custom_exposure != 0.f)
 					{
-						dlss_pre_exposure = dlss_custom_pre_exposure;
+						dlss_pre_exposure = sr_custom_pre_exposure;
 					} else {
 // #if DEVELOPMENT || TEST
-// 						dlss_pre_exposure = dlss_custom_pre_exposure;
+// 					dlss_pre_exposure = sr_custom_pre_exposure;
 // #endif
 					}
-					bool dlss_succeeded = NGX::DLSS::Draw(device_data.dlss_sr_handle, native_device_context, device_data.dlss_output_color.get(), game_device_data.dlss_source_color.get(), game_device_data.dlss_motion_vectors.get(), game_device_data.depth_buffer.get(), nullptr, dlss_pre_exposure, projection_jitters.x, projection_jitters.y, reset_dlss, render_width_dlss, render_height_dlss);
+					SR::SuperResolutionImpl::DrawData draw_data;
+					draw_data.source_color = game_device_data.sr_source_color.get();
+					draw_data.output_color = device_data.sr_output_color.get();
+					draw_data.motion_vectors = game_device_data.sr_motion_vectors.get();
+					draw_data.depth_buffer = game_device_data.depth_buffer.get();
+					draw_data.pre_exposure = dlss_pre_exposure;
+					draw_data.jitter_x = projection_jitters.x * device_data.render_resolution.x * 0.5f;
+					draw_data.jitter_y = projection_jitters.y * device_data.render_resolution.y * -0.5f;
+					draw_data.reset = reset_dlss;
+					draw_data.render_width = render_width_dlss;
+					draw_data.render_height = render_height_dlss;
+
+					bool dlss_succeeded = sr_implementations[device_data.sr_type]->Draw(sr_instance_data, native_device_context, draw_data);
 					if (dlss_succeeded)
 					{
-						device_data.has_drawn_dlss_sr = true;
+						device_data.has_drawn_sr = true;
 					}
-					game_device_data.dlss_source_color = nullptr;
+					game_device_data.sr_source_color = nullptr;
 					game_device_data.depth_buffer = nullptr;
 
 					// Restore the previous state
 					ID3D11RenderTargetView* const* rtvs_const = (ID3D11RenderTargetView**)std::addressof(render_target_views[0]);
 					native_device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, depth_stencil_view.get());
 
-					if (device_data.has_drawn_dlss_sr)
+					if (device_data.has_drawn_sr)
 					{
 #if DEVELOPMENT
 						const std::shared_lock lock_trace(s_mutex_trace);
@@ -578,7 +602,7 @@ public:
 							trace_draw_call_data.command_list = native_device_context;
 							trace_draw_call_data.custom_name = "DLSS";
 							// Re-use the RTV data for simplicity
-							GetResourceInfo(device_data.dlss_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
+							GetResourceInfo(device_data.sr_output_color.get(), trace_draw_call_data.rt_size[0], trace_draw_call_data.rt_format[0], &trace_draw_call_data.rt_type_name[0], &trace_draw_call_data.rt_hash[0]);
 							cmd_list_data.trace_draw_calls_data.insert(cmd_list_data.trace_draw_calls_data.end() - 1, trace_draw_call_data);
 						}
 #endif
@@ -588,11 +612,11 @@ public:
 
 						if (!dlss_output_supports_uav)
 						{
-							native_device_context->CopyResource(output_color.get(), device_data.dlss_output_color.get()); // DX11 doesn't need barriers
+							native_device_context->CopyResource(output_color.get(), device_data.sr_output_color.get()); // DX11 doesn't need barriers
 						}
 						else
 						{
-							device_data.dlss_output_color = nullptr;
+							device_data.sr_output_color = nullptr;
 						}
 
 						return true;
@@ -600,22 +624,22 @@ public:
 					else
 					{
 						//ASSERT_ONCE(false);
-						//cb_luma_global_settings.DLSS = 0;
+						//cb_luma_global_settings.SRType = 0;
 						//device_data.cb_luma_global_settings_dirty = true;
-						//device_data.dlss_sr_suppressed = true;
-						device_data.force_reset_dlss_sr = true;
+						//device_data.sr_suppressed = true;
+						device_data.force_reset_sr = true;
 					}
 				}
 				if (dlss_output_supports_uav)
 				{
-					device_data.dlss_output_color = nullptr;
+					device_data.sr_output_color = nullptr;
 				}
 			}
 		}
 
 		// Always upgrade the viewport to the full upscaled resolution if we anticipated upscaling to happen before tonemapping
 		// Prevent this from happening on compute shaders as it's never needed (also they don't use viewport)
-		if (device_data.has_drawn_dlss_sr && game_device_data.drs_active && game_device_data.found_per_view_globals && (stages & reshade::api::shader_stage::all_compute) == 0)
+		if (device_data.has_drawn_sr && game_device_data.drs_active && game_device_data.found_per_view_globals && (stages & reshade::api::shader_stage::all_compute) == 0)
 		{
 			PrepareDrawForEarlyUpscaling(native_device, native_device_context, device_data);
 		}
@@ -628,7 +652,7 @@ public:
             native_device_context->PSSetSamplers(0, 1, &linear_sampler);
 		}
 
-#endif // ENABLE_NGX
+#endif // ENABLE_SR
 
 		return false; // Don't cancel the original draw call
 	}
@@ -645,7 +669,7 @@ public:
 		game_device_data.has_drawn_upscaling = false;
 		game_device_data.has_drawn_taa = false;
 		device_data.taa_detected = false;
-		device_data.has_drawn_dlss_sr = false;
+		device_data.has_drawn_sr = false;
 		game_device_data.found_per_view_globals = false;
 		device_data.cb_luma_global_settings_dirty = true;
 		static std::mt19937 random_generator(std::chrono::system_clock::now().time_since_epoch().count());
@@ -740,7 +764,7 @@ public:
 		data.GameData.RenderResolution = { device_data.render_resolution.x, device_data.render_resolution.y, 1.0f / device_data.render_resolution.x, 1.0f / device_data.render_resolution.y };
 		data.GameData.OutputResolution = { game_device_data.upscaled_render_resolution.x, game_device_data.upscaled_render_resolution.y, 1.0f / game_device_data.upscaled_render_resolution.x, 1.0f / game_device_data.upscaled_render_resolution.y };
 		data.GameData.ResolutionScale = { game_device_data.resolution_scale, 1.0f / game_device_data.resolution_scale};
-		data.GameData.DrewUpscaling = device_data.has_drawn_dlss_sr ? 1 : 0;
+		data.GameData.DrewUpscaling = device_data.has_drawn_sr ? 1 : 0;
 		data.GameData.ViewportRect = game_device_data.viewport_rect;
 	}
 
@@ -753,7 +777,7 @@ public:
             std::shared_lock shared_lock_samplers(s_mutex_samplers);
 
             const auto prev_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
-            if (device_data.dlss_sr && !device_data.dlss_sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
+            if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
             {
                device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / game_device_data.upscaled_render_resolution.y) - 1.f; // This results in -1 at output res
             }
@@ -870,7 +894,7 @@ public:
 					{
 						if (!game_device_data.is_in_menu)
 						{
-							device_data.force_reset_dlss_sr = true; // TODO: make sure this doesn't happen when pausing the game and the scene in the background remains the same, it'd mean we get a couple blurry frames when we go back to the game
+							device_data.force_reset_sr = true; // TODO: make sure this doesn't happen when pausing the game and the scene in the background remains the same, it'd mean we get a couple blurry frames when we go back to the game
 
 							game_device_data.is_in_menu = true;
 						}
@@ -883,7 +907,7 @@ public:
 				projection_jitters.y = float_data[118].y;
 				if (enabled_custom_exposure != 0.f)
 				{
-					dlss_custom_pre_exposure = float_data[128].x * 100.0f; // Just a guess, needs testing
+					sr_custom_pre_exposure = float_data[128].x * 100.0f; // Just a guess, needs testing
 				}
 			}
 			device_data.cb_per_view_global_buffer_map_data = nullptr;
@@ -898,7 +922,7 @@ public:
 		 DeviceData& device_data = *device->get_private_data<DeviceData>();
 		 auto& game_device_data = GetGameDeviceData(device_data);
 
-		 if (device_data.has_drawn_dlss_sr && size == 512) {
+		 if (device_data.has_drawn_sr && size == 512) {
 		 	// It's not very nice to const cast, but we know for a fact this is dynamic memory, so it's probably fine to edit it (ReShade doesn't offer an interface for replacing it easily, and doesn't pass in the command list)
 		 	float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
 		 	const float4* float_data = reinterpret_cast<const float4*>(data);
@@ -908,7 +932,7 @@ public:
 		 		mutable_float_data[20].w = game_device_data.upscaled_render_resolution.y;
 		 	}
 		 }
-		 else if (device_data.has_drawn_dlss_sr && size == 1024) {
+		 else if (device_data.has_drawn_sr && size == 1024) {
 		 	float4* mutable_float_data = reinterpret_cast<float4*>(const_cast<void*>(data));
 		 	const float4* float_data = reinterpret_cast<const float4*>(data);
 		 	//float_data[30].zw and [31].xy have render_res
@@ -922,6 +946,17 @@ public:
 		 }
 		return false;
 	}
+
+#if DEVELOPMENT
+	void DrawImGuiDevSettings(DeviceData& device_data) override
+	{
+#if ENABLE_SR
+		ImGui::NewLine();
+		//ImGui::SliderFloat("SR Custom Exposure", &sr_custom_exposure, 0.0, 10.0);
+		ImGui::SliderFloat("SR Custom Pre-Exposure", &sr_custom_pre_exposure, 0.0, 10.0);
+#endif // ENABLE_SR
+	}
+#endif // DEVELOPMENT
 
 	void LoadConfigs() override
 	{
@@ -979,9 +1014,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 	  old_shader_file_names.emplace("Velocity_Flatten_0x4EB2EA5B.cs_5_0.hlsl");
 	  old_shader_file_names.emplace("Velocity_Gather_0xFEE03685.cs_5_0.hlsl");
 #endif
-		enable_swapchain_upgrade = true;
+		swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
 		swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-		enable_texture_format_upgrades = true;
+		texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
 		// Texture upgrades (8 bit unorm and 11 bit float etc to 16 bit float)
 		texture_upgrade_formats = {
 #if 0 // Probably not needed

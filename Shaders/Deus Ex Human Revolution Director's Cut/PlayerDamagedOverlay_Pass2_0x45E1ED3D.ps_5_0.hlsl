@@ -52,6 +52,7 @@ cbuffer InstanceBuffer : register(b5)
 SamplerState p_default_Material_0C38D4A418992488_Param_sampler_s : register(s0);
 Texture2D<float4> p_default_Material_0C38D4A418992488_Param_texture : register(t0);
 
+// This does some kind of 3D shift effect, similar to chromatic aberration, on death
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
@@ -68,8 +69,15 @@ void main(
   r0.w = cos(r0.w);
   r0.w = InstanceParams[0].w * r0.w;
   r0.x = r0.x * InstanceParams[0].y + r0.w;
-  r1.xyz = InstanceParams[1].zyx * r0.xxx;
+  r1.xyz = InstanceParams[1].zyx * r0.xxx; // Horizontal shift
   r1.w = 0;
+#if 1 // Fixed death overaly being a lot more shifted in UW
+  float2 size;
+  p_default_Material_0C38D4A418992488_Param_texture.GetDimensions(size.x, size.y);
+  float sourceAspectRatio = 16.0 / 9.0; // What the vertex shader assumed (it seems to help at 4:3 too)
+  float targetAspectRatio = size.x / size.y;
+  r1.xyz *= sourceAspectRatio / targetAspectRatio;
+#endif
   r0.xw = r1.zw + r0.yz;
   r0.x = p_default_Material_0C38D4A418992488_Param_texture.Sample(p_default_Material_0C38D4A418992488_Param_sampler_s, r0.xw).x;
   o0.x = r0.x;

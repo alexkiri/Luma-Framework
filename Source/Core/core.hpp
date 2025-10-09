@@ -43,6 +43,7 @@
 #include <fstream>
 #include <shared_mutex>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
@@ -87,9 +88,18 @@
 #ifndef ENABLE_NGX
 #define ENABLE_NGX 0
 #endif // ENABLE_NGX
-#ifndef ENABLE_FSR
-#define ENABLE_FSR 0
-#endif // ENABLE_FSR
+#ifndef ENABLE_FIDELITY_SK
+#define ENABLE_FIDELITY_SK 0
+#endif // ENABLE_FIDELITY_SK
+// Automatically define "ENABLE_SR" if any SR tech is enabled
+#ifdef ENABLE_SR
+#undef ENABLE_SR
+#endif // ENABLE_SR
+#if (defined(ENABLE_NGX) && ENABLE_NGX) || (defined(ENABLE_FIDELITY_SK) && ENABLE_FIDELITY_SK)
+#define ENABLE_SR 1
+#else
+#define ENABLE_SR 0
+#endif
 #ifndef ENABLE_NVAPI
 #define ENABLE_NVAPI 0
 #endif // ENABLE_NVAPI
@@ -120,9 +130,10 @@ constexpr bool OneShaderPerPipeline = true;
 #endif
 
 // Depends on "DEVELOPMENT"
-#define TEST_DLSS (DEVELOPMENT && 0)
+#define TEST_SR (DEVELOPMENT && 0)
 
 #include "dlss/DLSS.h" // see "ENABLE_NGX"
+#include "fsr/FSR.h" // see "ENABLE_FIDELITY_SK"
 
 #include "includes/globals.h"
 #include "includes/debug.h"
@@ -189,7 +200,7 @@ namespace
    std::shared_mutex s_mutex_shader_objects;
    // Mutex for shader defines ("shader_defines_data", "code_shaders_defines", "shader_defines_data_index")
    std::shared_mutex s_mutex_shader_defines;
-   // Mutex to deal with data shader with ReShade, like ini/config saving and loading (including "cb_luma_global_settings" and "cb_luma_global_settings_dirty")
+   // Mutex to deal with data shared with ReShade, like ini/config saving and loading (including "cb_luma_global_settings")
    std::shared_mutex s_mutex_reshade;
    // For "custom_sampler_by_original_sampler" and "texture_mip_lod_bias_offset"
    std::shared_mutex s_mutex_samplers;
@@ -219,8 +230,21 @@ namespace
 #endif // DEVELOPMENT
    constexpr bool precompile_custom_shaders = true; // Async shader compilation on boot
    constexpr bool block_draw_until_device_custom_shaders_creation = true; // Needs "precompile_custom_shaders". Note that drawing (and "Present()") could be blocked anyway due to other mutexes on boot if custom shaders are still compiling
-   bool dlss_sr = true; // If true DLSS is enabled by the user (but not necessarily supported+initialized correctly, that's by device)
-   const char* dlss_game_tooltip = "";
+#if !TEST && !DEVELOPMENT
+   constexpr
+#endif 
+   bool custom_shaders_enabled = true;
+#if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
+   bool strip_original_shaders_debug_data = false;
+#endif
+
+#if ENABLE_SR
+   SR::UserType sr_user_type = SR::UserType::Auto; // If set to a non "None" value, some SR tech is enabled by the user (but not necessarily supported+initialized correctly, that's by device)
+   std::map<SR::Type, std::unique_ptr<SR::SuperResolutionImpl>> sr_implementations; // All the SR implementations class objects (not necessarily initialized, nor fully loaded)
+
+   const char* sr_game_tooltip = "";
+#endif // ENABLE_SR
+
    bool hdr_enabled_display = false;
    bool hdr_supported_display = false;
    constexpr bool prevent_shader_cache_loading = false;
@@ -245,7 +269,25 @@ namespace
       // Only needed by "texture_format_upgrades_2d_custom_aspect_ratios" at the moment (if changed after initialization)
       std::shared_mutex s_mutex_texture_upgrades;
 
-      bool enable_swapchain_upgrade = false;
+      enum class DisplayModeType : uint
+      {
+         SDR = 0,
+         // Could be scRGB or HDR10
+         HDR = 1,
+         SDRInHDR = 2,
+      };
+      const char* display_mode_preset_strings[3] = {
+          "SDR", // SDR (80 nits) on scRGB HDR for SDR (gamma sRGB, because Windows interprets scRGB as sRGB)
+          "HDR",
+          "SDR on HDR", // (Fake) SDR (baseline to 203 nits) on scRGB HDR for HDR (gamma 2.2) - Dev only, for quick comparisons
+      };
+
+      enum class TextureFormatUpgradesType : uint8_t
+      {
+         None,
+         AllowedDisabled,
+         AllowedEnabled
+      };
       enum class SwapchainUpgradeType : uint8_t
       {
          // keep the original one, SDR or whatnot
@@ -255,6 +297,8 @@ namespace
          // BT.2020 PQ HDR (10 bit UNORM)
          HDR10
       };
+
+      TextureFormatUpgradesType swapchain_format_upgrade_type = TextureFormatUpgradesType::None; // Only swap between allowed enabled/disabled after init
       SwapchainUpgradeType swapchain_upgrade_type = SwapchainUpgradeType::scRGB; // TODO: finish implementing HDR10 output (as input it'd be harder but it might be possible as a "POST_PROCESS_SPACE_TYPE")
 
       // For now, by default, we prevent fullscreen on boot and later, given that it's pointless.
@@ -266,7 +310,7 @@ namespace
       // Only enable this in games that use the feature, otherwise it's gonna add an unnecessary confusing button.
       bool allow_disabling_gamma_ramp = false;
 
-      bool enable_texture_format_upgrades = false;
+      TextureFormatUpgradesType texture_format_upgrades_type = TextureFormatUpgradesType::None; // Only swap between allowed enabled/disabled after init
 	   // List of render targets (and unordered access) textures that we upgrade to R16G16B16A16_FLOAT.
       // Most formats are supported but some might not act well when upgraded.
       std::unordered_set<reshade::api::format> texture_upgrade_formats;
@@ -333,7 +377,7 @@ namespace
 
       // Ignored if <= 0. Can be used to change all behaviours that use gamma 2.2 to 2.35 or 2.4 or whatever other value.
       // This will apply to all decoding and decoding gamma functions.
-      float custom_sdr_gamma = -1.f;
+      float custom_sdr_gamma = 0.f;
    }
 
    // The root path of all the shaders we load and dump
@@ -436,8 +480,7 @@ namespace
 
    // These default should ideally match shaders values (Settings.hlsl), but it's not necessary because whatever the default values they have they will be overridden.
 	// For further descriptions, see their shader declarations.
-   // TODO: add grey out conditions (another define, by name, whether its value is > 0), and also add min/max values range (to limit the user insertable values), and "category"
-   // TODO: add a user facing name (not just the tooltip)?
+   // TODO: add grey out conditions (another define, by name, whether its value is > 0, or flipped (we can already manually toggle their editability manually)), and also add min/max values range (to limit the user insertable values), and "category"
    std::vector<ShaderDefineData> shader_defines_data = {
        {"DEVELOPMENT", DEVELOPMENT ? '1' : '0', true, DEVELOPMENT ? false : true, "Enables some development/debug features that are otherwise not allowed (use a DEVELOPMENT build if you want to use this)"},
        {"TEST", (TEST || DEVELOPMENT) ? '1' : '0', true, (TEST || DEVELOPMENT) ? false : true, "Enables some test features to aid with development (use a DEVELOPMENT or TEST build if you want to use this)"},
@@ -475,6 +518,7 @@ namespace
 
    // Directly from cbuffer
    CB::LumaGlobalSettingsPadded cb_luma_global_settings = { }; // Not in device data as this stores some users settings too // Set "cb_luma_global_settings_dirty" when changing within a frame (so it's uploaded again)
+   CB::LumaGameSettings default_luma_global_game_settings;
 
    bool hdr_display_mode_pending_auto_peak_white_calibration = false;
 
@@ -504,9 +548,11 @@ namespace
    thread_local reshade::api::resource_desc upgraded_resource_init_desc = {};
    thread_local void* upgraded_resource_init_data = {};
 #if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
-   thread_local const void* last_live_patched_shader_code = {};
-   thread_local size_t last_live_patched_shader_size = {};
-   thread_local uint32_t last_live_patched_shader_hash = {};
+   // Temporary cache of the live patched shader that points at the original shader
+   thread_local const void* last_live_patched_original_shader_code = {};
+   thread_local size_t last_live_patched_original_shader_size = {};
+   // The actual current pre-calculated shader hash (of the live patched shader, if it was)
+   thread_local uint64_t last_live_patched_shader_hash = -1;
 #endif
 #if DEVELOPMENT
    // ReShade specific design as we don't get a rejection between the create and init events if creation failed
@@ -531,6 +577,7 @@ namespace
       char debug_draw_shader_hash_string[HASH_CHARACTERS_LENGTH + 1] = {};
       uint64_t debug_draw_pipeline = 0;
       int32_t debug_draw_pipeline_target_instance = -1;
+      std::thread::id debug_draw_pipeline_target_thread = std::thread::id(); // Filter target instances by thread, which would hopefully reliably match the command lists, over multiple frames
 
       std::atomic<int32_t> debug_draw_pipeline_instance = 0; // Theoretically should be within "CommandListData" but this should work for most cases
 
@@ -538,6 +585,7 @@ namespace
       int32_t debug_draw_view_index = 0;
       uint32_t debug_draw_options = (uint32_t)DebugDrawTextureOptionsMask::Fullscreen | (uint32_t)DebugDrawTextureOptionsMask::BackgroundPassthrough | (uint32_t)DebugDrawTextureOptionsMask::Tonemap;
       int32_t debug_draw_mip = 0;
+      bool debug_draw_pipeline_instance_filter_by_thread = false; // Not true by default as it seems like quite a few games set up multiple render threads, so this conflicts between frames
       bool debug_draw_auto_clear_texture = false;
       bool debug_draw_replaced_pass = false; // Whether we print the debugging of the original or replaced pass (the resources bindings etc might be different, though this won't forcefully run the original pass if it was skipped by the game's mod custom code)
       bool debug_draw_auto_gamma = true;
@@ -562,13 +610,20 @@ namespace
       std::array<std::string, CB::LumaDevSettings::SettingsNum> cb_luma_dev_settings_names;
       bool cb_luma_dev_settings_set_from_code = false;
    }
-#endif
+#endif // DEVELOPMENT
 
    // Forward declares:
    void DumpShader(uint32_t shader_hash);
    void AutoDumpShaders();
    void AutoLoadShaders(DeviceData* device_data);
    void OnDestroyPipeline(reshade::api::device* device, reshade::api::pipeline pipeline);
+
+   // Returns true if any shader or pipeline has been replaced, meaning that the mod will at least do something (this is representative of how most, but not necessarily all, mods work)
+   bool IsModActive(const DeviceData& device_data)
+   {
+      // Note: we don't check "custom_shaders_enabled" here because we want to simulate the mod still being treated as active in that case
+      return device_data.cloned_pipeline_count != 0;
+   }
 
    // Quick and unsafe. Passing in the hash instead of the string is the only way make sure strings hashes are calculate them at compile time.
    __forceinline ShaderDefineData& GetShaderDefineData(uint32_t hash)
@@ -1912,7 +1967,7 @@ namespace
    void OnDisplayModeChanged()
    {
       // s_mutex_reshade should already be locked here, it's not necessary anyway
-      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).editable = cb_luma_global_settings.DisplayMode != 0; //TODOFT4: necessary to disable this in SDR?
+      GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).editable = cb_luma_global_settings.DisplayMode != DisplayModeType::SDR; //TODOFT4: necessary to disable this in SDR?
 
       game->OnDisplayModeChanged();
    }
@@ -1926,7 +1981,7 @@ namespace
       return true;
 #endif
 
-#if ENABLE_FSR
+#if ENABLE_FIDELITY_SK
       // Required by FSR 3 on DX11. Also goes to determine whether we have to use D3D11_1_UAV_SLOT_COUNT or (the older) D3D11_PS_CS_UAV_REGISTER_COUNT.
       // Some games (e.g. INSIDE) crashes with this.
       if (api_version == D3D_FEATURE_LEVEL_11_0)
@@ -1939,7 +1994,6 @@ namespace
       return false;
    }
 
-   //TODOFT5: disable debug window in Dev-Release mode, unless we got debug symbols
    void OnInitDevice(reshade::api::device* device)
    {
       if (device->get_api() != reshade::api::device_api::d3d11) return;
@@ -2053,7 +2107,7 @@ namespace
       Display::InitNVApi();
 #endif
 
-#if ENABLE_NGX
+#if ENABLE_SR
       com_ptr<IDXGIDevice> native_dxgi_device;
       hr = native_device->QueryInterface(&native_dxgi_device);
       com_ptr<IDXGIAdapter> native_adapter;
@@ -2063,30 +2117,46 @@ namespace
       }
       assert(SUCCEEDED(hr));
 
-      // Inherit the default from the global user setting
+      for (auto& sr_implementation : sr_implementations)
+      {
+         if (sr_implementation.second != nullptr)
+         {
+            device_data.sr_implementations_instances[sr_implementation.first] = nullptr; // Create an empty element
+            // We always do this, which will force the SR dll to load, but it should be fast enough to not bother users from other vendors
+            sr_implementation.second->Init(device_data.sr_implementations_instances[sr_implementation.first], native_device, native_adapter.get());
+
+            if (device_data.sr_implementations_instances[sr_implementation.first] && !device_data.sr_implementations_instances[sr_implementation.first]->is_supported)
+            {
+               sr_implementation.second->Deinit(device_data.sr_implementations_instances[sr_implementation.first], native_device); // No need to keep it initialized if it's not supported
+            }
+
+            if (device_data.sr_implementations_instances[sr_implementation.first] && device_data.sr_implementations_instances[sr_implementation.first]->is_supported)
+            {
+               const std::shared_lock lock_reshade(s_mutex_reshade);
+               if (SR::AreTypesEqual(sr_user_type, sr_implementation.first))
+               {
+                  device_data.sr_type = sr_implementation.first;
+                  break; // Take the first supported selected one
+               }
+            }
+            else
+            {
+               device_data.sr_implementations_instances.erase(sr_implementation.first);
+            }
+         }
+      }
+      if (device_data.sr_type == SR::Type::None)
       {
          const std::unique_lock lock_reshade(s_mutex_reshade);
-         device_data.dlss_sr = dlss_sr;
-      }
-      // We always do this, which will force the DLSS dll to load, but it should be fast enough to not bother users from other vendors
-      device_data.dlss_sr_supported = NGX::DLSS::Init(device_data.dlss_sr_handle, native_device, native_adapter.get());
-      if (!device_data.dlss_sr_supported)
-      {
-         NGX::DLSS::Deinit(device_data.dlss_sr_handle, native_device); // No need to keep it initialized if it's not supported
-         device_data.dlss_sr = false; // No need to serialize this to config really
-         const std::unique_lock lock_reshade(s_mutex_reshade);
-         dlss_sr = false; // Disable the global user setting if it's not supported (it's ok even if we pollute device and global data), we want to grey it out in the UI (there's no need to serialize the new value for it though!)
-      }
-#else
-      device_data.dlss_sr = false;
-      dlss_sr = false;
-#endif // ENABLE_NGX
+         sr_user_type = SR::UserType::None; // Reset the global user setting if it's not supported, we want to grey it out in the UI (there's no need to serialize the new value for it though!)
+		}
+#endif // ENABLE_SR
 
       game->OnInitDevice(native_device, device_data);
 
       // If we upgrade textures, make sure that MSAA DXGI_FORMAT_R16G16B16A16_FLOAT is supported on our GPU, given that it's optional.
       // Most games don't have MSAA, but it might be enforced at driver level.
-      if (enable_texture_format_upgrades)
+      if (texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled)
       {
          UINT quality_levels = 0;
          HRESULT hr;
@@ -2165,9 +2235,13 @@ namespace
          device_data.custom_sampler_by_original_sampler.clear();
       }
 
-#if ENABLE_NGX
-      NGX::DLSS::Deinit(device_data.dlss_sr_handle, native_device); // NOTE: this could stutter the game on closure as it forces unloading the DLSS DLL (if it's the last device instance?), but we can't avoid it
-#endif // ENABLE_NGX
+#if ENABLE_SR
+      auto* sr_instance_data = device_data.GetSRInstanceData();
+      if (sr_instance_data)
+      {
+         sr_implementations[device_data.sr_type]->Deinit(sr_instance_data); // NOTE: this could stutter the game on closure as it forces unloading the SR DLL (if it's the last device instance?), but we can't avoid it
+      }
+#endif // ENABLE_SR
 
       device->destroy_private_data<DeviceData>();
    }
@@ -2227,7 +2301,7 @@ namespace
       ASSERT_ONCE(desc.back_buffer.texture.samples == 1); // Neither flip model nor scRGB HDR are supported with MSAA
 
       // sRGB formats don't support flip modes, if we previously upgraded the swapchain, select a flip mode compatible format when the swapchain resizes, as we can't change it anymore after creation
-      if (!enable_swapchain_upgrade && swapchain_upgrade_type > SwapchainUpgradeType::None && (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb))
+      if (swapchain_format_upgrade_type < TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type > SwapchainUpgradeType::None && (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb))
       {
          if (desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb)
             desc.back_buffer.texture.format = reshade::api::format::r8g8b8a8_unorm;
@@ -2240,7 +2314,7 @@ namespace
       // Generally we want to add these flags in all cases, they seem to work in all games
       {
          desc.back_buffer_count = max(desc.back_buffer_count, 2); // Needed by flip models, which is mandatory for HDR. Note that DX10/11 will still only create one buffer, even if their desc says they have two.
-         if ((enable_swapchain_upgrade && swapchain_upgrade_type > SwapchainUpgradeType::None) || (desc.back_buffer.texture.format != reshade::api::format::r8g8b8a8_unorm_srgb && desc.back_buffer.texture.format != reshade::api::format::b8g8r8a8_unorm_srgb)) // sRGB formats don't support flip modes
+         if ((swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type > SwapchainUpgradeType::None) || (desc.back_buffer.texture.format != reshade::api::format::r8g8b8a8_unorm_srgb && desc.back_buffer.texture.format != reshade::api::format::b8g8r8a8_unorm_srgb)) // sRGB formats don't support flip modes
          {
             desc.present_mode = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 #if !GRAPHICS_ANALYZER // TODO: investigate "DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT", and anyway make it optional as it lowers lag at the cost of not quequing up frames
@@ -2254,7 +2328,14 @@ namespace
          ASSERT_ONCE((desc.present_flags & DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO) == 0); // Uh?
 
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Games will still need to call "Present()" with "DXGI_PRESENT_ALLOW_TEARING" for this to do anything (ReShade will automatically do it if this flag is set)
-         desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+         if (prevent_fullscreen_state) // TODO: test this
+         {
+            desc.present_flags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+         }
+         else
+         {
+            desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+         }
          desc.fullscreen_refresh_rate = 0.f; // This fixes games forcing a specific refresh rate (e.g. Mafia III forces 60Hz for no reason)
          if (prevent_fullscreen_state)
          {
@@ -2266,7 +2347,7 @@ namespace
       // Note that occasionally this breaks after resizing the swapchain, because some games resize the swapchain maintaining whatever format it had before
       last_swapchain_linear_space = desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::b8g8r8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float;
 
-      if (enable_swapchain_upgrade && swapchain_upgrade_type > SwapchainUpgradeType::None)
+      if (swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type > SwapchainUpgradeType::None)
       {
          ASSERT_ONCE(desc.back_buffer.texture.format == reshade::api::format::r10g10b10a2_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm || desc.back_buffer.texture.format == reshade::api::format::r8g8b8a8_unorm_srgb || desc.back_buffer.texture.format == reshade::api::format::r16g16b16a16_float); // Just a bunch of formats we encountered and we are sure we can upgrade (or that have already been upgraded)
          // DXGI_FORMAT_R16G16B16A16_FLOAT will automatically pick DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 on first creation
@@ -2412,18 +2493,18 @@ namespace
          if (!hdr_enabled_display)
          {
             // Force the display mode to SDR if HDR is not engaged
-            cb_luma_global_settings.DisplayMode = 0;
+            cb_luma_global_settings.DisplayMode = DisplayModeType::SDR;
             OnDisplayModeChanged();
             cb_luma_global_settings.ScenePeakWhite = srgb_white_level;
             cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
             cb_luma_global_settings.UIPaperWhite = srgb_white_level;
          }
          // Avoid increasing the peak if the user has SDR mode set, SDR mode might still rely on the peak white value being set to "srgb_white_level"
-         else if (cb_luma_global_settings.DisplayMode == 1 && hdr_display_mode_pending_auto_peak_white_calibration)
+         else if (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR && hdr_display_mode_pending_auto_peak_white_calibration)
          {
             cb_luma_global_settings.ScenePeakWhite = device_data.default_user_peak_white;
          }
-         else if (cb_luma_global_settings.DisplayMode != 1)
+         else if (cb_luma_global_settings.DisplayMode == DisplayModeType::SDR)
          {
             // Making sure SDR is all defaulted to the right values
             ASSERT_ONCE(cb_luma_global_settings.ScenePeakWhite == srgb_white_level && cb_luma_global_settings.ScenePaperWhite == srgb_white_level);
@@ -2431,7 +2512,7 @@ namespace
          device_data.cb_luma_global_settings_dirty = true;
          hdr_display_mode_pending_auto_peak_white_calibration = false;
 
-         if (enable_swapchain_upgrade && swapchain_upgrade_type > SwapchainUpgradeType::None)
+         if (swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type > SwapchainUpgradeType::None)
          {
 #if 0 // Not needed until proven otherwise (we already upgrade in "OnCreateSwapchain()", which should always be called when resizing the swapchain too)
 
@@ -2445,7 +2526,7 @@ namespace
 #if !GAME_PREY && DEVELOPMENT
          DXGI_COLOR_SPACE_TYPE colorSpace;
 			// TODO: allow detection of the color space based on the format? Will this succeed if called before or after resizing buffers? For now we only do this in development as that's the only case where you can change the swapchain upgrades type live
-         if (enable_swapchain_upgrade && swapchain_upgrade_type > SwapchainUpgradeType::None)
+         if (swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type > SwapchainUpgradeType::None)
          {
             if (swapchain_upgrade_type == SwapchainUpgradeType::scRGB)
                colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
@@ -2466,7 +2547,7 @@ namespace
       }
 
       static std::atomic<bool> warning_sent;
-      if (device_data.output_resolution.x == device_data.output_resolution.y && enable_texture_format_upgrades && ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio) != 0) && !warning_sent.exchange(true))
+      if (device_data.output_resolution.x == device_data.output_resolution.y && texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled && ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio) != 0) && !warning_sent.exchange(true))
       {
          MessageBoxA(game_window, "Your current game output resolution has an aspect ratio of 1:1 (a squared resolution), that might cause issues with texture upgrades by aspect ratio, given that shadow maps and other things are often rendered in squared textures.", NAME, MB_SETFOREGROUND);
       }
@@ -2638,13 +2719,12 @@ namespace
       uint32_t subobject_count,
       const reshade::api::pipeline_subobject* subobjects)
    {
-      ASSERT_ONCE(!last_live_patched_shader_code); // This should never happen, it means our conditions don't match, or well, that shader creation failed, which is possible, even in the original game code
-      last_live_patched_shader_code = nullptr;
-      last_live_patched_shader_size = 0;
-      last_live_patched_shader_hash = 0;
+      ASSERT_ONCE(!last_live_patched_original_shader_code); // This should never happen, it means our conditions don't match, or well, that shader creation failed, which is possible, even in the original game code
+      last_live_patched_original_shader_code = nullptr;
+      last_live_patched_original_shader_size = 0;
+      last_live_patched_shader_hash = -1;
 
       bool any_edited = false;
-      uint64_t shader_hash = -1;
 
       DeviceData& device_data = *device->get_private_data<DeviceData>();
 
@@ -2663,25 +2743,70 @@ namespace
             case reshade::api::pipeline_subobject_type::compute_shader:
             case reshade::api::pipeline_subobject_type::pixel_shader:
             {
-               auto* shader_desc = static_cast<reshade::api::shader_desc*>(subobjects[i].data);
-               ASSERT_ONCE(shader_desc->code_size > 0);
-               if (shader_desc->code_size == 0) break;
+               const auto* original_shader_desc = static_cast<reshade::api::shader_desc*>(subobjects[i].data);
 
-               DXBCHeader* shader_header = (DXBCHeader*)shader_desc->code;
+               ASSERT_ONCE(original_shader_desc->code_size > 0);
+               if (original_shader_desc->code_size == 0) break;
 
-               if (memcmp(shader_header->format_name, "DXBC", 4) != 0) break;
-               if (shader_header->file_size != shader_desc->code_size) break;
+               // These should never happen
+               {
+                  const DXBCHeader* original_shader_header = (const DXBCHeader*)original_shader_desc->code;
+                  if (memcmp(original_shader_header->format_name, "DXBC", 4) != 0) break;
+                  if (original_shader_header->file_size != original_shader_desc->code_size) break;
+               }
 
-               std::unique_ptr<std::byte[]> new_patched_code;
-               const std::byte* pre_patched_code = nullptr;
+               // These should all be updated at the same time.
+               // They represent the version of the shader we are currently iterating upon, whether it's stripped of debug data, or live patched etc.
+               struct CurrentShaderData
+               {
+                  const void* code = nullptr;
+                  size_t code_size = 0;
+                  DXBCHeader* header = nullptr;
+
+                  void Set(const void* _code, size_t _code_size)
+                  {
+                     code = _code;
+                     code_size = _code_size;
+                     header = (DXBCHeader*)code;
+                  }
+               };
+               CurrentShaderData current_shader_data = {};
+               current_shader_data.Set(original_shader_desc->code, original_shader_desc->code_size);
+
+               // Optional
+               std::unique_ptr<std::byte[]> patched_shader_code; // Make sure to always update "current_shader_data" to the latest version of this
+
+               uint64_t shader_luma_hash = -1;
+
+               com_ptr<ID3DBlob> stripped_code_blob;
+               // Strip debug data from the shader to unify them in games where different permutations of shaders are actually deep down identical.
+               // Heavy Rain is a notorious example of this, having almost every single object in the game have its own unique shader, with the location and object name hardcoded in samplers and textures etc.
+               // Given we need to fix them from issues they have when using FLOAT render targets (as opposed to the original UNORM) (e.g. NaNs and negative alpha etc),
+               // we unify them, so we can create a few fixes hlsl for all, that gets automatically loaded.
+               //
+               // The native MD5 shader hash is already updated the by D3D strip data function.
+               if (strip_original_shaders_debug_data && SUCCEEDED(d3d_stripShader(current_shader_data.code, current_shader_data.code_size, D3DCOMPILER_STRIP_REFLECTION_DATA | D3DCOMPILER_STRIP_DEBUG_INFO | D3DCOMPILER_STRIP_TEST_BLOBS /*| D3DCOMPILER_STRIP_PRIVATE_DATA*/ | D3DCOMPILER_STRIP_ROOT_SIGNATURE, &stripped_code_blob)))
+               {
+                  // We still need to allocate this in our persistent storage, and can't directly use "stripped_code_blob" (unless we redesigned the code)
+                  const size_t patched_shader_code_size = stripped_code_blob->GetBufferSize();
+                  patched_shader_code = std::make_unique<std::byte[]>(patched_shader_code_size);
+                  std::memcpy(patched_shader_code.get(), stripped_code_blob->GetBufferPointer(), patched_shader_code_size);
+                  stripped_code_blob.reset();
+
+                  current_shader_data.Set(patched_shader_code.get(), patched_shader_code_size);
+
+                  // Recalculate the hash after stripping, we don't want to use the "native"/original one anymore,
+                  // given that one of the reasons we strip data is to try and unify shaders that would otherwise be identical
+                  shader_luma_hash = Shader::BinToHash(static_cast<const uint8_t*>(current_shader_data.code), current_shader_data.code_size);
+               }
+
                Hash::MD5::Digest* pre_patched_code_hash = nullptr;
+               bool needs_new_md5_hash = false;
                bool found_code_chunk = false;
 
-               int32_t size_diff = 0;
-               for (uint32_t i = 0; i < shader_header->chunk_count; ++i)
+               for (uint32_t i = 0; i < current_shader_data.header->chunk_count; ++i)
                {
-                  const uint32_t* chunk = (uint32_t*)((uint8_t*)shader_desc->code + shader_header->chunk_offsets[i]); // in "DWORD"
-                  const uint32_t* type_name = &chunk[0];
+                  DXBCChunk* chunk = reinterpret_cast<DXBCChunk*>((uint8_t*)current_shader_data.code + current_shader_data.header->chunk_offsets[i]);
 
                   // These are the chunks with the actual shaders byte code:
                   // SHEX is SM5
@@ -2689,46 +2814,47 @@ namespace
                   // DXIL is SM6 (DX12)
                   // 
                   // http://timjones.io/blog/archive/2015/09/02/parsing-direct3d-shader-bytecode#shdr-chunk
-                  if (memcmp(type_name, "SHEX", 4) == 0 || memcmp(type_name, "SHDR", 4) == 0)
+                  // Usually this is the last chunk.
+                  if (memcmp(&chunk->type_name, "SHEX", 4) == 0 || memcmp(&chunk->type_name, "SHDR", 4) == 0)
                   {
-                     if (shader_hash == -1)
-                     {
-                        shader_hash = Shader::BinToHash(static_cast<const uint8_t*>(shader_desc->code), shader_desc->code_size);
+                     DXBCByteCodeChunk* chunk_byte_code = reinterpret_cast<DXBCByteCodeChunk*>(chunk->chunk_data);
 
-                        constexpr bool always_repatch_live_patched_shaders = false; // TODO: expose for dev modes in case we wanted to dynamically change the patching logic by level (however it makes little sense as we are usually not in control of how games load shaders)
-                        if (!always_repatch_live_patched_shaders)
+                     // We need to calculate this before any live patching, given that luma shaders are replaced based on the original shader hash, not the live patched one,
+                     // it's used right to find if we previously created a shader by the same hash and skip re-patching it.
+                     if (shader_luma_hash == -1)
+                     {
+                        shader_luma_hash = Shader::BinToHash(static_cast<const uint8_t*>(current_shader_data.code), current_shader_data.code_size);
+                     }
+
+                     // If the same shader (hash) was previous patched, just fish the previously cached data
+                     constexpr bool always_repatch_live_patched_shaders = false; // TODO: expose for dev modes in case we wanted to dynamically change the patching logic by level (however it makes little sense as we are usually not in control of how games load shaders)
+                     if (!always_repatch_live_patched_shaders)
+                     {
+                        const std::shared_lock lock_device(device_data.mutex);
+                        auto modified_shader_byte_code = device_data.modified_shaders_byte_code.find(shader_luma_hash);
+                        if (modified_shader_byte_code != device_data.modified_shaders_byte_code.end())
                         {
-                           const std::shared_lock lock_device(device_data.mutex);
-                           auto modified_shader_byte_code = device_data.modified_shaders_byte_code.find(shader_hash);
-                           if (modified_shader_byte_code != device_data.modified_shaders_byte_code.end())
-                           {
-                              pre_patched_code = std::get<0>(modified_shader_byte_code->second).get();
-                              shader_desc->code_size = std::get<1>(modified_shader_byte_code->second);
-                              pre_patched_code_hash = &std::get<2>(modified_shader_byte_code->second);
-                              break;
-                           }
+                           current_shader_data.Set(std::get<0>(modified_shader_byte_code->second).get(), std::get<1>(modified_shader_byte_code->second));
+                           pre_patched_code_hash = &std::get<2>(modified_shader_byte_code->second);
+                           needs_new_md5_hash = true;
+                           break;
                         }
                      }
 
-                     ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace?
+                     ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace? It's supposed but weird
                      found_code_chunk = true;
 
-                     uint32_t chunk_size = chunk[1]; // Total size of the chunk in bytes, NOT including the type name and size
-
 #if DEVELOPMENT // Verify that the size is right
-                     if (i < (shader_header->chunk_count - 1))
+                     if (i < (current_shader_data.header->chunk_count - 1))
                      {
-                        uint32_t* next_chunk = (uint32_t*)((uint8_t*)shader_desc->code + shader_header->chunk_offsets[i + 1]);
-                        uint32_t* guessed_next_chunk = (uint32_t*)((uint8_t*)shader_desc->code + shader_header->chunk_offsets[i] + chunk_size + 8);
+                        uint32_t* next_chunk = (uint32_t*)((uint8_t*)current_shader_data.code + current_shader_data.header->chunk_offsets[i + 1]);
+                        uint32_t* guessed_next_chunk = (uint32_t*)((uint8_t*)current_shader_data.code + current_shader_data.header->chunk_offsets[i] + chunk->chunk_size + 8);
                         ASSERT_ONCE(next_chunk == guessed_next_chunk);
                      }
 #endif
 
-                     // Unused, but good to be checked
-                     uint8_t version_major = uint8_t((chunk[2] >> 4) & 0xF); // E.g. SM4/5
-                     uint8_t version_minor = uint8_t(chunk[2] & 0xF);
-                     DXBCProgramType program_type = DXBCProgramType((chunk[2] >> 16) & 0xFFFF); // Should always match with ReShade subobject type, unless the application passed in a binary of one type in the shader creation func of another type
-
+                     // Unused, but good to be checked.
+                     // Should always match with ReShade subobject type, unless the application passed in a binary of one type in the shader creation func of another type
                      DXBCProgramType reshade_program_type = DXBCProgramType(-1);
                      switch (subobject.type)
                      {
@@ -2737,47 +2863,53 @@ namespace
                      case reshade::api::pipeline_subobject_type::compute_shader: { reshade_program_type = DXBCProgramType::ComputeShader; break; }
                      case reshade::api::pipeline_subobject_type::pixel_shader: { reshade_program_type = DXBCProgramType::PixelShader; break; }
                      }
-                     ASSERT_ONCE(reshade_program_type == program_type); // We should probably stop in this case
+                     ASSERT_ONCE(reshade_program_type == chunk_byte_code->program_type); // We should probably stop in this case
 
                      uint32_t prev_size = 8;
-                     uint32_t byte_code_size = (chunk[3] * sizeof(uint32_t)) - prev_size; // The size is stored in "DWORD" elements and counted the size and program version/type in its count, so we remove them
+                     uint32_t byte_code_size = (chunk_byte_code->chunk_size_dword * sizeof(uint32_t)) - prev_size; // The size is stored in "DWORD" elements and counted the size and program version/type in its count, so we remove them
 #if DEVELOPMENT // Verify that the size is right
-                     ASSERT_ONCE(chunk_size == (byte_code_size + prev_size)); // Add back the two DWORD that we excluded from the size
+                     ASSERT_ONCE(chunk->chunk_size == (byte_code_size + prev_size)); // Add back the two DWORD that we excluded from the size
 #endif
-                     const std::byte* byte_code = reinterpret_cast<const std::byte*>(&chunk[4]);
+                     const std::byte* byte_code = reinterpret_cast<const std::byte*>(chunk_byte_code->byte_code);
 
                      size_t new_byte_code_size = byte_code_size;
-                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, new_byte_code_size, subobject.type, shader_hash))
+                     if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, new_byte_code_size, subobject.type, shader_luma_hash, static_cast<const std::byte*>(current_shader_data.code), current_shader_data.code_size))
                      {
-                        if (!new_patched_code)
+                        const bool byte_code_size_changed = new_byte_code_size != byte_code_size;
+                        const int32_t byte_code_size_diff = int32_t(new_byte_code_size) - int32_t(byte_code_size); // int32 should always be enough
+                        if (!patched_shader_code || byte_code_size_changed)
                         {
-                           // Check if size changed if it did we have to reconstruct the shader headers and chunk index as well as the replace with a new shader description for dx11
-                           if (new_byte_code_size != byte_code_size)
+                           // Allocate a new instance to patch the shader
                            {
-                              size_diff = int32_t(new_byte_code_size) - int32_t(byte_code_size); // int32 should always be enough
-                              new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size + size_diff);
-                              std::memcpy(new_patched_code.get(), shader_desc->code, byte_code - (std::byte*)shader_desc->code); // Copy everything until byte code
-                              // Update sizes
-                              DXBCHeader* new_shader_header = reinterpret_cast<DXBCHeader*>(new_patched_code.get());
-                              new_shader_header->file_size = new_shader_header->file_size + size_diff;
-                              uint32_t* shex_header = reinterpret_cast<uint32_t*>(new_patched_code.get() + new_shader_header->chunk_offsets[i]);
-                              shex_header[1] = shex_header[1] + size_diff; // Chunk size
-                              shex_header[3] = shex_header[3] + (size_diff / sizeof(uint32_t)); // Byte code size in DWORD (4 bytes)
-                              // Update chunk offsets of all chunks after this one
-                              for (uint32_t j = i + 1; j < shader_header->chunk_count; ++j)
-                              {
-                                 new_shader_header->chunk_offsets[j] += size_diff;
-                              }
-                              // Copy tail-end
-                              uint32_t tail_offset = shader_header->chunk_offsets[i] + chunk_size + size_diff;
-                              uint32_t old_tail_offset = shader_header->chunk_offsets[i] + chunk_size;
-                              uint32_t tail_size = shader_desc->code_size - old_tail_offset; // Should be 0 if this is the last chunk?
-                              std::memcpy(new_patched_code.get() + tail_offset, (std::byte*)shader_desc->code + old_tail_offset, tail_size);
+                              size_t new_patched_shader_code_size = current_shader_data.code_size + byte_code_size_diff;
+                              std::unique_ptr<std::byte[]> new_patched_shader_code = std::make_unique<std::byte[]>(new_patched_shader_code_size); // "current_shader_data" might be pointing to "patched_shader_code" so make a new temporary one
+
+                              // Copy everything until the byte code, the actual byte code "body" is copied below
+                              std::memcpy(new_patched_shader_code.get(), current_shader_data.code, byte_code - (std::byte*)current_shader_data.code);
+
+                              // Copy anything after this chunk
+                              uint32_t old_tail_offset = current_shader_data.header->chunk_offsets[i] + chunk->chunk_size;
+                              uint32_t new_tail_offset = old_tail_offset + byte_code_size_diff;
+                              uint32_t tail_size = current_shader_data.code_size - old_tail_offset; // Should be 0 if this is the last chunk? Is there any "padding" data after?
+                              std::memcpy(new_patched_shader_code.get() + new_tail_offset, (std::byte*)current_shader_data.code + old_tail_offset, tail_size);
+
+                              patched_shader_code = std::move(new_patched_shader_code);
+                              current_shader_data.Set(patched_shader_code.get(), new_patched_shader_code_size);
                            }
-						   else 
+
+                           // Check if size changed, if it did we have to reconstruct the shader headers and chunk index as well as the replace with a new shader description for dx11
+                           if (byte_code_size_changed)
                            {
-                              new_patched_code = std::make_unique<std::byte[]>(shader_desc->code_size);
-                              std::memcpy(new_patched_code.get(), shader_desc->code, shader_desc->code_size);
+                              // Update sizes
+                              current_shader_data.header->file_size += byte_code_size_diff;
+                              chunk->chunk_size += byte_code_size_diff; // Chunk size
+                              ASSERT_ONCE(byte_code_size_diff % sizeof(uint32_t) == 0); // Make sure it's a multiple of DWORD (4 bytes), it's probably mandatory for it to be
+                              chunk_byte_code->chunk_size_dword += byte_code_size_diff / sizeof(uint32_t); // Byte code size in DWORD (4 bytes)
+                              // Update chunk offsets of all chunks after this one
+                              for (uint32_t j = i + 1; j < current_shader_data.header->chunk_count; ++j)
+                              {
+                                 current_shader_data.header->chunk_offsets[j] += byte_code_size_diff;
+                              }
                            }
                         }
 
@@ -2785,41 +2917,42 @@ namespace
                         // (we don't overwrite the original shader code because it's const, ReShade or the game's memory might expect it to not change,
                         // and plus it'd break other mods that load before us that replace shaders by hash on creation)
 
-                        const size_t offset = byte_code - (std::byte*)shader_desc->code;
-                        std::memcpy(new_patched_code.get() + offset, patched_byte_code.get(), byte_code_size + size_diff);
+                        const size_t offset = byte_code - (std::byte*)current_shader_data.code;
+                        std::memcpy(patched_shader_code.get() + offset, patched_byte_code.get(), byte_code_size + byte_code_size_diff);
+
+                        needs_new_md5_hash = true;
                      }
                   }
                }
 
-               if (new_patched_code || pre_patched_code)
+               if (current_shader_data.code != original_shader_desc->code)
                {
                   any_edited = true;
 
-                  ASSERT_ONCE((pre_patched_code == nullptr) != (new_patched_code.get() == nullptr));
-
-                  const std::byte* patched_code = pre_patched_code ? pre_patched_code : new_patched_code.get();
-                  shader_header = (DXBCHeader*)patched_code;
-
                   // Store the original shader so it can later be accessed in ReShade's pipeline init callback (it'd still be valid as it's an external ptr, unless ReShade changed its implementation)
-                  ASSERT_ONCE_MSG((subobject_count == 1 || subobject_count == 2) && subobject.count == 1, "This behaviour is hardcoded to work with DX9-11, with one object (shader) per pipeline"); // input layouts have two subobjects (input layour and vertex shader)
-                  last_live_patched_shader_code = shader_desc->code;
-                  last_live_patched_shader_size = shader_desc->code_size;
-                  ASSERT_ONCE(shader_hash != -1);
-                  last_live_patched_shader_hash = uint32_t(shader_hash);
+                  ASSERT_ONCE_MSG((subobject_count == 1 || subobject_count == 2) && subobject.count == 1 && !last_live_patched_original_shader_code, "This behaviour is hardcoded to work with DX9-11, with one object (shader) per pipeline"); // input layouts have two subobjects (input layout and vertex shader)
+                  ASSERT_ONCE(!patched_shader_code.get() || patched_shader_code.get() == current_shader_data.code);
+                  last_live_patched_original_shader_code = original_shader_desc->code;
+                  last_live_patched_original_shader_size = original_shader_desc->code_size;
+                  last_live_patched_shader_hash = shader_luma_hash;
 
-                  // Recalculate and set the hash, otherwise the shader might fail to load (or be used later on anyway)
-                  // Official implementation is here: https://github.com/doitsujin/dxbc-spirv/blob/32866c0d0a0236b93681d25405e57a3e9d6868d3/dxbc/dxbc_container.cpp#L11
-                  // this one should match
-                  Hash::MD5::Digest md5_digest = pre_patched_code_hash ? *pre_patched_code_hash : Shader::CalcDXBCHash(patched_code, shader_header->file_size);
-                  memcpy(shader_header->hash, &md5_digest.data, DXBCHeader::hash_size);
+                  if (needs_new_md5_hash)
+                  {
+                     // Recalculate and set the hash, otherwise the shader might fail to load (or be used later on anyway)
+                     // Official implementation is here: https://github.com/doitsujin/dxbc-spirv/blob/32866c0d0a0236b93681d25405e57a3e9d6868d3/dxbc/dxbc_container.cpp#L11
+                     // This implementation should match it 100%
+                     Hash::MD5::Digest md5_digest = pre_patched_code_hash ? *pre_patched_code_hash : Shader::CalcDXBCHash(current_shader_data.code, current_shader_data.code_size);
+                     std::memcpy(current_shader_data.header->hash, &md5_digest.data, DXBCHeader::hash_size);
+                  }
 
-                  // Update ReShade pointers to code and its size, so they point at the new code (that is kept alive by unique ptrs)
+                  // Update ReShade pointers to code and its size, so they point at the new code (that is kept alive by unique ptrs).
+                  // ReShade doesn't handle the memory of the pointer at all, it simply passes it to the native function.
                   auto* shader_desc = static_cast<reshade::api::shader_desc*>(subobjects[i].data);
-                  shader_desc->code = patched_code;
-                  shader_desc->code_size = shader_header->file_size;
+                  shader_desc->code = current_shader_data.code;
+                  shader_desc->code_size = current_shader_data.code_size;
 
                   // Cache the newly patched
-                  if (new_patched_code.get())
+                  if (patched_shader_code.get())
                   {
                      const std::unique_lock lock_device(device_data.mutex);
 
@@ -2831,10 +2964,10 @@ namespace
                         device_data.modified_shaders_byte_code.reserve(device_data.modified_shaders_byte_code.size() + reserve_size);
                      }
 
-                     auto& modified_shader_byte_code = device_data.modified_shaders_byte_code[uint32_t(shader_hash)];
-                     std::get<0>(modified_shader_byte_code) = std::move(new_patched_code);
-                     std::get<1>(modified_shader_byte_code) = shader_desc->code_size;
-                     std::get<2>(modified_shader_byte_code) = md5_digest;
+                     auto& modified_shader_byte_code = device_data.modified_shaders_byte_code[uint32_t(shader_luma_hash)];
+                     std::get<0>(modified_shader_byte_code) = std::move(patched_shader_code); // Equal to "current_shader_data.code"
+                     std::get<1>(modified_shader_byte_code) = current_shader_data.code_size;
+                     std::get<2>(modified_shader_byte_code) = *reinterpret_cast<const Hash::MD5::Digest*>(current_shader_data.header->hash);
                   }
                }
 
@@ -2857,7 +2990,7 @@ namespace
    {
       const void* live_patched_shader_code = nullptr;
       size_t live_patched_shader_size = 0;
-      size_t precalculated_shader_hash = -1;
+      uint64_t precalculated_shader_hash = -1;
 
       // In DX11 each pipeline should only have one subobject (e.g. a shader)
       for (uint32_t i = 0; i < subobject_count; ++i)
@@ -2897,13 +3030,18 @@ namespace
          case reshade::api::pipeline_subobject_type::pixel_shader:
          {
 #if !DX12
-            ASSERT_ONCE(subobject_count == 1 || subobject_count == 2); // input layouts have two subobjects (input layour and vertex shader)
+            ASSERT_ONCE(subobject_count == 1 || subobject_count == 2); // input layouts have two subobjects (input layout and vertex shader)
 #endif
             ASSERT_ONCE(subobject.count == 1);
 #if ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS
+            if (last_live_patched_shader_hash != -1)
+            {
+               precalculated_shader_hash = last_live_patched_shader_hash;
+               last_live_patched_shader_hash = -1;
+            }
             // Restore the original shader at this point in ReShades pipeline data, so we don't end up analyzing the hash of the live patched shader,
             // or dumping it, it should only apply to rendering really without influencing the rest of the application.
-            if (last_live_patched_shader_code)
+            if (last_live_patched_original_shader_code)
             {
                auto* shader_desc = static_cast<reshade::api::shader_desc*>(subobjects[i].data);
 
@@ -2912,15 +3050,13 @@ namespace
                live_patched_shader_code = shader_desc->code;
                live_patched_shader_size = shader_desc->code_size;
 
-#if 1 // This is optional, it can be disabled if we want to check the live patched asm
-               shader_desc->code = last_live_patched_shader_code;
-               shader_desc->code_size = last_live_patched_shader_size;
+#if 1 // This is optional but convenient, see "original_shader_desc" below
+               shader_desc->code = last_live_patched_original_shader_code;
+               shader_desc->code_size = last_live_patched_original_shader_size;
 #endif
-               precalculated_shader_hash = last_live_patched_shader_hash;
 
-               last_live_patched_shader_code = nullptr;
-               last_live_patched_shader_size = 0;
-               last_live_patched_shader_hash = 0;
+               last_live_patched_original_shader_code = nullptr;
+               last_live_patched_original_shader_size = 0;
 
                // At this point, if we wanted, we could always destroy the shaders ptr we temporarily allocated
                // to pass into ReShade (the shader creation DX function is split into two functions by it, so
@@ -2982,16 +3118,16 @@ namespace
             case reshade::api::pipeline_subobject_type::compute_shader:
             case reshade::api::pipeline_subobject_type::pixel_shader:
             {
-               auto* shader_desc = static_cast<reshade::api::shader_desc*>(subobjects_cache[i].data);
-               ASSERT_ONCE(shader_desc->code_size > 0);
-               if (shader_desc->code_size == 0) break;
+               auto* original_shader_desc = static_cast<reshade::api::shader_desc*>(subobjects_cache[i].data);
+               ASSERT_ONCE(original_shader_desc->code_size > 0);
+               if (original_shader_desc->code_size == 0) break;
                found_replaceable_shader = true;
 
                // TODO: this isn't possible in DX11 but we should check if the shader has any private data and clone that too?
 
                // TODO: when out of "DEVELOPMENT" or "TEST" builds, we could early out before cloning the pipeline based on whether "custom_shaders_cache.contains(shader_hash)" is true. That'd avoid some stutters on shader loading. Note that below we might modify even shaders that we don't replace so consider that too.
-               // TODO: use the native DX hash stored at the beginning of shaders binaries? It might not always be reliable though
-               uint32_t shader_hash = (precalculated_shader_hash != -1) ? uint32_t(precalculated_shader_hash) : Shader::BinToHash(static_cast<const uint8_t*>(shader_desc->code), shader_desc->code_size);
+               // TODO: use the native DX hash stored at the beginning of shaders binaries? It might not always be reliable though. It's too late anyway now, all of our hashes are in content.
+               uint32_t shader_hash = (precalculated_shader_hash != -1) ? uint32_t(precalculated_shader_hash) : Shader::BinToHash(static_cast<const uint8_t*>(original_shader_desc->code), original_shader_desc->code_size);
 
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
                {
@@ -3007,7 +3143,7 @@ namespace
                   {
                      auto& previous_shader = previous_shader_pair->second;
                      // Make sure that two shaders have the same hash, their code size also matches (theoretically we could check even more, but the chances hashes overlapping is extremely small)
-                     //assert(previous_shader->size == shader_desc->code_size);
+                     assert(previous_shader->size == original_shader_desc->code_size);
                      if (!keep_duplicate_cached_shaders)
                      {
 #if DEVELOPMENT
@@ -3024,8 +3160,8 @@ namespace
 
                   if (!cached_shader)
                   {
-                     cached_shader = new CachedShader{ malloc(shader_desc->code_size), shader_desc->code_size, subobject.type };
-                     std::memcpy(cached_shader->data, shader_desc->code, cached_shader->size);
+                     cached_shader = new CachedShader{ malloc(original_shader_desc->code_size), original_shader_desc->code_size, subobject.type };
+                     std::memcpy(cached_shader->data, original_shader_desc->code, cached_shader->size);
 
 #if DEVELOPMENT
                      shader_cache_count++;
@@ -3695,7 +3831,7 @@ namespace
 #endif
          // TODO: have a high performance mode that swaps the original shader binary with the custom one on creation, so we don't have to analyze shader binding calls (probably wouldn't really speed up performance anyway).
          // This would also help save some memory in x86 games where we keep all shaders binaries in memory ("custom_shaders_cache::code").
-         if (cached_pipeline->cloned)
+         if (cached_pipeline->cloned && custom_shaders_enabled)
          {
             cmd_list->bind_pipeline(stages, cached_pipeline->pipeline_clone);
          }
@@ -3777,7 +3913,7 @@ namespace
                native_device_context->CSSetConstantBuffers(slot, 1, &buffer);
          };
 
-      // Most games (e.g. Prey, Dishonored 2) doesn't ever use these buffers, so it's fine to re-apply them once per frame if they didn't change.
+      // Most games (e.g. Prey, Dishonored 2) doesn't ever use these buffer slots, so it's fine to re-apply them once per frame if they didn't change.
       // For other games, it'd be good to re-apply the previously set cbuffer after temporarily changing it, as they might only set them once per frame.
       switch (type)
       {
@@ -3789,7 +3925,6 @@ namespace
             const std::shared_lock lock_reshade(s_mutex_reshade);
             if (force_update || device_data.cb_luma_global_settings_dirty)
             {
-               device_data.cb_luma_global_settings_dirty = false;
                // My understanding is that "Map" doesn't immediately copy the memory to the GPU, but simply stores it on the side (in the command list),
                // and then copies it to the GPU when the command list is executed, so the resource is updated with deterministic order.
                // From our point of view, we don't really know what command list is currently running and what it is doing,
@@ -3802,7 +3937,20 @@ namespace
                if (D3D11_MAPPED_SUBRESOURCE mapped_buffer;
                   SUCCEEDED(native_device_context->Map(device_data.luma_global_settings.get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_buffer)))
                {
-                  ASSERT_ONCE_MSG(cmd_list_data.is_primary, "Changing the Luma Settings CBuffer from async command lists isn't fully safe, use the Luma Data CBuffer if you change the data within a frame");
+                  if (!cmd_list_data.is_primary)
+                  {
+                     if (device_data.cb_luma_global_settings_dirty)
+                     {
+                        cmd_list_data.async_set_cb_luma_global_settings = true;
+                     }
+#if DEVELOPMENT
+                     cmd_list_data.requires_join = true; // Make sure this command list is "merged" otherwise this "Map" call would go lost, leaving our buffer dirty
+#endif
+                  }
+                  else
+                  {
+                     device_data.cb_luma_global_settings_dirty = false;
+                  }
                   std::memcpy(mapped_buffer.pData, &cb_luma_global_settings, sizeof(cb_luma_global_settings));
                   native_device_context->Unmap(device_data.luma_global_settings.get(), 0);
                }
@@ -3870,10 +4018,16 @@ namespace
       cmd_list_data.pipeline_state_has_custom_graphics_shader = false;
       cmd_list_data.pipeline_state_has_custom_compute_shader = false;
 
+      ASSERT_ONCE(!cmd_list_data.async_set_cb_luma_global_settings);
+      cmd_list_data.async_set_cb_luma_global_settings = false;
+
 #if DEVELOPMENT
       //ASSERT_ONCE(cmd_list_data.is_primary || cmd_list_data.trace_draw_calls_data.empty()); // This should already be the case (no, sometimes it triggers with acceptable cases, no need to check for this until proven otherwise)
       cmd_list_data.any_draw_done = false;
       cmd_list_data.any_dispatch_done = false;
+
+      ASSERT_ONCE(!cmd_list_data.requires_join);
+      cmd_list_data.requires_join = false;
 
       cmd_list_data.temp_custom_depth_stencil = ShaderCustomDepthStencilType::None;
 
@@ -3891,6 +4045,7 @@ namespace
 
 #if DEVELOPMENT
    // "queue" and "cmd_list" both point to the device context in DX11
+   // For DX11, this is only called on the immediately device context
    void OnExecuteCommandList(reshade::api::command_queue* queue, reshade::api::command_list* cmd_list)
    {
       const std::shared_lock lock_trace(s_mutex_trace);
@@ -3904,6 +4059,7 @@ namespace
          cmd_list_data.trace_draw_calls_data.push_back(trace_draw_call_data);
       }
    }
+#endif
 
    // For DX11 this is linked to "FinishCommandList".
    // Before that, there's no "ID3D11CommandList".
@@ -3916,21 +4072,39 @@ namespace
    // where one of the two is "ID3D11CommandList".
    void OnExecuteSecondaryCommandList(reshade::api::command_list* cmd_list, reshade::api::command_list* secondary_cmd_list)
    {
+      CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
+      CommandListData& secondary_cmd_list_data = *secondary_cmd_list->get_private_data<CommandListData>();
+
+      bool is_finish_command_list = false; // It should have been called "create command list", but probably internally it already existed so they called it "finish"
+      com_ptr<ID3D11DeviceContext> native_device_context;
+      ID3D11DeviceChild* device_child = reinterpret_cast<ID3D11DeviceChild*>(secondary_cmd_list->get_native()); // This could either be a "ID3D11CommandList" or a "ID3D11DeviceContext"
+      HRESULT hr = device_child->QueryInterface(&native_device_context);
+      if (SUCCEEDED(hr) && native_device_context)
+      {
+         is_finish_command_list = true;
+      }
+
+      cmd_list_data.async_set_cb_luma_global_settings = secondary_cmd_list_data.async_set_cb_luma_global_settings;
+      secondary_cmd_list_data.async_set_cb_luma_global_settings = false;
+      if (!is_finish_command_list && cmd_list_data.async_set_cb_luma_global_settings)
+      {
+         DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
+         cmd_list_data.async_set_cb_luma_global_settings = false;
+
+         // The command list has been joined, so any cbuffer that was updated in it is from now already updated an any further commands
+         device_data.cb_luma_global_settings_dirty = false;
+      }
+
+#if DEVELOPMENT
+      if (is_finish_command_list)
+      {
+         cmd_list_data.requires_join = secondary_cmd_list_data.requires_join;
+      }
+      secondary_cmd_list_data.requires_join = false;
+
       const std::shared_lock lock_trace(s_mutex_trace);
       if (trace_running)
       {
-         CommandListData& cmd_list_data = *cmd_list->get_private_data<CommandListData>();
-         CommandListData& secondary_cmd_list_data = *secondary_cmd_list->get_private_data<CommandListData>();
-
-         bool is_finish_command_list = false; // It should have been called "create command list", but probably internally it already existed so they called it "finish"
-         com_ptr<ID3D11DeviceContext> native_device_context;
-         ID3D11DeviceChild* device_child = reinterpret_cast<ID3D11DeviceChild*>(secondary_cmd_list->get_native()); // This could either be a "ID3D11CommandList" or a "ID3D11DeviceContext"
-         HRESULT hr = device_child->QueryInterface(&native_device_context);
-         if (SUCCEEDED(hr) && native_device_context)
-         {
-            is_finish_command_list = true;
-         }
-
          const std::unique_lock lock_trace_2(cmd_list_data.mutex_trace);
          TraceDrawCallData trace_draw_call_data;
          trace_draw_call_data.type = is_finish_command_list ? TraceDrawCallData::TraceDrawCallType::CreateCommandList : TraceDrawCallData::TraceDrawCallType::AppendCommandList;
@@ -3941,8 +4115,8 @@ namespace
          cmd_list_data.trace_draw_calls_data.append_range(secondary_cmd_list_data.trace_draw_calls_data);
          secondary_cmd_list_data.trace_draw_calls_data.clear(); // Clear the command list where the data was from (given it was moved to the other one)
       }
-   }
 #endif
+   }
 
    void OnPresent(
       reshade::api::command_queue* queue,
@@ -3965,12 +4139,12 @@ namespace
          Sleep(frame_sleep_ms);
 #endif  // DEVELOPMENT
 
-      // If there are no shaders being currently replaced in the game ("cloned_pipeline_count"),
+      // If there are no shaders being currently replaced in the game,
       // we can assume that we either missed replacing some shaders, or that we have unloaded all of our shaders.
-      bool mod_active = device_data.cloned_pipeline_count != 0;
+      bool mod_active = IsModActive(device_data);
       // Theoretically we should simply check the current swapchain buffer format, but this also works
-      const bool output_linear = (enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::scRGB) || swapchain_data.vanilla_was_linear_space;
-      const bool output_pq_bt2020 = enable_swapchain_upgrade && swapchain_upgrade_type == SwapchainUpgradeType::HDR10;
+      const bool output_linear = (swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type == SwapchainUpgradeType::scRGB) || swapchain_data.vanilla_was_linear_space;
+      const bool output_pq_bt2020 = swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled && swapchain_upgrade_type == SwapchainUpgradeType::HDR10;
       bool input_linear = swapchain_data.vanilla_was_linear_space;
 #if GAME_PREY // Prey's native code hooks already make the swapchain linear, but don't change the shaders
       input_linear = false;
@@ -3985,12 +4159,12 @@ namespace
       // Note that not all these combinations might be handled by the shader
       bool needs_reencoding = (output_linear != input_linear) || output_pq_bt2020;
       bool early_display_encoding = GetShaderDefineCompiledNumericalValue(POST_PROCESS_SPACE_TYPE_HASH) == 1 && GetShaderDefineCompiledNumericalValue(EARLY_DISPLAY_ENCODING_HASH) >= 1;
-      bool needs_scaling = mod_active ? !early_display_encoding : (cb_luma_global_settings.DisplayMode >= 1);
+      bool needs_scaling = mod_active ? !early_display_encoding : (cb_luma_global_settings.DisplayMode >= DisplayModeType::HDR);
       bool early_gamma_correction = early_display_encoding && GetShaderDefineCompiledNumericalValue(GAMMA_CORRECTION_TYPE_HASH) < 2;
       // If the vanilla game was already doing post processing in linear space, it would have used sRGB buffers, hence it needs a sRGB<->2.2 gamma mismatch fix (we assume the vanilla game was running in SDR, not scRGB HDR).
       bool in_out_gamma_different = GetShaderDefineCompiledNumericalValue(VANILLA_ENCODING_TYPE_HASH) != GetShaderDefineCompiledNumericalValue(GAMMA_CORRECTION_TYPE_HASH);
       // If we are outputting SDR on SDR Display on a scRGB HDR swapchain, we might need Gamma 2.2/sRGB mismatch correction, because Windows would encode the scRGB buffer with sRGB (instead of Gamma 2.2, which the game would likely have expected)
-      bool display_mode_needs_gamma_correction = swapchain_data.vanilla_was_linear_space ? false : (cb_luma_global_settings.DisplayMode == 0);
+      bool display_mode_needs_gamma_correction = swapchain_data.vanilla_was_linear_space ? false : (cb_luma_global_settings.DisplayMode == DisplayModeType::SDR);
       bool needs_gamma_correction = (mod_active ? (!early_gamma_correction && in_out_gamma_different) : in_out_gamma_different) || display_mode_needs_gamma_correction;
       // If this is true, the UI and Scene were both drawn with a brightness that is relative to each other, so we need to normalize it back to the scene brightness range
       bool ui_needs_scaling = mod_active && GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) == 2;
@@ -4399,49 +4573,11 @@ namespace
 #endif
       track_buffer_pipeline_instance = 0;
 #endif // DEVELOPMENT
-      
-#if ENABLE_NGX
-      // Re-init DLSS if user toggled the settings.
-      // We wouldn't really need to do anything other than clearing "dlss_output_color",
-      // but to avoid wasting memory allocated by DLSS texture and other resources, clear it up once disabled.
-      // Note that we keep these textures in memory if the user temporarily changed away from an AA method that supports DLSS, or if users unloaded shaders (there's no reason to, and it'd cause stutters).
-      if (device_data.dlss_sr != NGX::DLSS::HasInit(device_data.dlss_sr_handle))
-      {
-         if (device_data.dlss_sr)
-         {
-            com_ptr<IDXGIDevice> native_dxgi_device;
-            HRESULT hr = native_device->QueryInterface(&native_dxgi_device);
-            com_ptr<IDXGIAdapter> native_adapter;
-            if (SUCCEEDED(hr))
-            {
-               hr = native_dxgi_device->GetAdapter(&native_adapter);
-            }
-            assert(SUCCEEDED(hr));
-
-            device_data.dlss_sr = NGX::DLSS::Init(device_data.dlss_sr_handle, native_device, native_adapter.get()); // No need to update "dlss_sr_supported", it wouldn't have changed.
-            if (!device_data.dlss_sr)
-            {
-               const std::unique_lock lock_reshade(s_mutex_reshade);
-               dlss_sr = false; // Disable the global user setting if it's not supported (it's ok even if we pollute device and global data), we want to grey it out in the UI (there's no need to serialize the new value for it though!)
-            }
-         }
-         else
-         {
-            device_data.dlss_output_color = nullptr;
-            device_data.dlss_exposure = nullptr;
-            device_data.dlss_render_resolution_scale = 1.f; // Reset this to 1 when DLSS is toggled, even if dynamic resolution scaling is active (e.g. in Prey), we'll set it back to a low value if DRS is used again.
-            device_data.dlss_scene_exposure = 1.f;
-            device_data.dlss_scene_pre_exposure = 1.f;
-            game->CleanExtraDLSSResources(device_data);
-#if 0 // This would actually unload the DLSS DLL and all, making the game hitch, so it's better to just keep it in memory
-            NGX::DLSS::Deinit(device_data.dlss_sr_handle);
-#endif
-         }
-      }
-#endif // ENABLE_NGX
 
       device_data.has_drawn_main_post_processing_previous = device_data.has_drawn_main_post_processing;
-      device_data.has_drawn_dlss_sr_imgui = device_data.has_drawn_dlss_sr;
+#if ENABLE_SR
+      device_data.has_drawn_sr_imgui = device_data.has_drawn_sr;
+#endif // ENABLE_SR
 
       game->OnPresent(native_device, device_data);
 
@@ -4608,11 +4744,35 @@ namespace
       }
 #endif //DEVELOPMENT
 
-      const bool mod_active = device_data.cloned_pipeline_count != 0;
-      if (enable_ui_separation && mod_active && ((device_data.has_drawn_main_post_processing && native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE && !original_shader_hashes.Contains(shader_hashes_UI_excluded)) || original_shader_hashes.Contains(shader_hashes_UI)))
+      const bool mod_active = IsModActive(device_data);
+      if (enable_ui_separation && mod_active)
       {
          ID3D11RenderTargetView* const ui_texture_rtv_const = device_data.ui_texture_rtv.get();
-         native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr); // Note: for now we don't restore this back to the original value, as we haven't found any game that reads back the RT, or doesn't set it every frame or draw call
+         if ((device_data.has_drawn_main_post_processing &&
+            native_device_context->GetType() == D3D11_DEVICE_CONTEXT_IMMEDIATE
+            && !original_shader_hashes.Contains(shader_hashes_UI_excluded))
+            || original_shader_hashes.Contains(shader_hashes_UI))
+         {
+            com_ptr<ID3D11RenderTargetView> ui_target_rtv = nullptr; // swapchain or a custom one, or any!;
+
+            bool do_ui = false;
+            com_ptr<ID3D11RenderTargetView> rtv;
+            native_device_context->OMGetRenderTargets(1, &rtv, nullptr);
+            if (rtv == ui_texture_rtv_const)
+            {
+               do_ui = true;
+            }
+            else if (rtv == ui_target_rtv)
+            {
+               native_device_context->OMSetRenderTargets(1, &ui_texture_rtv_const, nullptr); // Note: for now we don't restore this back to the original value, as we haven't found any game that reads back the RT, or doesn't set it every frame or draw call
+               do_ui = true;
+            }
+
+            if (do_ui)
+            {
+
+            }
+         }
       }
 
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
@@ -4681,7 +4841,7 @@ namespace
 
       // No need to lock "s_mutex_reshade" for "cb_luma_global_settings" here, it's not relevant
       // We could use "has_drawn_composed_gbuffers" here instead of "has_drawn_main_post_processing", but then again, they should always match (pp should always be run)
-      ui_data.background_tonemapping_amount = (cb_luma_global_settings.DisplayMode == 1 && device_data.has_drawn_main_post_processing_previous && ui_data.targeting_swapchain) ? game->GetTonemapUIBackgroundAmount(device_data) : 0.0;
+      ui_data.background_tonemapping_amount = (cb_luma_global_settings.DisplayMode == DisplayModeType::HDR && device_data.has_drawn_main_post_processing_previous && ui_data.targeting_swapchain) ? game->GetTonemapUIBackgroundAmount(device_data) : 0.0;
 
       com_ptr<ID3D11BlendState> blend_state;
       native_device_context->OMGetBlendState(&blend_state, nullptr, nullptr);
@@ -4958,10 +5118,9 @@ namespace
 #endif
 
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
-         // TODO: make the "debug_draw_pipeline_target_instance" and "track_buffer_pipeline_target_instance" by thread (and command list) too, though it's rarely useful
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
          {
             DrawStateStack post_draw_state_stack;
@@ -4990,6 +5149,7 @@ namespace
       if (track_buffer_pipeline != 0 && (track_buffer_pipeline_ps || track_buffer_pipeline_vs))
       {
          auto local_track_buffer_pipeline_instance = track_buffer_pipeline_instance.fetch_add(1);
+         // TODO: make "track_buffer_pipeline_target_instance" by thread (like "debug_draw_pipeline_target_instance"), though it's rarely useful
          if (track_buffer_pipeline_target_instance == -1 || local_track_buffer_pipeline_instance == track_buffer_pipeline_target_instance)
          {
             com_ptr<ID3D11Buffer> cb;
@@ -5085,7 +5245,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -5181,7 +5341,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, true);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_compute_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_compute_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -5304,7 +5464,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch);
 #if DEVELOPMENT
       const auto& original_shader_hashes = is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader_hashes : cmd_list_data.pipeline_state_original_graphics_shader_hashes;
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)))
+      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -5617,7 +5777,7 @@ namespace
          // Code mirrored from "OnCreateResource()" (though some filter cases are still missing)
          if (desc.type == reshade::api::resource_type::texture_2d && desc.texture.depth_or_layers == 1)
          {
-            if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0 && enable_texture_format_upgrades && texture_upgrade_formats.contains(desc.texture.format))
+            if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0 && texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled && texture_upgrade_formats.contains(desc.texture.format))
             {
                // Shared resources can call "OnInitResource()" without a "OnCreateResource()" (see "D3D11Device::OpenSharedResource"), as they've been created on a different device (and possibly API), so we can't always upgrade them,
                // though Luma only allows DX11 devices so it's probably guaranteed!
@@ -5701,7 +5861,7 @@ namespace
    // TODO: cache the last "almost" upgraded texture resolution to make sure that when the swapchain changes res, we didn't fail to upgrade resources before
    bool ShouldUpgradeResource(const reshade::api::resource_desc& desc, const DeviceData& device_data)
    {
-      if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) == 0 || !enable_texture_format_upgrades || !texture_upgrade_formats.contains(desc.texture.format))
+      if ((desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) == 0 || texture_format_upgrades_type < TextureFormatUpgradesType::AllowedEnabled || !texture_upgrade_formats.contains(desc.texture.format))
       {
          return false;
       }
@@ -6019,7 +6179,7 @@ namespace
                formats_compatible |= bgra8_1 && bgra8_2;
                // No need to force replace the view format if formats are compatible
                if (!formats_compatible)
-                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16_FLOAT or R10G10B10A2_UNORM if "enable_swapchain_upgrade" is on (depending on "swapchain_upgrade_type")
+                 desc.format = resource_desc.texture.format; // Should be R16G16B16A16_FLOAT or R10G10B10A2_UNORM if "swapchain_format_upgrade_type" is enabled (depending on "swapchain_upgrade_type")
                break;
             }
             }
@@ -6576,7 +6736,7 @@ namespace
       if (!enable_upgraded_texture_resource_copy_redirection)
          return false;
 
-      if (!enable_swapchain_upgrade && !enable_texture_format_upgrades)
+      if (swapchain_format_upgrade_type == TextureFormatUpgradesType::None && texture_format_upgrades_type == TextureFormatUpgradesType::None) // Optimization
          return false;
 
       bool upgraded_resources = true;
@@ -7111,13 +7271,13 @@ namespace
          DeviceData& device_data = *runtime->get_device()->get_private_data<DeviceData>();
          if (hdr_enabled_display) // Note: this flag might not be up to date if we toggled HDR outside of the game without opening ImGUI
          {
-            if (cb_luma_global_settings.DisplayMode != 1)
+            if (cb_luma_global_settings.DisplayMode != DisplayModeType::HDR)
             {
-               cb_luma_global_settings.DisplayMode = 1; // HDR in HDR
+               cb_luma_global_settings.DisplayMode = DisplayModeType::HDR; // HDR in HDR
             }
             else
             {
-               cb_luma_global_settings.DisplayMode = 2; // SDR in HDR
+               cb_luma_global_settings.DisplayMode = DisplayModeType::SDRInHDR; // SDR in HDR
             }
             device_data.cb_luma_global_settings_dirty = true;
          }
@@ -7397,7 +7557,7 @@ namespace
 
       ImGui::SameLine();
       ImGui::PushID("##AutoDumpCheckBox");
-      if (ImGui::Checkbox("Auto Dump", &auto_dump))
+      if (ImGui::Checkbox("Auto Dump Shaders", &auto_dump))
       {
          if (!auto_dump && thread_auto_dumping.joinable())
          {
@@ -7448,8 +7608,8 @@ namespace
       static const std::string reload_shaders_button_title_error = std::string("Reload Shaders ") + std::string(ICON_FK_WARNING);
       static const std::string reload_shaders_button_title_outdated = std::string("Reload Shaders ") + std::string(ICON_FK_REFRESH);
       // We skip locking "s_mutex_loading" just to read the size of "shaders_compilation_errors".
-      // We could maybe check "last_pressed_unload" instead of "cloned_pipeline_count", but that wouldn't work in case unloading shaders somehow failed.
-      const char* reload_shaders_button_name = shaders_compilation_errors.empty() ? (device_data.cloned_pipeline_count ? (needs_compilation ? reload_shaders_button_title_outdated.c_str() : "Reload Shaders") : "Load Shaders") : reload_shaders_button_title_error.c_str();
+      // We could maybe check "last_pressed_unload" instead of "IsModActive()", but that wouldn't work in case unloading shaders somehow failed.
+      const char* reload_shaders_button_name = shaders_compilation_errors.empty() ? (IsModActive(device_data) ? (needs_compilation ? reload_shaders_button_title_outdated.c_str() : "Reload Shaders") : "Load Shaders") : reload_shaders_button_title_error.c_str();
       bool show_reload_shaders_button = (needs_compilation && !auto_recompile_defines) || !shaders_compilation_errors.empty();
 #if DEVELOPMENT || TEST // Always show...
       show_reload_shaders_button = true;
@@ -7469,9 +7629,9 @@ namespace
          if (shaders_compilation_errors.empty())
          {
 #if TEST
-            ImGui::SetTooltip((device_data.cloned_pipeline_count && needs_compilation) ? "Shaders recompilation is needed for the changed settings to apply\nYou can use ReShade's Recompile Effects Shortcut to recompile these." : "(Re)Compiles shaders");
+            ImGui::SetTooltip((IsModActive(device_data) && needs_compilation) ? "Shaders recompilation is needed for the changed settings to apply\nYou can use ReShade's Recompile Effects Shortcut to recompile these." : "(Re)Compiles shaders");
 #else
-            ImGui::SetTooltip((device_data.cloned_pipeline_count && needs_compilation) ? "Shaders recompilation is needed for the changed settings to apply" : "(Re)Compiles shaders");
+            ImGui::SetTooltip((IsModActive(device_data) && needs_compilation) ? "Shaders recompilation is needed for the changed settings to apply" : "(Re)Compiles shaders");
 #endif
          }
          else
@@ -7509,7 +7669,7 @@ namespace
 #if DEVELOPMENT
       ImGui::SameLine();
       ImGui::PushID("##AutoLoadCheckBox");
-      if (ImGui::Checkbox("Auto Load", &auto_load))
+      if (ImGui::Checkbox("Auto Load Shaders", &auto_load))
       {
          if (!auto_load && device_data.thread_auto_loading.joinable())
          {
@@ -7531,6 +7691,14 @@ namespace
          ImGui::SetTooltip("If enabled, shaders that aren't used by this mod will be compiled or cleared too.\nUseful to test if they compile properly after changes to c++ or shaders code.\nNote that some mods has specific shader defines configurations that we don't have access too here, but they should build nonetheless.");
       }
 #endif // DEVELOPMENT
+#if DEVELOPMENT || TEST
+      ImGui::SameLine();
+      ImGui::Checkbox("Allow Custom Shaders", &custom_shaders_enabled);
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      {
+         ImGui::SetTooltip("Toggles all the mods custom shaders from applying (without unloading them).\nNote that this might break rendering, only use for testing or vanilla comparison.");
+      }
+#endif
 
       if (ImGui::BeginTabBar("##TabBar", ImGuiTabBarFlags_None))
       {
@@ -7565,6 +7733,7 @@ namespace
                   debug_draw_shader_hash = 0;
                   debug_draw_shader_hash_string[0] = 0;
                   debug_draw_pipeline_target_instance = -1;
+                  debug_draw_pipeline_target_thread = std::thread::id();
 
                   device_data.debug_draw_texture = nullptr;
                   device_data.debug_draw_texture_format = DXGI_FORMAT_UNKNOWN;
@@ -8038,7 +8207,7 @@ namespace
                               int32_t target_instance = 0;
                               for (int32_t i = 0; i < index; i++)
                               {
-                                 if (pipeline_handle == cmd_list_data.trace_draw_calls_data.at(i).pipeline_handle)
+                                 if (pipeline_handle == cmd_list_data.trace_draw_calls_data.at(i).pipeline_handle && draw_call_data.thread_id == cmd_list_data.trace_draw_calls_data.at(i).thread_id)
                                     target_instance++;
                               }
 
@@ -8054,6 +8223,7 @@ namespace
                               device_data.debug_draw_texture_size = {};
                               debug_draw_pipeline_instance = 0;
                               debug_draw_pipeline_target_instance = target_instance;
+                              debug_draw_pipeline_target_thread = debug_draw_pipeline_instance_filter_by_thread ? std::thread::id() : draw_call_data.thread_id;
                               const auto prev_debug_draw_mode = debug_draw_mode;
                               if (prev_debug_draw_mode == DebugDrawMode::Depth)
                               {
@@ -8221,6 +8391,7 @@ namespace
                                     ASSERT_ONCE(ret_val > (HINSTANCE)32); // Unknown reason
                                  }
 
+                                 // TODO: add opening the dumped shader file (e.g. "dumped_shaders")
                                  if (custom_shader && !custom_shader->file_path.empty() && ImGui::Button("Open in Explorer"))
                                  {
                                     System::OpenExplorerToFile(custom_shader->file_path);
@@ -8240,7 +8411,7 @@ namespace
                                        target_instance = 0;
                                        for (int32_t i = 0; i < selected_index; i++)
                                        {
-                                          if (pipeline_handle == cmd_list_data.trace_draw_calls_data.at(i).pipeline_handle)
+                                          if (pipeline_handle == cmd_list_data.trace_draw_calls_data.at(i).pipeline_handle && draw_call_data.thread_id == cmd_list_data.trace_draw_calls_data.at(i).thread_id)
                                              target_instance++;
                                        }
 
@@ -8296,6 +8467,7 @@ namespace
                                        debug_draw_pipeline_instance = 0;
 #if 1 // We could also let the user settings persist if we wished so, but automatically setting them is usually better
                                        debug_draw_pipeline_target_instance = debug_draw_shader_enabled ? -1 : target_instance;
+                                       debug_draw_pipeline_target_thread = (debug_draw_shader_enabled || debug_draw_pipeline_instance_filter_by_thread) ? std::thread::id() : draw_call_data.thread_id;
                                        const auto prev_debug_draw_mode = debug_draw_mode;
                                        if (prev_debug_draw_mode == DebugDrawMode::Depth)
                                        {
@@ -9993,6 +10165,7 @@ namespace
                         debug_draw_shader_hash = 0;
                         debug_draw_shader_hash_string[0] = 0;
                         debug_draw_pipeline_target_instance = -1;
+                        debug_draw_pipeline_target_thread = std::thread::id();
                         if (debug_draw_mode == DebugDrawMode::Depth)
                         {
                            debug_draw_options &= ~(uint32_t)DebugDrawTextureOptionsMask::RedOnly;
@@ -10028,42 +10201,101 @@ namespace
          {
             const std::unique_lock lock_reshade(s_mutex_reshade); // Lock the entire scope for extra safety, though we are mainly only interested in keeping "cb_luma_global_settings" safe
 
-#if ENABLE_NGX
-            ImGui::BeginDisabled(!device_data.dlss_sr_supported);
-            bool optiscaler_detected = GetModuleHandle(TEXT("amd_fidelityfx_dx12.dll")) != NULL; // Make a guess on the presence of FSR DLL, just to inform the user it might be working
-            bool fake_dlss_sr_enabled = false; // Force show that DLSS is disabled when it's not supported, to avoid confusion in case the user setting had stayed true
-            if (ImGui::Checkbox(optiscaler_detected ? "DLSS/FSR Super Resolution" : "DLSS Super Resolution", device_data.dlss_sr_supported ? &dlss_sr : &fake_dlss_sr_enabled))
+#if ENABLE_SR
+            const char* selected_sr_user_type = nullptr;
+            switch (sr_user_type)
             {
-               device_data.dlss_sr = dlss_sr;
-               if (device_data.dlss_sr) device_data.dlss_sr_suppressed = false;
-               reshade::set_config_value(runtime, NAME, "DLSSSuperResolution", dlss_sr);
+            case SR::UserType::None:
+               selected_sr_user_type = "None"; break;
+            case SR::UserType::Auto:
+               selected_sr_user_type = "Auto"; break;
+            case SR::UserType::DLSS_CNN:
+               selected_sr_user_type = "DLSS (CNN Model)"; break;
+            case SR::UserType::DLSS_TRANSFORMER:
+               selected_sr_user_type = "DLSS (Transformer Model)"; break;
+            case SR::UserType::FSR_3:
+               selected_sr_user_type = "FSR 3"; break;
+            }
+
+            SR::Type sr_type = device_data.sr_type;
+
+            SR::Type sr_auto_type = SR::Type::None;
+            // Pick the first supported one (they are in order of priority)
+            for (const auto& sr_implementation_instance : device_data.sr_implementations_instances)
+            {
+               if (sr_implementation_instance.second && sr_implementation_instance.second->is_supported)
+               {
+                  sr_auto_type = sr_implementation_instance.first;
+                  break;
+               }
+            }
+
+            // Note: if we reached here, it's guaranteed that the selected SR type is supported
+            if (ImGui::BeginCombo("Super Resolution", selected_sr_user_type))
+            {
+               auto AddComboItem = [&](const char* name, SR::UserType local_sr_user_type, SR::Type local_sr_type, bool enabled)
+                  {
+                     if (!enabled)
+                     {
+                        // Grey out text
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+                        ImGui::Selectable(name, false, ImGuiSelectableFlags_Disabled);
+                        ImGui::PopStyleColor();
+                     }
+                     else
+                     {
+                        const bool selected = sr_user_type == local_sr_user_type;
+                        if (ImGui::Selectable(name, selected))
+                        {
+                           sr_user_type = local_sr_user_type;
+                           int sr_user_type_i = int(sr_user_type);
+                           reshade::set_config_value(runtime, NAME, "SRUserType", sr_user_type_i);
+
+                           sr_type = local_sr_type;
+                        }
+                        if (selected)
+                           ImGui::SetItemDefaultFocus();
+                     }
+                  };
+
+               AddComboItem("None", SR::UserType::None, SR::Type::None, true);
+               constexpr bool always_show_auto_sr = true; // It's the default value, so just always show it
+               if (always_show_auto_sr || sr_auto_type != SR::Type::None)
+                  AddComboItem("Auto", SR::UserType::Auto, sr_auto_type, !device_data.sr_implementations_instances.empty());
+               AddComboItem("DLSS (CNN Model)", SR::UserType::DLSS_CNN, SR::Type::DLSS, device_data.sr_implementations_instances.contains(SR::Type::DLSS));
+               AddComboItem("DLSS (Transformer Model)", SR::UserType::DLSS_TRANSFORMER, SR::Type::DLSS, device_data.sr_implementations_instances.contains(SR::Type::DLSS));
+               AddComboItem("FSR 3", SR::UserType::FSR_3, SR::Type::FSR, device_data.sr_implementations_instances.contains(SR::Type::FSR));
+
+               ImGui::EndCombo();
             }
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             {
-               ImGui::SetTooltip("This replaces the game's native AA and dynamic resolution scaling implementations.\n%sA tick will appear here when it's engaged and a warning will appear if it failed.\n\nRequires compatible Nvidia GPUs (or OptiScaler for FSR).", dlss_game_tooltip);
+               ImGui::SetTooltip("This replaces the game's native AA and dynamic resolution scaling implementations.\n%sA tick will appear here when it's engaged and a warning will appear if it failed.\n\nSome Super Resolution techniques might only be supported on specific hardware.", sr_game_tooltip);
             }
 
             ImGui::SameLine();
-            if (dlss_sr != true && device_data.dlss_sr_supported)
+            if (sr_type == SR::Type::None)
             {
-               ImGui::PushID("DLSS Super Resolution Enabled");
+               ImGui::PushID("Super Resolution Enabled");
                if (ImGui::SmallButton(ICON_FK_UNDO))
                {
-                  dlss_sr = true;
-                  device_data.dlss_sr = true;
-                  reshade::set_config_value(runtime, NAME, "DLSSSuperResolution", dlss_sr);
+                  sr_user_type = SR::UserType::Auto;
+						int sr_user_type_i = int(sr_user_type);
+                  reshade::set_config_value(runtime, NAME, "SRUserType", sr_user_type_i);
+
+                  sr_type = sr_auto_type;
                }
                ImGui::PopID();
             }
             else
             {
-               // Show that DLSS is engaged. Ignored if the game scene isn't rendering.
-               // If DLSS currently can't run due to the user settings/state, or failed, show a warning.
-               if (device_data.has_drawn_main_post_processing && device_data.dlss_sr /*&& device_data.cloned_pipeline_count != 0*/)
+               // Show that SR is engaged. Ignored if the game scene isn't rendering.
+               // If SR currently can't run due to the user settings/state, or failed, show a warning.
+               if (device_data.has_drawn_main_post_processing && sr_type != SR::Type::None /*&& IsModActive(device_data)*/)
                {
-                  ImGui::PushID("DLSS Super Resolution Active");
+                  ImGui::PushID("Super Resolution Active");
                   ImGui::BeginDisabled();
-                  ImGui::SmallButton((device_data.taa_detected && device_data.has_drawn_dlss_sr_imgui && !device_data.dlss_sr_suppressed) ? ICON_FK_OK : ICON_FK_WARNING);
+                  ImGui::SmallButton((device_data.taa_detected && device_data.has_drawn_sr_imgui && !device_data.sr_suppressed) ? ICON_FK_OK : ICON_FK_WARNING);
                   ImGui::EndDisabled();
                   ImGui::PopID();
                }
@@ -10076,15 +10308,49 @@ namespace
                   ImGui::InvisibleButton("", ImVec2(size.x, size.y));
                }
             }
-            ImGui::EndDisabled();
-#endif
 
-            auto ChangeDisplayMode = [&](int display_mode, bool enable_hdr_on_display = true, IDXGISwapChain3* swapchain = nullptr)
+            // Init the new SR if the selection changed.
+            // We wouldn't really need to do anything other than clearing "sr_output_color",
+            // but to avoid wasting memory allocated by SR texture and other resources, clear it up once disabled.
+            // Note that we keep these textures in memory if the user temporarily changed away from an AA method that supports SR, or if users unloaded shaders (there's no reason to, and it'd cause stutters).
+            if (device_data.sr_type != sr_type)
+            {
+               auto* sr_instance_data = device_data.GetSRInstanceData();
+               if (sr_instance_data)
                {
-                  reshade::set_config_value(runtime, NAME, "DisplayMode", display_mode);
+#if 0 // This would actually unload the previously selected SR DLL and all, making the game hitch, so it's better to just keep it in memory, especially because otherwise we need to check for compatibily again and load them again etc
+                  sr_implementations[device_data.sr_type]->Deinit(sr_instance_data);
+                  sr_instance_data = nullptr;
+#endif
+               }
+
+               device_data.sr_type = sr_type;
+               device_data.sr_suppressed = false;
+               sr_instance_data = device_data.GetSRInstanceData(); // Take new instance data
+
+               if (device_data.sr_type != SR::Type::None)
+               {
+                  ASSERT_ONCE(sr_instance_data && sr_implementations[device_data.sr_type]->HasInit(sr_instance_data)); // Should never happen
+               }
+               else
+               {
+                  device_data.sr_output_color = nullptr;
+                  device_data.sr_exposure = nullptr;
+                  device_data.sr_render_resolution_scale = 1.f; // Reset this to 1 when SR is toggled, even if dynamic resolution scaling is active (e.g. in Prey), we'll set it back to a low value if DRS is used again.
+                  device_data.sr_scene_exposure = 1.f;
+                  device_data.sr_scene_pre_exposure = 1.f;
+                  game->CleanExtraSRResources(device_data);
+               }
+            }
+#endif // ENABLE_SR
+
+            auto ChangeDisplayMode = [&](DisplayModeType display_mode, bool enable_hdr_on_display = true, IDXGISwapChain3* swapchain = nullptr)
+               {
+                  int display_mode_i = int(cb_luma_global_settings.DisplayMode);
+                  reshade::set_config_value(runtime, NAME, "DisplayMode", display_mode_i);
                   cb_luma_global_settings.DisplayMode = display_mode;
                   OnDisplayModeChanged();
-                  if (display_mode >= 1)
+                  if (display_mode >= DisplayModeType::HDR)
                   {
                      if (enable_hdr_on_display)
                      {
@@ -10105,7 +10371,7 @@ namespace
                         cb_luma_global_settings.UIPaperWhite = default_paper_white;
                      }
                      // Align all the parameters for the SDR on HDR mode (the game paper white can still be changed)
-                     if (display_mode >= 2)
+                     if (display_mode >= DisplayModeType::SDRInHDR)
                      {
                         // For now we don't default to 203 nits game paper white when changing to this mode
                         cb_luma_global_settings.UIPaperWhite = cb_luma_global_settings.ScenePaperWhite;
@@ -10114,9 +10380,9 @@ namespace
                   }
                   else
                   {
-                     cb_luma_global_settings.ScenePeakWhite = display_mode == 0 ? srgb_white_level : (display_mode >= 2 ? default_paper_white : default_peak_white);
-                     cb_luma_global_settings.ScenePaperWhite = display_mode == 0 ? srgb_white_level : default_paper_white;
-                     cb_luma_global_settings.UIPaperWhite = display_mode == 0 ? srgb_white_level : default_paper_white;
+                     cb_luma_global_settings.ScenePeakWhite = display_mode == DisplayModeType::SDR ? srgb_white_level : (display_mode >= DisplayModeType::SDRInHDR ? default_paper_white : default_peak_white);
+                     cb_luma_global_settings.ScenePaperWhite = display_mode == DisplayModeType::SDR ? srgb_white_level : default_paper_white;
+                     cb_luma_global_settings.UIPaperWhite = display_mode == DisplayModeType::SDR ? srgb_white_level : default_paper_white;
                   }
                };
 
@@ -10173,7 +10439,7 @@ namespace
                Display::IsHDRSupportedAndEnabled(game_window, hdr_supported_display, hdr_enabled_display, device_data.GetMainNativeSwapchain().get());
             }
 
-            int display_mode = cb_luma_global_settings.DisplayMode;
+            DisplayModeType display_mode = cb_luma_global_settings.DisplayMode;
             int display_mode_max = 1;
             if (hdr_supported_display)
             {
@@ -10181,13 +10447,8 @@ namespace
                display_mode_max++; // Add "SDR in HDR for HDR" mode
 #endif
             }
-            const char* preset_strings[3] = {
-                "SDR", // SDR (80 nits) on scRGB HDR for SDR (gamma sRGB, because Windows interprets scRGB as sRGB)
-                "HDR",
-                "SDR on HDR", // (Fake) SDR (baseline to 203 nits) on scRGB HDR for HDR (gamma 2.2) - Dev only, for quick comparisons
-            };
             ImGui::BeginDisabled(!hdr_supported_display);
-            if (ImGui::SliderInt("Display Mode", &display_mode, 0, display_mode_max, preset_strings[display_mode], ImGuiSliderFlags_NoInput))
+            if (ImGui::SliderInt("Display Mode", reinterpret_cast<int*>(&display_mode), 0, display_mode_max, display_mode_preset_strings[(size_t)display_mode], ImGuiSliderFlags_NoInput))
             {
                ChangeDisplayMode(display_mode, true, device_data.GetMainNativeSwapchain().get());
             }
@@ -10198,12 +10459,12 @@ namespace
             }
             ImGui::SameLine();
             // Show a reset button to enable HDR in the game if we are playing SDR in HDR
-            if ((display_mode == 0 && hdr_enabled_display) || (display_mode >= 1 && !hdr_enabled_display))
+            if ((display_mode == DisplayModeType::SDR && hdr_enabled_display) || (display_mode >= DisplayModeType::HDR && !hdr_enabled_display))
             {
                ImGui::PushID("Display Mode");
                if (ImGui::SmallButton(ICON_FK_UNDO))
                {
-                  display_mode = hdr_enabled_display ? 1 : 0;
+                  display_mode = hdr_enabled_display ? DisplayModeType::HDR : DisplayModeType::SDR;
                   ChangeDisplayMode(display_mode, false, device_data.GetMainNativeSwapchain().get());
                }
                ImGui::PopID();
@@ -10217,13 +10478,13 @@ namespace
                ImGui::InvisibleButton("", ImVec2(size.x, size.y));
             }
 
-            const bool mod_active = device_data.cloned_pipeline_count != 0;
+            const bool mod_active = IsModActive(device_data);
             const bool has_separate_ui_paper_white = GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) >= 1;
-            if (display_mode == 1)
+            if (display_mode == DisplayModeType::HDR)
             {
                ImGui::BeginDisabled(!mod_active);
-               // We should this even if "device_data.cloned_pipeline_count" is 0
-               if (ImGui::SliderFloat("Scene Peak White", &cb_luma_global_settings.ScenePeakWhite, 400.0, 10000.f, "%.f")) // TODO: this always defaults to 1000 on boot?
+               // We should this even if "IsModActive()" is false
+               if (ImGui::SliderFloat("Scene Peak White", &cb_luma_global_settings.ScenePeakWhite, 400.0, 10000.f, "%.f"))
                {
                   if (cb_luma_global_settings.ScenePeakWhite == device_data.default_user_peak_white)
                   {
@@ -10301,7 +10562,7 @@ namespace
                   ImGui::EndDisabled();
                }
             }
-            else if (display_mode >= 2)
+            else if (display_mode >= DisplayModeType::SDRInHDR)
             {
                DrawScenePaperWhite(has_separate_ui_paper_white);
                cb_luma_global_settings.UIPaperWhite = cb_luma_global_settings.ScenePaperWhite;
@@ -10603,7 +10864,11 @@ namespace
                   const int max_mip = GetTextureMaxMipLevels(D3D11_REQ_TEXTURE1D_U_DIMENSION) - 1;
                   ImGui::SliderInt("Debug Draw: Texture Mip", &debug_draw_mip, 0, max_mip);
                   ImGui::Checkbox("Debug Draw: Allow Drawing Replaced Pass", &debug_draw_replaced_pass);
-                  ImGui::SliderInt("Debug Draw: Pipeline Instance", &debug_draw_pipeline_target_instance, -1, 100); // In case the same pipeline was run more than once by the game, we can pick one to print
+                  ImGui::SliderInt("Debug Draw: Target Pipeline Instance", &debug_draw_pipeline_target_instance, -1, 100); // In case the same pipeline was run more than once by the game, we can pick one to print
+                  if (ImGui::Checkbox("Debug Draw: Filter Target Pipeline Instance By Thread", &debug_draw_pipeline_instance_filter_by_thread) && !debug_draw_pipeline_instance_filter_by_thread)
+                  {
+                     debug_draw_pipeline_target_thread = std::thread::id();
+                  }
                   bool debug_draw_fullscreen = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::Fullscreen) != 0;
                   bool debug_draw_rend_res_scale = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::RenderResolutionScale) != 0;
                   bool debug_draw_red_only = (debug_draw_options & (uint32_t)DebugDrawTextureOptionsMask::RedOnly) != 0;
@@ -10887,17 +11152,34 @@ namespace
 #if !GAME_GENERIC  // Graphics Analyzer doesn't want upgrades. Generic mod has its own menu.
                ImGui::NewLine();
                // Requires a change in resolution to (~fully) apply (no texture cloning yet)
-               if (enable_texture_format_upgrades ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
+               if (swapchain_format_upgrade_type > TextureFormatUpgradesType::None)
                {
-                  enable_texture_format_upgrades = !enable_texture_format_upgrades;
+                  if (swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled ? ImGui::Button("Disable Swapchain Upgrade") : ImGui::Button("Enable Swapchain Upgrade"))
+                  {
+                     swapchain_format_upgrade_type = swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled ? TextureFormatUpgradesType::AllowedDisabled : TextureFormatUpgradesType::AllowedEnabled;
+                  }
                }
-               if (enable_swapchain_upgrade ? ImGui::Button("Disable Swapchain Upgrade") : ImGui::Button("Enable Swapchain Upgrade"))
+               if (texture_format_upgrades_type > TextureFormatUpgradesType::None)
                {
-                  enable_swapchain_upgrade = !enable_swapchain_upgrade;
+                  if (texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
+                  {
+                     texture_format_upgrades_type = texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled ? TextureFormatUpgradesType::AllowedDisabled : TextureFormatUpgradesType::AllowedEnabled;
+                  }
                }
                if (prevent_fullscreen_state ? ImGui::Button("Allow Fullscreen State") : ImGui::Button("Disallow Fullscreen State"))
                {
                   prevent_fullscreen_state = !prevent_fullscreen_state;
+               }
+
+               if (ImGui::SliderInt("Luma Settings CBuffer Index", reinterpret_cast<int*>(&luma_settings_cbuffer_index), 0, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1))
+               {
+                  ASSERT_ONCE(luma_settings_cbuffer_index == -1 || luma_settings_cbuffer_index != luma_data_cbuffer_index); // Can't be equal!
+                  Shader::defines_need_recompilation = true;
+               }
+               if (ImGui::SliderInt("Luma Data CBuffer Index", reinterpret_cast<int*>(&luma_data_cbuffer_index), -1, D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT - 1))
+               {
+                  ASSERT_ONCE(luma_data_cbuffer_index == -1 || luma_settings_cbuffer_index != luma_data_cbuffer_index); // Can't be equal!
+                  Shader::defines_need_recompilation = true;
                }
 
                if (ImGui::Button("Attempt Make Window Borderless"))
@@ -10945,10 +11227,14 @@ namespace
                      UINT swap_chain_flags = 0;
                      // We already set these on swapchain creation, so maintain them. Usually there aren't any other (game original) flags to maintain. Ideally we'd fish these out of the current swapchain desc
                      swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
-                     swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
-                     if (prevent_fullscreen_state)
+                     if (prevent_fullscreen_state) // TODO: test this
                      {
                         swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+                        swap_chain_flags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+                     }
+                     else
+                     {
+                        swap_chain_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
                      }
 
                      com_ptr<IDXGISwapChain3> native_swapchain;
@@ -11389,21 +11675,23 @@ namespace
             text = std::to_string((int)device_data.output_resolution.x) + " " + std::to_string((int)device_data.output_resolution.y);
             ImGui::Text(text.c_str(), "");
 
-            if (device_data.dlss_sr)
+#if ENABLE_SR
+            if (device_data.sr_type != SR::Type::None)
             {
                ImGui::NewLine();
-               ImGui::Text("DLSS Target Resolution Scale: ", "");
-               text = std::to_string(device_data.dlss_render_resolution_scale);
+               ImGui::Text("SR Target Resolution Scale: ", "");
+               text = std::to_string(device_data.sr_render_resolution_scale);
                ImGui::Text(text.c_str(), "");
-            }
 
-            if (device_data.dlss_sr && device_data.cloned_pipeline_count != 0)
-            {
-               ImGui::NewLine();
-               ImGui::Text("DLSS Scene Pre Exposure: ", "");
-               text = std::to_string(device_data.dlss_scene_pre_exposure);
-               ImGui::Text(text.c_str(), "");
+               if (IsModActive(device_data))
+               {
+                  ImGui::NewLine();
+                  ImGui::Text("SR Scene Pre Exposure: ", "");
+                  text = std::to_string(device_data.sr_scene_pre_exposure);
+                  ImGui::Text(text.c_str(), "");
+               }
             }
+#endif // ENABLE_SR
 
             // Useful for x86 processes with limited space
             {
@@ -11471,17 +11759,28 @@ void Init(bool async)
 
    assert(luma_settings_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT);
    assert(luma_data_cbuffer_index < D3D11_COMMONSHADER_CONSTANT_BUFFER_API_SLOT_COUNT); // Not necessary for custom shaders unless used, but necessary for the final luma display composition shader (unless we forced that one to use cb0 or something for the buffer)
+   assert(luma_settings_cbuffer_index == -1 || luma_data_cbuffer_index == -1 || luma_settings_cbuffer_index != luma_data_cbuffer_index); // Can't be equal!
 
-   cb_luma_global_settings.DisplayMode = 1; // Default to HDR in case we had no prior config, it will be automatically disabled if the current display doesn't support it (when the swapchain is created, which should be guaranteed to be after)
+   cb_luma_global_settings.DisplayMode = DisplayModeType::HDR; // Default to HDR in case we had no prior config, it will be automatically disabled if the current display doesn't support it (when the swapchain is created, which should be guaranteed to be after)
    cb_luma_global_settings.ScenePeakWhite = default_peak_white;
    cb_luma_global_settings.ScenePaperWhite = default_paper_white;
    cb_luma_global_settings.UIPaperWhite = default_paper_white;
-   cb_luma_global_settings.DLSS = 0; // We can't set this to 1 until we verified DLSS engaged correctly and is running
+   cb_luma_global_settings.SRType = 0; // We can't set this to >0 until we verified SR engaged correctly and is running
+
+   // Note: these shouldn't load any dlls etc, they are just creating an empty class
+#if ENABLE_NGX
+   sr_implementations[SR::Type::DLSS] = std::make_unique<NGX::DLSS>();
+#endif
+#if ENABLE_FIDELITY_SK
+   sr_implementations[SR::Type::FSR] = std::make_unique<FidelityFX::FSR>();
+#endif
 
    // Load settings
    [[maybe_unused]] bool delete_old_shaders = false;
    {
       const std::unique_lock lock_reshade(s_mutex_reshade);
+
+      bool do_shader_defines_reset = false;
 
       reshade::api::effect_runtime* runtime = nullptr;
       uint32_t config_version = Globals::VERSION;
@@ -11494,6 +11793,7 @@ void Init(bool async)
             // NOTE: put behaviour to load previous versions into new ones here
             CleanShadersCache(); // Force recompile shaders, just for extra safety (theoretically changes are auto detected through the preprocessor, but we can't be certain). We don't need to change the last config serialized shader defines.
             delete_old_shaders = true;
+            do_shader_defines_reset = true;
          }
          else if (config_version > Globals::VERSION)
          {
@@ -11513,14 +11813,18 @@ void Init(bool async)
       }
 #endif
 
-#if ENABLE_NGX
-      reshade::get_config_value(runtime, NAME, "DLSSSuperResolution", dlss_sr);
+#if ENABLE_SR
+      int sr_user_type_i = int(sr_user_type);
+      reshade::get_config_value(runtime, NAME, "SRUserType", sr_user_type_i); // This will be reset later if not compatible
+      sr_user_type = SR::UserType(sr_user_type_i);
 #endif
-      reshade::get_config_value(runtime, NAME, "DisplayMode", cb_luma_global_settings.DisplayMode);
+      int display_mode_i = int(cb_luma_global_settings.DisplayMode);
+      reshade::get_config_value(runtime, NAME, "DisplayMode", display_mode_i);
+      cb_luma_global_settings.DisplayMode = DisplayModeType(display_mode_i);
 #if !DEVELOPMENT && !TEST // Don't allow "SDR in HDR for HDR" mode (there's no strong reason not to, but it avoids permutations exposed to users)
-      if (cb_luma_global_settings.DisplayMode >= 2)
+      if (cb_luma_global_settings.DisplayMode >= DisplayModeType::SDRInHDR)
       {
-         cb_luma_global_settings.DisplayMode = 0;
+         cb_luma_global_settings.DisplayMode = DisplayModeType::SDR;
       }
 #endif
 
@@ -11533,22 +11837,27 @@ void Init(bool async)
       }
       reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite);
       reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite);
-      if (cb_luma_global_settings.DisplayMode == 0)
+      if (cb_luma_global_settings.DisplayMode == DisplayModeType::SDR)
       {
          cb_luma_global_settings.ScenePeakWhite = srgb_white_level;
          cb_luma_global_settings.ScenePaperWhite = srgb_white_level;
          cb_luma_global_settings.UIPaperWhite = srgb_white_level;
       }
-      else if (cb_luma_global_settings.DisplayMode >= 2)
+      else if (cb_luma_global_settings.DisplayMode >= DisplayModeType::SDRInHDR)
       {
          cb_luma_global_settings.UIPaperWhite = cb_luma_global_settings.ScenePaperWhite;
          cb_luma_global_settings.ScenePeakWhite = cb_luma_global_settings.ScenePaperWhite;
       }
 
-      const std::unique_lock lock_shader_defines(s_mutex_shader_defines);
+      const std::unique_lock lock_shader_defines(s_mutex_shader_defines); // Note: do we need the mutex here the whole time?
       ShaderDefineData::Load(shader_defines_data, NAME_ADVANCED_SETTINGS, runtime);
+      if (do_shader_defines_reset)
+      {
+         ShaderDefineData::Reset(shader_defines_data);
+      }
 
       game->LoadConfigs();
+		ASSERT_ONCE(global_devices_data.empty()); // There should be no devices yet, otherwise we need to set "cb_luma_global_settings_dirty" to true! Hence why the "precompile_custom_shaders" code below seems to make no sense?
 
       OnDisplayModeChanged();
 
@@ -11684,6 +11993,7 @@ void Init(bool async)
             const std::shared_lock lock_device(s_mutex_device);
             // Create custom device shaders if the device has already been created before custom shaders were loaded on boot, independently of "block_draw_until_device_custom_shaders_creation".
             // Note that this might be unsafe if "global_devices_data" was already being destroyed in "OnDestroyDevice()" (I'm not sure you can create device resources anymore at that point).
+            // TODO: can this even ever happen? Having devices already created/added here? I don't think so...
             for (auto global_device_data : global_devices_data)
             {
                const std::unique_lock lock_shader_objects(s_mutex_shader_objects);
@@ -11837,19 +12147,19 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::init_command_list>(OnInitCommandList);
       reshade::register_event<reshade::addon_event::destroy_command_list>(OnDestroyCommandList);
 
-      if (enable_texture_format_upgrades)
+      if (texture_format_upgrades_type > TextureFormatUpgradesType::None)
       {
          reshade::register_event<reshade::addon_event::init_resource>(OnInitResource);
          reshade::register_event<reshade::addon_event::create_resource>(OnCreateResource);
          reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       }
-#if DEVELOPMENT
+#if DEVELOPMENT || GAME_PREY
       else
       {
          reshade::register_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       }
 #endif
-      if (enable_texture_format_upgrades || enable_swapchain_upgrade)
+      if (texture_format_upgrades_type > TextureFormatUpgradesType::None || swapchain_format_upgrade_type > TextureFormatUpgradesType::None)
       {
          reshade::register_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
 #if DEVELOPMENT
@@ -11889,8 +12199,8 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::register_event<reshade::addon_event::reset_command_list>(OnResetCommandList);
 #if DEVELOPMENT
       reshade::register_event<reshade::addon_event::execute_command_list>(OnExecuteCommandList);
-      reshade::register_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
 #endif // DEVELOPMENT
+      reshade::register_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
 
       reshade::register_event<reshade::addon_event::present>(OnPresent);
 
@@ -11950,19 +12260,19 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::init_command_list>(OnInitCommandList);
       reshade::unregister_event<reshade::addon_event::destroy_command_list>(OnDestroyCommandList);
 
-      if (enable_texture_format_upgrades)
+      if (texture_format_upgrades_type > TextureFormatUpgradesType::None)
       {
          reshade::unregister_event<reshade::addon_event::init_resource>(OnInitResource);
          reshade::unregister_event<reshade::addon_event::create_resource>(OnCreateResource);
          reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       }
-#if DEVELOPMENT
+#if DEVELOPMENT || GAME_PREY
       else
       {
          reshade::unregister_event<reshade::addon_event::destroy_resource>(OnDestroyResource);
       }
 #endif
-      if (enable_texture_format_upgrades || enable_swapchain_upgrade)
+      if (texture_format_upgrades_type > TextureFormatUpgradesType::None || swapchain_format_upgrade_type > TextureFormatUpgradesType::None)
       {
          reshade::unregister_event<reshade::addon_event::create_resource_view>(OnCreateResourceView);
 #if DEVELOPMENT
@@ -12002,8 +12312,8 @@ BOOL APIENTRY CoreMain(HMODULE h_module, DWORD fdw_reason, LPVOID lpv_reserved)
       reshade::unregister_event<reshade::addon_event::reset_command_list>(OnResetCommandList);
 #if DEVELOPMENT
       reshade::unregister_event<reshade::addon_event::execute_command_list>(OnExecuteCommandList);
-      reshade::unregister_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
 #endif // DEVELOPMENT
+      reshade::unregister_event<reshade::addon_event::execute_secondary_command_list>(OnExecuteSecondaryCommandList);
 
       reshade::unregister_event<reshade::addon_event::present>(OnPresent);
 

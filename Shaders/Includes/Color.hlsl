@@ -76,7 +76,7 @@ float3 RestoreLuminance(float3 targetColor, float sourceColorLuminance, bool saf
     targetColorLuminance = max(targetColorLuminance, 0.0);
     sourceColorLuminance = max(sourceColorLuminance, 0.0);
 #if 1
-    return targetColor * (targetColorLuminance <= (FLT_EPSILON * 10.0) ? 0.0 : (sourceColorLuminance / targetColorLuminance)); // Empyrically found threshold
+    return targetColor * (targetColorLuminance <= (FLT_EPSILON * 10.0) ? 0.0 : (sourceColorLuminance / targetColorLuminance)); // Empyrically found threshold. Note that this will zero the target color, flattining its RGB ratio (it might have had dithering)
 #else
     return targetColor * safeDivision(sourceColorLuminance, targetColorLuminance, 0);
 #endif

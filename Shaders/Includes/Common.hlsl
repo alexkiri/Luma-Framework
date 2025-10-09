@@ -112,15 +112,31 @@ float3 PumboAutoHDR(float3 SDRColor, float MaxPeakWhiteNits, float _PaperWhiteNi
 
 // Takes an SDR/HDR linear color (that doesn't have that much dynamic range) and expands the high midtones and highlights.
 // Note: this allows "FakeHDRIntensity" to be < 0 in case you wanted to undo the effect (approximately).
-float3 FakeHDR(float3 Color, float NormalizationPoint = 1.0, float FakeHDRIntensity = 0.5, bool BoostSaturation = true, uint colorSpace = CS_DEFAULT)
+float3 FakeHDR(float3 Color, float NormalizationPoint = 0.02, float FakeHDRIntensity = 0.5, float SaturationExpansionIntensity = 0.0, uint Method = 0, uint ColorSpace = CS_DEFAULT)
 {
-  float mixedSceneColorLuminance = GetLuminance(Color, colorSpace) / NormalizationPoint;
-  // Expand highlights with a power curve
-  mixedSceneColorLuminance = mixedSceneColorLuminance > 1.0 ? pow(mixedSceneColorLuminance, 1.0 + FakeHDRIntensity) : mixedSceneColorLuminance;
-  Color = RestoreLuminance(Color, mixedSceneColorLuminance * NormalizationPoint, colorSpace);
-  // Expand saturation as well, on highlights only
-  if (BoostSaturation) // TODO: this is broken?
-    Color = Saturation(Color, max(mixedSceneColorLuminance, 1.0), colorSpace);
+  if (Method == 0) // Per channel (and optionally restores the luminance of the per channel boosted, given that this naturally expands saturation)
+  {
+    float3 normalizedColor = Color / NormalizationPoint;
+    // Expand highlights with a power curve
+    normalizedColor = normalizedColor > 1.0 ? pow(normalizedColor, 1.0 + FakeHDRIntensity) : normalizedColor;
+    Color = lerp(RestoreLuminance(Color, normalizedColor * NormalizationPoint, ColorSpace), normalizedColor * NormalizationPoint, SaturationExpansionIntensity);
+  }
+  else if (Method == 1 || Method == 2)
+  {
+    float colorValue = 0.0;
+    if (Method == 1) // By rgb max (will not boost whites any more than pure colors, and results depend on the color space)
+      colorValue = max3(Color);
+    else if (Method == 2) // By luminance (will mostly ignore blues)
+      colorValue = GetLuminance(Color, ColorSpace);
+    float normalizedColorValue = colorValue / NormalizationPoint;
+    normalizedColorValue = normalizedColorValue > 1.0 ? pow(normalizedColorValue, 1.0 + FakeHDRIntensity) : normalizedColorValue;
+    float expansionRatio = safeDivision(normalizedColorValue * NormalizationPoint, colorValue, 1); // Fallback to 1
+    Color *= expansionRatio;
+    
+    // Expand saturation as well, on highlights only. This won't look nice!
+    if (SaturationExpansionIntensity != 0.0) // Optional optimization, given this would usually be hardcoded to 0
+      Color = Saturation(Color, lerp(1.0, expansionRatio, SaturationExpansionIntensity), ColorSpace);
+  }
   return Color;
 }
 

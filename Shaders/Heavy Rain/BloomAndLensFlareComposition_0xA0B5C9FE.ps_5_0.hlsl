@@ -11,6 +11,7 @@ SamplerState sampler1_s : register(s1);
 Texture2D<float4> texture0 : register(t0);
 Texture2D<float4> texture1 : register(t1);
 
+// Draws purely additively on background
 void main(
   float4 v0 : SV_POSITION0,
   float2 v1 : TEXCOORD0,
@@ -28,8 +29,10 @@ void main(
   if (LumaSettings.DisplayMode == 1)
   {
     float normalizationPoint = 0.025; // Found empyrically
-    float fakeHDRIntensity = -LumaSettings.GameSettings.HDRBoostAmount * 0.25 * 0.333; // 0.1-0.15 looks good in most places. 0.2 looks better in dim scenes, but is too much AutoHDR like in bright scenes
-    o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, false);
+    float fakeHDRReduction = 0.5; // Found empyrically
+    float bloomRelativeScale = 0.75; // How bright is bloom compared to the background, on overage
+    float fakeHDRIntensity = -LumaSettings.GameSettings.HDRBoostAmount * 0.25 * fakeHDRReduction;
+    o0.xyz = FakeHDR(o0.xyz * bloomRelativeScale, normalizationPoint, fakeHDRIntensity, 0.2) / bloomRelativeScale;
   }
 #endif
 #if 0 // Optionally pre-tonemap to 1 (in gamma space) to avoid bloom going beyond the SDR level, however it'd look clipped. At best we could pre-tonemap it, but it doesn't seem to be necessary anyway

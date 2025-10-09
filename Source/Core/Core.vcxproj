@@ -601,10 +601,12 @@
   <ItemGroup>
     <ClCompile Include="dlss\DLSS.cpp" />
     <ClCompile Include="core.hpp" />
+    <ClCompile Include="fsr\FSR.cpp" />
     <ClCompile Include="utils\system.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dlss\DLSS.h" />
+    <ClInclude Include="fsr\FSR.h" />
     <ClInclude Include="includes\cbuffers.h" />
     <ClInclude Include="includes\debug.h" />
     <ClInclude Include="includes\game.h" />
@@ -617,6 +619,7 @@
     <ClInclude Include="includes\shaders.h" />
     <ClInclude Include="includes\shader_define.h" />
     <ClInclude Include="includes\shader_types.h" />
+    <ClInclude Include="includes\super_resolution.h" />
     <ClInclude Include="utils\display.hpp" />
     <ClInclude Include="utils\draw.hpp" />
     <ClInclude Include="utils\format.hpp" />

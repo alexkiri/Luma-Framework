@@ -26,6 +26,7 @@ namespace Shader
    typedef HRESULT(WINAPI* pD3DWriteBlobToFile)(ID3DBlob*, LPCWSTR, BOOL);
    typedef HRESULT(WINAPI* pD3DReflect)(LPCVOID, SIZE_T, REFIID, void**);
    typedef HRESULT(WINAPI* pD3DGetBlobPart)(LPCVOID, SIZE_T, D3D_BLOB_PART, UINT, ID3DBlob**);
+   typedef HRESULT(WINAPI* pD3DStripShader)(LPCVOID, SIZE_T, UINT, ID3DBlob**);
 
    static pD3DDisassemble d3d_disassemble;
    static pD3DPreprocess d3d_preprocess;
@@ -35,7 +36,17 @@ namespace Shader
    static pD3DWriteBlobToFile d3d_writeBlobToFile;
    static pD3DReflect d3d_reflect;
    static pD3DGetBlobPart d3d_getBlobPart;
+   static pD3DStripShader d3d_stripShader;
 
+   enum class DXBCProgramType : uint16_t
+   {
+      PixelShader = 0,
+      VertexShader = 1,
+      GeometryShader = 2,
+      HullShader = 3,
+      DomainShader = 4,
+      ComputeShader = 5,
+   };
    struct DXBCHeader
    {
       static constexpr DWORD hash_size = 16;
@@ -45,16 +56,24 @@ namespace Shader
       uint32_t version; // Seemengly always 1
       uint32_t file_size; // Total size in bytes (including the header)
       uint32_t chunk_count;
-      uint32_t chunk_offsets[]; // Array of DWORD offsets in bytes
+      uint32_t chunk_offsets[]; // Array of DWORD offsets in bytes, from the beginning of the object/header
    };
-   enum class DXBCProgramType : uint16_t
+   struct DXBCChunk
    {
-      PixelShader = 0,
-      VertexShader = 1,
-      GeometryShader = 2,
-      HullShader = 3,
-      DomainShader = 4,
-      ComputeShader = 5,
+      uint32_t type_name;
+      uint32_t chunk_size; // Total size of the chunk in bytes, NOT including the type name and size
+
+      uint32_t chunk_data[];
+   };
+   struct DXBCByteCodeChunk
+   {
+      uint8_t version_major; // E.g. SM4/5
+      uint8_t version_minor;
+      DXBCProgramType program_type;
+
+      uint32_t chunk_size_dword; // The size is stored in "DWORD" elements and counted the size (this very variable) and program version/type in its count
+
+      uint8_t byte_code[];
    };
 
    // Only call this once from one thread
@@ -122,6 +141,7 @@ namespace Shader
       d3d_writeBlobToFile = pD3DWriteBlobToFile(GetProcAddress(d3d_compiler, "D3DWriteBlobToFile"));
       d3d_reflect = pD3DReflect(GetProcAddress(d3d_compiler, "D3DReflect"));
       d3d_getBlobPart = pD3DGetBlobPart(GetProcAddress(d3d_compiler, "D3DGetBlobPart"));
+      d3d_stripShader = pD3DStripShader(GetProcAddress(d3d_compiler, "D3DStripShader"));
 
       return true;
    }
@@ -324,14 +344,21 @@ namespace Shader
       if (d3d_disassemble != nullptr)
       {
          CComPtr<ID3DBlob> out_blob;
-         if (SUCCEEDED(d3d_disassemble(
+         HRESULT hr = d3d_disassemble(
             data,
             size,
-            D3D_DISASM_ENABLE_INSTRUCTION_NUMBERING | D3D_DISASM_ENABLE_INSTRUCTION_OFFSET,
+            /*D3D_DISASM_ENABLE_COLOR_CODE |*/ D3D_DISASM_ENABLE_DEFAULT_VALUE_PRINTS | D3D_DISASM_ENABLE_INSTRUCTION_NUMBERING | D3D_DISASM_ENABLE_INSTRUCTION_OFFSET,
             nullptr,
-            &out_blob)))
+            &out_blob);
+         if (SUCCEEDED(hr))
          {
             result = { reinterpret_cast<char*>(out_blob->GetBufferPointer()), out_blob->GetBufferSize() };
+         }
+         else
+         {
+            std::stringstream s;
+            s << "D3DDisassemble failed with HRESULT 0x" << std::hex << std::uppercase << hr;
+            reshade::log::message(reshade::log::level::error, s.str().c_str());
          }
       }
 
@@ -389,12 +416,11 @@ namespace Shader
 
    std::optional<std::string> DisassembleShader(const void* code, size_t size)
    {
-      auto result = DisassembleShaderFXC(code, size);
-      if (!result.has_value())
-      {
-         result = DisassembleShaderDXC(code, size);
-      }
-      return result;
+#if DX12
+      return DisassembleShaderDXC(code, size);
+#else
+      return DisassembleShaderFXC(code, size);
+#endif
    }
 
    void FillDefines(const std::vector<std::string>& in_defines, std::vector<D3D_SHADER_MACRO>& out_defines)
@@ -506,8 +532,16 @@ namespace Shader
    void CompileShaderFromFileFXC(std::vector<uint8_t>& output, const CComPtr<ID3DBlob>& optional_uncompiled_code_input, LPCWSTR file_read_path, LPCSTR shader_target, const D3D_SHADER_MACRO* defines = nullptr, bool save_to_disk = false, bool& error = dummy_bool, std::string* out_error = nullptr, LPCWSTR file_write_path = nullptr, LPCSTR func_name = nullptr)
    {
       UINT flags1 = 0;
-      //if (shader_target[3] <= '4' || (shader_target[3] == '5' && shader_target[5] == '0'))
-      //   flags1 |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY; // /Gec
+      constexpr bool force_backwards_compatibility = false; // Expose if needed, so far no games really needed it
+      bool needs_backwards_compatibility = shader_target[3] <= '3';
+      // Some behaviours this changes:
+      // -Allows compiling shader model 2 and 3?
+      // -Allows not initializing shader code register, either having undefined behaviour or defaulting them to 0
+      // -Allows defining multiple cbuffers in the same slot?
+      // -More lenient float/int conversions?
+      // -Slightly worse code performance?
+      if (needs_backwards_compatibility || (force_backwards_compatibility && (shader_target[3] <= '4' || (shader_target[3] == '5' && shader_target[5] == '0'))))
+         flags1 |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY; // /Gec
 #if _DEBUG && 0
       flags1 |= D3DCOMPILE_DEBUG; // /Zi
       flags1 |= D3DCOMPILE_SKIP_OPTIMIZATION; // /Od

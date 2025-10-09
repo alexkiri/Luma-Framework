@@ -29,7 +29,7 @@ void main(
   r0.xyz = r1.w * r0.xyz + r1.xyz;
 
   r1.xyzw = t2.Sample(s2_s, v0.xy).xyzw;
-  r1.xyz = r1.xyz + -r0.xyz;
+  r1.xyz = r1.xyz - r0.xyz;
   r1.w *= cb0[26].y;
   r0.xyz = r1.w * r1.xyz + r0.xyz;
   r0.w = someCoeff2 * cb0[26].x + r1.w;
@@ -37,33 +37,34 @@ void main(
   bool someBool = r0.w < 0.005;
   r1.w *= 0.75;
   r1.xyz = r1.w * r1.xyz + r0.xyz;
-  r2.xyz = float3(0.05, 0.05, 1) + -r0.xyz;
+  r2.xyz = float3(0.05, 0.05, 1) - r0.xyz;
   r2.xyz = r2.xyz * 0.8 + r0.xyz;
   float lum = GetLuminance(r0.xyz); // Luma: fixed from BT.601 coeffs
-  r2.w = sqrt(lum);
-  r3.xyz = lum + -r0.xyz;
+  r2.w = linear_to_gamma1(lum, GCT_POSITIVE); // Luma: fixed using sqrt as approximation of gamma 2.2
+  r3.xyz = lum - r0.xyz;
   r1.w = r2.w;
   r2.xyzw = someBool ? r2.xyzw : r1.xyzw;
 
   r4.w = r1.w;
   r1.x = cb0[7].x * r1.w;
-  r1.y = cb0[7].x * r1.w + -0.5;
+  r1.y = cb0[7].x * r1.w - 0.5;
   r1.xy = saturate(r1.xy + r1.xy);
-  r5.xyzw = cb0[3].xyzw + -cb0[1].xyzw;
+  r5.xyzw = cb0[3].xyzw - cb0[1].xyzw;
   r5.xyzw = r1.x * r5.xyzw + cb0[1].xyzw;
-  r6.xyzw = cb0[5].xyzw + -r5.xyzw;
+  r6.xyzw = cb0[5].xyzw - r5.xyzw;
   r1.xyzw = r1.y * r6.xyzw + r5.xyzw;
   r0.xyz = r1.w * r3.xyz + r0.xyz;
   r3.xyz = r1.xyz * r0.xyz;
   r0.xyz = -r1.xyz * r0.xyz + cb0[9].xyz;
   r4.xyz = cb0[9].w * r0.xyz + r3.xyz;
-  bool some = cb0[25].x == 1.000000;
+  bool some = cb0[25].x == 1.0;
   o0.xyzw = some ? r2.xyzw : r4.xyzw;
 
 #if ENABLE_FAKE_HDR // The game doesn't have many bright highlights, the dynamic range is relatively low, this helps alleviate that
-  float normalizationPoint = 0.175; // Found empyrically
-  float fakeHDRIntensity = 0.5;
-  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, false);
+  float normalizationPoint = 0.025; // Found empyrically
+  float fakeHDRIntensity = 0.4;
+  float saturationBoost = 0.666;
+  o0.xyz = FakeHDR(o0.xyz, normalizationPoint, fakeHDRIntensity, saturationBoost);
 #endif
 
   const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;

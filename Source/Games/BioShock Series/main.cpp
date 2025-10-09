@@ -36,8 +36,6 @@ namespace
 
    bool sent_aa_assert = false;
 
-   CB::LumaGameSettings default_game_settings;
-
    bool crash_fix_applied = false;
 
    // Original from pcgw. Unknown author.
@@ -252,24 +250,24 @@ public:
             reshade::set_config_value(runtime, NAME, "FogCorrectionIntensity", cb_luma_global_settings.GameSettings.FogCorrectionIntensity);
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("Fog was \"additive\" in this game, which caused severely raised blacks, this preserves the feel of the fog without destroying contrast, making the game more atmospheric.\nNote that this also applies to underwater sections.\nSet it to 0 for the a Vanilla experience, however it will not look good on OLED.");
-         DrawResetButton(cb_luma_global_settings.GameSettings.FogCorrectionIntensity, default_game_settings.FogCorrectionIntensity, "FogCorrectionIntensity", runtime);
+         DrawResetButton(cb_luma_global_settings.GameSettings.FogCorrectionIntensity, default_luma_global_game_settings.FogCorrectionIntensity, "FogCorrectionIntensity", runtime);
 
          if (ImGui::SliderFloat("Fog Intensity", &cb_luma_global_settings.GameSettings.FogIntensity, 0.f, 2.f))
             reshade::set_config_value(runtime, NAME, "FogIntensity", cb_luma_global_settings.GameSettings.FogIntensity);
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("You can decrease or increase fog to your liking.");
-         DrawResetButton(cb_luma_global_settings.GameSettings.FogIntensity, default_game_settings.FogIntensity, "FogIntensity", runtime);
+         DrawResetButton(cb_luma_global_settings.GameSettings.FogIntensity, default_luma_global_game_settings.FogIntensity, "FogIntensity", runtime);
 
          if (ImGui::SliderFloat("Bloom Radius", &cb_luma_global_settings.GameSettings.BloomRadius, 0.f, 1.f))
             reshade::set_config_value(runtime, NAME, "BloomRadius", cb_luma_global_settings.GameSettings.BloomRadius);
          if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
             ImGui::SetTooltip("The bloom radius is arguably too wide for modern resolutions, customize it to your liking. 1 is the Vanilla value.");
-         DrawResetButton(cb_luma_global_settings.GameSettings.BloomRadius, default_game_settings.BloomRadius, "BloomRadius", runtime);
+         DrawResetButton(cb_luma_global_settings.GameSettings.BloomRadius, default_luma_global_game_settings.BloomRadius, "BloomRadius", runtime);
       }
 
       if (ImGui::SliderFloat("Bloom Intensity", &cb_luma_global_settings.GameSettings.BloomIntensity, 0.f, 2.f))
          reshade::set_config_value(runtime, NAME, "BloomIntensity", cb_luma_global_settings.GameSettings.BloomIntensity);
-      DrawResetButton(cb_luma_global_settings.GameSettings.BloomIntensity, default_game_settings.BloomIntensity, "BloomIntensity", runtime);
+      DrawResetButton(cb_luma_global_settings.GameSettings.BloomIntensity, default_luma_global_game_settings.BloomIntensity, "BloomIntensity", runtime);
 
 #if 0 // TODO
       ImGui::NewLine();
@@ -587,9 +585,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       // TODO: check if BSI need R11G11B10F to R16G16B16A16F upgrades. BS(1) needs 8bit etc?. Mix the mods in BFI? UseLowPrecisionColorBuffer=False FloatingPointRenderTargets=True
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
@@ -615,11 +613,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       allow_disabling_gamma_ramp = true; // For Bioshock 2 // TODO: call this every frame or anyway when alt tabbing in, as the game constantly resets it. Or when we get window focus, or go FSE. Or just patch the function out...
 
       // Default values
-      default_game_settings.FogCorrectionIntensity = 1.f; // 0 is vanilla. Values between 0.75 and 1 as great defaults.
-      default_game_settings.FogIntensity = 1.f;
-      default_game_settings.BloomIntensity = bioshock_game == BioShockGame::BioShock_Infinite ? 1.f : 0.8f; // TODO: test in BSI
-      default_game_settings.BloomRadius = 0.75f; // 1 is vanilla, however it was too big and looks too blurry
-      cb_luma_global_settings.GameSettings = default_game_settings;
+      default_luma_global_game_settings.FogCorrectionIntensity = 1.f; // 0 is vanilla. Values between 0.75 and 1 as great defaults.
+      default_luma_global_game_settings.FogIntensity = 1.f;
+      default_luma_global_game_settings.BloomIntensity = bioshock_game == BioShockGame::BioShock_Infinite ? 1.f : 0.8f; // TODO: test in BSI
+      default_luma_global_game_settings.BloomRadius = 0.75f; // 1 is vanilla, however it was too big and looks too blurry
+      cb_luma_global_settings.GameSettings = default_luma_global_game_settings;
 
 #if DEVELOPMENT
       forced_shader_names.emplace(std::stoul("0A8EC2D3", nullptr, 16), "Clear");

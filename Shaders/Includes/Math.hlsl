@@ -99,6 +99,15 @@ bool IsAnyNaN_Strict(float4 x)
   return IsNaN_Strict(x.x) || IsNaN_Strict(x.y) || IsNaN_Strict(x.z) || IsNaN_Strict(x.w);
 }
 
+bool IsInfinite_Strict(float x)
+{
+    return abs(x) > FLT_MAX;
+}
+bool3 IsInfinite_Strict(float3 x)
+{
+    return abs(x) > FLT_MAX;
+}
+
 float inverseLerp(float a, float b, float value)
 {
   // Avoid division by zero

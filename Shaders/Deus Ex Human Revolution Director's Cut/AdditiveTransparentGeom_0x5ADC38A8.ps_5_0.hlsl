@@ -106,12 +106,9 @@ void main(
   o0.xyz = r0.www * r0.xyz;
   o0.w = MaterialOpacity; // Alpha is ignored
   
-  // TODO: find more of these: 3D5DE823, B6365255, DB724FD8, 44E4EF7C, 23C68AC7. 2A81915D, 813C0216, 46C740D4...
+  // TODO: find more of these (inaccurate list): 3D5DE823, DB724FD8, 44E4EF7C, 23C68AC7. 2A81915D, 813C0216, 46C740D4, 898496A3, 53D00C9C, 8BD4A2E2, D793A562, FF8FB4BB...
   // Luma: boost up additive lights
   float emissiveScale = forceSDR ? 0.0 : LumaSettings.GameSettings.EmissiveIntensity;
-#if 1 // Base it on how strong the light was
+  // Base it on how strong the light was
   o0.rgb /= lerp(1.0, max(sqr(sqr(saturate(1.0 - average(o0.rgb)))), 0.01), saturate(emissiveScale)); 
-#else // This branch is way too strong!
-  o0.rgb /= max(sqr(sqr(1.f - saturate(emissiveScale))), 0.01f);
-#endif
 }

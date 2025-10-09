@@ -42,7 +42,7 @@ void main(
     o0.xyzw = r0.xxxx * r2.xyzw + r1.xyzw;
   }
   
-#if LUMA_ENABLED
+#if ENABLE_LUMA
   // The game has some minor nans and invalid colors (due to subtractive blending).
   // AA is the first fullscreen pass where we can fix them.
   o0.xyz = IsNaN_Strict(o0.xyz) ? 0.0 : o0.xyz;

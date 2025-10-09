@@ -56,7 +56,7 @@ void main(
   o1.xyzw = float4(0,0,0,0);
   o2.x = v5.z / v5.w;
   
-  // Luma: fix spot light adding negative colors that darkened the scene with float textures (it's unclear why that didn't happen on UNORM, subtraction should darken them anyway, even if it'd stop at 0)
+  // Luma: fix spot light adding negative colors (not alpha) that darkened the scene with float textures (it's unclear why that didn't happen on UNORM, subtraction should darken them anyway, even if it'd stop at 0)
   // Anyway nothing should detract from the scene
   o0.w = saturate(o0.w);
   o0.rgb = max(o0.rgb, 0.0);

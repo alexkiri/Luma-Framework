@@ -91,7 +91,7 @@ void main(
     float normalizationPoint = 0.05; // Found empyrically
     float fakeHDRIntensity = 0.1 * LumaSettings.GameSettings.HDRBoostIntensity;
     sceneColor.xyz = gamma_to_linear(sceneColor.xyz, GCT_MIRROR);
-    sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity, false);
+    sceneColor.xyz = FakeHDR(sceneColor.xyz, normalizationPoint, fakeHDRIntensity);
     sceneColor.xyz = linear_to_gamma(sceneColor.xyz, GCT_MIRROR);
   }
 #endif // ENABLE_FAKE_HDR
@@ -100,8 +100,17 @@ void main(
   bloomedColor = p_default_Material_0B33AFF46643651_Param_texture.Sample(p_default_Material_0B33AFF46643651_Param_sampler_s, r0.xy);
   //bloomedColor = IsNaN_Strict(bloomedColor) ? 0.0 : bloomedColor; // Shouldn't be needed
   
+  // Extra safety to guarantee the vanilla look
+  if (forceSDR)
+  {
+    bloomedColor = saturate(bloomedColor);
+    sceneColor = saturate(sceneColor);
+  }
+  
   float emissiveScale = forceSDR ? 0.0 : LumaSettings.GameSettings.EmissiveIntensity;
+#if ENABLE_LUMA
   sceneColor.xyz /= lerp(1.0, max(sqr(sqr(saturate(1.0 - sceneColor.w))), 0.01), saturate(emissiveScale)); // Luma: scale scene color (before fogging it, and before bloom, as we already have bloom controls)
+#endif
 
   float4 foggedColor = sceneColor;
 #if ENABLE_LUMA // Add back missing fog from the original bloom

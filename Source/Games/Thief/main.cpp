@@ -1,5 +1,7 @@
 #define GAME_THIEF 1
 
+#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
+
 #include "..\..\Core\core.hpp"
 
 namespace
@@ -13,7 +15,7 @@ namespace
 class Thief final : public Game
 {
 public:
-   // The final swapchain copy is through an sRGB view, whether the swapchain is sRGB or not (we force it to not be sRGB, because sRGB swapchains don't support flip models).
+   // The final swapchain copy is through an sRGB view, whether the swapchain is sRGB or not (note that sRGB swapchains don't support flip models).
    bool ForceVanillaSwapchainLinear() const { return true; }
 
    void OnInit(bool async) override
@@ -22,11 +24,59 @@ public:
          {"TONEMAP_TYPE", '1', false, false, "0 - SDR: Vanilla\n1 - HDR: Vanilla+"},
       };
       shader_defines_data.append_range(game_shader_defines_data);
-      // The game was SDR all along, no gamma applied //TODOFT: verify that... there's sRGB views, but are they mirrored in and out? Because if so, then there's no gamma applied anyway (?)
+      // The game was SDR all along, but it was all linear space (sRGB textures), it never directly applied gamma, it relied on sRGB and not views for conversions (UI is in gamma space)
       GetShaderDefineData(POST_PROCESS_SPACE_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(VANILLA_ENCODING_TYPE_HASH).SetDefaultValue('0');
       GetShaderDefineData(GAMMA_CORRECTION_TYPE_HASH).SetDefaultValue('1');
       GetShaderDefineData(UI_DRAW_TYPE_HASH).SetDefaultValue('0');
+   }
+
+   // Fix all luminance calculations in the game
+   std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash, const std::byte* shader_object, size_t shader_object_size) override
+   {
+      if (type != reshade::api::pipeline_subobject_type::pixel_shader) return nullptr;
+
+      // Used by original game code (UE3)
+      // float3(0.299, 0.587, 0.114)
+      const std::vector<std::byte> pattern_bt_601_luminance_a = {
+       std::byte{0x87}, std::byte{0x16}, std::byte{0x99}, std::byte{0x3E},
+       std::byte{0xA2}, std::byte{0x45}, std::byte{0x16}, std::byte{0x3F},
+       std::byte{0xD5}, std::byte{0x78}, std::byte{0xE9}, std::byte{0x3D}
+      };
+      // Used by FXAA and a couple other shaders
+      // float3(0.3, 0.59, 0.11)
+      const std::vector<std::byte> pattern_bt_601_luminance_b = {
+       std::byte{0x9A}, std::byte{0x99}, std::byte{0x99}, std::byte{0x3E},
+       std::byte{0x3D}, std::byte{0x0A}, std::byte{0x17}, std::byte{0x3F},
+       std::byte{0xAE}, std::byte{0x47}, std::byte{0xE1}, std::byte{0x3D}
+      };
+
+      const std::vector<std::byte> pattern_bt_709_luminance = {
+       std::byte{0xD0}, std::byte{0xB3}, std::byte{0x59}, std::byte{0x3E},
+       std::byte{0x59}, std::byte{0x17}, std::byte{0x37}, std::byte{0x3F},
+       std::byte{0x98}, std::byte{0xDD}, std::byte{0x93}, std::byte{0x3D}
+      };
+
+      std::unique_ptr<std::byte[]> new_code = nullptr;
+
+      std::vector<std::byte*> matches_bt_601_luminance = System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(code), size, pattern_bt_601_luminance_a);
+      matches_bt_601_luminance.append_range(System::ScanMemoryForPattern(reinterpret_cast<const std::byte*>(code), size, pattern_bt_601_luminance_b));
+      if (!matches_bt_601_luminance.empty())
+      {
+         // Allocate new buffer and copy original shader code
+         new_code = std::make_unique<std::byte[]>(size);
+         std::memcpy(new_code.get(), code, size);
+
+         // Always correct the wrong luminance calculations
+         for (std::byte* match : matches_bt_601_luminance)
+         {
+            // Calculate offset of each match relative to original code
+            size_t offset = match - code;
+            std::memcpy(new_code.get() + offset, pattern_bt_709_luminance.data(), pattern_bt_709_luminance.size());
+         }
+      }
+
+      return new_code;
    }
 
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
@@ -142,14 +192,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       luma_settings_cbuffer_index = 13;
       luma_data_cbuffer_index = 12;
 
-      // Needed as the UI can both generate NaNs (I think) and also do subtractive blends that result in colors with invalid (or overly low) luminances,
+      // Needed as the UI can both generate NaNs (I think) and also do subtractive blends that result in colors with invalid (or overly low) luminances (that can be fixed by clamping all UI shaders alpha to 0-1),
       // thus drawing it separately and composing it on top, is better.
       // The game also casts a TYPELESS texture as UNORM, while it was previously cast as UNORM_SRGB (linear) (float textures can't preserve this behaviour)
       enable_ui_separation = false; //TODOFT
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             reshade::api::format::r8g8b8a8_unorm_srgb,

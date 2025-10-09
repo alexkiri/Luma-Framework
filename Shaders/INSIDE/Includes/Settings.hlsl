@@ -28,4 +28,8 @@
 #define ENABLE_FAKE_HDR 0
 #endif
 
+#if !defined(ENABLE_BLACK_FLOOR_TWEAKS_TYPE)
+#define ENABLE_BLACK_FLOOR_TWEAKS_TYPE 1
+#endif
+
 #endif // SRC_GAME_SETTINGS_HLSL

@@ -34,7 +34,7 @@ void main(
 	//TODO LUMA: replace this with FSR 1 (a simpler single pass version?) if ever needed?
 	//TODO LUMA: we could completely skip this pass from c++ if DLSS was running and simply copy the texture into the target directly (remember to force dithering to happen before if you do that!)
 
-	if (!LumaSettings.DLSS) // LUMA FT: DLSS already uspcaled the image, don't upscale it again
+	if (LumaSettings.SRType == 0) // LUMA FT: DLSS already uspcaled the image, don't upscale it again
 	{
 		float2 texCoords = (inBaseTC.xy * vParams.xy) + 0.5;
 		float2 intPart = floor(texCoords);

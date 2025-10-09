@@ -59,10 +59,6 @@ Texture2D<float4> p_default_Material_0C25AF6416088781_Param_texture : register(t
 #ifndef ENABLE_VIGNETTE
 #define ENABLE_VIGNETTE 1
 #endif
-// Undefined it as this used to be exposed to users but we've moved it to a cbuffer now
-#ifdef ENABLE_COLOR_GRADING_DESATURATION
-#undef ENABLE_COLOR_GRADING_DESATURATION
-#endif
 #ifndef ENABLE_COLOR_GRADING_DESATURATION
 #define ENABLE_COLOR_GRADING_DESATURATION 1
 #endif
@@ -79,9 +75,16 @@ void main(
   color = gamma_to_linear(color, GCT_MIRROR);
   isLinear = true;
 #endif
+  bool forceSDR = ShouldForceSDR(uv, true);
 
   float saturationAmount = InstanceParams[0].y; // <1 is desaturation, >1 is saturation
-  saturationAmount = lerp(max(saturationAmount, 1.0), saturationAmount, LumaSettings.GameSettings.DesaturationIntensity);
+  if (!forceSDR)
+  {
+    if (LumaSettings.GameSettings.DesaturationIntensity >= 0.0)
+      saturationAmount = lerp(max(saturationAmount, 1.0), saturationAmount, LumaSettings.GameSettings.DesaturationIntensity);
+    else
+      saturationAmount = 1.0 - LumaSettings.GameSettings.DesaturationIntensity;
+  }
   float rgbAverage = (color.r + color.g + color.b) / 3.0;
 #if ENABLE_IMPROVED_COLOR_GRADING
 
@@ -111,8 +114,6 @@ void main(
 #endif // ENABLE_COLOR_GRADING_DESATURATION
 
 #endif // ENABLE_IMPROVED_COLOR_GRADING
-
-  bool forceSDR = ShouldForceSDR(uv, true);
 
   float scaledAverage = saturate(InstanceParams[0].z * rgbAverageGammaSpace); // We still need to saturate, otherwise the highlights filter would apply too strongly (it will apply stronger than SDR anyway, as the source colors are beyond 1)
   float shadowAmount = -scaledAverage * 2.0 + 1.0; // Maps 1 to -1, 0.5 to 0 and 0 to 1
@@ -174,33 +175,54 @@ void main(
     isLinear = true;
   }
 
-#if ENABLE_COLOR_GRADING_DESATURATION && 0 // Theoretically it's another setting, but whatever // Disabled for now as it just doesn't look right, the game relies on saturated highlights for many things
+#if ENABLE_HIGHLIGHTS_DESATURATION_TYPE >= 2 // Theoretically it's another setting, but whatever // Disabled for now as it just doesn't look right, the game relies on saturated highlights for many things
   // Desaturate bright highlights as they can get ridiculously high and still be very saturated in this game, while in SDR it would have all clipped at 1
   // TODO: try with oklab or something else, and maybe restore the vanilla hue, however it's very much lost at this point as many saturates were skipped
-  o0.rgb = Saturation(o0.rgb, lerp(1.0, 0.5, pow(saturate((average(o0.rgb) - MidGray) / 20.0), 0.5)));
+  if (!forceSDR)
+  {
+    o0.rgb = Saturation(o0.rgb, lerp(1.0, 0.5, pow(saturate((average(o0.rgb) - MidGray) / 20.0), 0.5)));
+  }
 #endif
   
   if (!forceSDR)
   {
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+    // Tonemap per channel in SDR otherwise stuff just looks weird as it lacks hue shifts (e.g. fire and lights end up looking pink).
+    // This can also be a problem in HDR, however it's a lot less pronounced, and there's no perfect solution, as the only things that
+    // look best with the per channel tonemapper desaturation (hue shifts) are fire (because the textures are literally pinks),
+    // but the rest desaturates too much with per channel, so in HDR we default to luminance.
+    // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts that much beside fire.
+    bool tonemapPerChannel = LumaSettings.DisplayMode != 1;
+#if ENABLE_HIGHLIGHTS_DESATURATION_TYPE == 1 || ENABLE_HIGHLIGHTS_DESATURATION_TYPE >= 3
+    tonemapPerChannel = true;
+#endif
     if (LumaSettings.DisplayMode == 1)
     {
-      DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+      DICESettings settings = DefaultDICESettings(tonemapPerChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
 #if 0
       settings.ShoulderStart = paperWhite / peakWhite; // Only tonemap beyond paper white, so we leave the SDR range untouched (roughly)
 #endif
       o0.rgb = DICETonemap(o0.rgb * paperWhite, peakWhite, settings) / paperWhite;
     }
-    else // Per channel doesn't look good in this game
+    else
     {
-      o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
-      o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+      if (tonemapPerChannel)
+      {
+        o0.rgb = Reinhard::ReinhardRange(o0.rgb, MidGray, -1.0, peakWhite / paperWhite, false);
+      }
+      else
+      {
+        o0.rgb = RestoreLuminance(o0.rgb, Reinhard::ReinhardRange(GetLuminance(o0.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
+        o0.rgb = CorrectOutOfRangeColor(o0.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+      }
     }
   }
   
 #if UI_DRAW_TYPE == 2
+  ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
   o0.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+  ColorGradingLUTTransferFunctionInOutCorrected(o0.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif // UI_DRAW_TYPE == 2
 
   o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);

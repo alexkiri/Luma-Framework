@@ -13,75 +13,51 @@
 // Should be <= the max (last) of NVSDK_NGX_PerfQuality_Value
 #define NUM_PERF_QUALITY_MODES 6
 
-// 0.5 should be about the neutral (balanced) value? Though Nvidia's documentation doesn't specify which one is (likely 0.35).
-// A value of 0 actually seems to tell DLSS that we want its default value, but again the documentation doesn't specify it. We could also try to set it -1 to make sure it's ignored though.
-// As of DLSS 2.5.1 sharpness has been completely removed so it might have no effect.
-#define DLSS_DEFAULT_SHARPNESS 0.5f
-
-// Our rendering presets are pretty much the default ones mentioned in the DLSS 3.7 SDK, do we want to force them, or do we want to allow NV to change them through updates?
-// If we don't force them, DLSS seems to bug out and keep the old ones after changing between DLSS and DRS the first time.
-// NOTE: as of DLSS 3.8 presets are forced to E and F so none of this matters anymore. We can assume that C and D have no worthy advantages over E and F. Leaving the presets at default is the best option.
+// Our rendering presets are pretty much the default ones mentioned in the DLSS SDK, do we want to force them, or do we want to allow NV to change them through updates?
 #define DLSS_FORCE_RENDER_PRESET 1
-// DLSS 4 might already force this, but we can force it ourselves too (though it'd break old DLSS versions). Newer versions already added a new preset so using the default one just seems like a better choice.
-// Note that this has a lot of ghosting and warping on reflections and volumetrics (anything that doesn't match the depth buffer).
-#if GAME_MAFIA_III && DEVELOPMENT // Just for development, to have extra sharpness and notice if it's not etc // TODO: delete!
-#define DLSS_FORCE_K_J_RENDER_PRESET 1
-#else
-#define DLSS_FORCE_K_J_RENDER_PRESET 0
-#endif
-// Theoretically better than F.
-// Better sharpness, less ghosting and more image stability (less shimmering and noise).
-#define DLSS_FORCE_E_RENDER_PRESET 1
-// Low ghosting at the cost of a tiny bit of sharpness. Works at any quality mode.
-#define DLSS_FORCE_F_RENDER_PRESET 1
 
 namespace NGX
 {
-	const char* projectID = "d8238c51-1f2f-438d-a309-38c16e33c716"; // This needs to be a GUID. We generated a unique one. This isn't registered by NV. This was generated for Luma.
-	const char* engineVersion = "1.0";
+	const char* project_id = "d8238c51-1f2f-438d-a309-38c16e33c716"; // This needs to be a GUID. We generated a unique one. This isn't registered by NV. This was generated for Luma. It's ok to share it for all games.
+	const char* engine_version = "1.0";
 
 	// DLSS "instance" per output resolution (and other settings)
 	// These never need to be manually destroyed
 	struct DLSSInternalInstance
 	{
-		NVSDK_NGX_Handle* superSamplingFeature = nullptr;
-		NVSDK_NGX_Parameter* runtimeParams = nullptr;
-		Microsoft::WRL::ComPtr<ID3D11DeviceContext>	commandList;
+		NVSDK_NGX_Handle* super_sampling_feature = nullptr;
+		NVSDK_NGX_Parameter* runtime_params = nullptr;
+		Microsoft::WRL::ComPtr<ID3D11DeviceContext>	command_list;
 	};
 
-	struct DLSSInstanceData
+	struct DLSSInstanceData : public SR::InstanceData
 	{
-		bool							isSupported = false;
-		unsigned int				renderWidth = 0;
-		unsigned int				renderHeight = 0;
-		unsigned int				outputWidth = 0;
-		unsigned int				outputHeight = 0;
-		bool							dynamicResolution = false;
-		bool							hdr = false;
-		float							sharpness = DLSS_DEFAULT_SHARPNESS; // Optimal value
+		DLSSInstanceData()
+		{
+		}
 
-		DLSSInternalInstance			instance = {}; // Note that there could be more of these if we ever wished
-		std::unordered_set<NVSDK_NGX_Handle*>		uniqueHandles;
-		std::unordered_set<NVSDK_NGX_Parameter*>	uniqueParameters;
+		DLSSInternalInstance								instance = {}; // Note that there could be more of these if we ever wished
+		std::unordered_set<NVSDK_NGX_Handle*>		unique_handles;
+		std::unordered_set<NVSDK_NGX_Parameter*>	unique_parameters;
 		// Current global capabilities params (independent from the current settings/res).
-		NVSDK_NGX_Parameter*			capabilitiesParams = nullptr;
-		Microsoft::WRL::ComPtr<ID3D11Device>	device;
+		NVSDK_NGX_Parameter*								capabilities_params = nullptr;
+		Microsoft::WRL::ComPtr<ID3D11Device>		device;
 
 		virtual ~DLSSInstanceData()
 		{
 			// Just to be explicit
 			device.Reset();
-			instance.commandList.Reset();
+			instance.command_list.Reset();
 
 			// We need to release these at the end, otherwise DLSS crashes as it holds references to them (there's probably a way to release them as they come but it doesn't really matter)
-			for (NVSDK_NGX_Handle* handle : uniqueHandles)
+			for (NVSDK_NGX_Handle* handle : unique_handles)
 			{
 				if (handle != nullptr)
 				{
 					assert(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D11_ReleaseFeature(handle)));
 				}
 			}
-			for (NVSDK_NGX_Parameter* parameter : uniqueParameters)
+			for (NVSDK_NGX_Parameter* parameter : unique_parameters)
 			{
 				if (parameter != nullptr)
 				{
@@ -89,201 +65,150 @@ namespace NGX
 				}
 			}
 
-			if (capabilitiesParams != nullptr)
+			if (capabilities_params != nullptr)
 			{
-				assert(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D11_DestroyParameters(capabilitiesParams)));
+				assert(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D11_DestroyParameters(capabilities_params)));
 			}
 		}
 
-		DLSSInternalInstance CreateSuperSamplingFeature(ID3D11DeviceContext* commandList, unsigned int outputWidth, unsigned int outputHeight, unsigned int renderWidth, unsigned int renderHeight, int qualityValue, bool _hdr = true)
+		// Based on "settings_data" 
+		DLSSInternalInstance CreateSuperSamplingFeature(ID3D11DeviceContext* command_list, int quality_value)
 		{
-			NVSDK_NGX_Parameter* runtimeParams = nullptr;
+			NVSDK_NGX_Parameter* runtime_params = nullptr;
 			// Note: this could fail on outdated drivers
-			NVSDK_NGX_Result paramResult = NVSDK_NGX_D3D11_AllocateParameters(&runtimeParams);
-			assert(NVSDK_NGX_SUCCEED(paramResult));
-			if (NVSDK_NGX_FAILED(paramResult))
+			NVSDK_NGX_Result param_result = NVSDK_NGX_D3D11_AllocateParameters(&runtime_params);
+			assert(NVSDK_NGX_SUCCEED(param_result));
+			if (NVSDK_NGX_FAILED(param_result))
 			{
 				return DLSSInternalInstance();
 			}
 
 			NVSDK_NGX_Handle* feature = nullptr;
 
-			int createFlags = 
+			int create_flags = 
 				// Always needed unless MVs are in output (upscaled) resolution
 				NVSDK_NGX_DLSS_Feature_Flags_MVLowRes
-				//| NVSDK_NGX_DLSS_Feature_Flags_Reserved_0 // Matches the old NVSDK_NGX_DLSS_Feature_Flags_DepthJittered, which has been removed (should already be on by default now)
-//TODOFT: expose settings per game (there's more around the file), when the need will come
-#if GAME_PREY || GAME_FF7_REMAKE || GAME_MAFIA_III // DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality
-				| NVSDK_NGX_DLSS_Feature_Flags_DepthInverted
-#endif
-// We modified Prey to make sure this is the case (see "FORCE_MOTION_VECTORS_JITTERED").
-// Previously (dynamic objects) MVs were half jittered (with the current frame's jitters only), because they are rendered with g-buffers, on projection matrices that have jitters.
-// We could't remove these jitters properly when rendering the final motion vectors for DLSS (we tried...), so neither this flag on or off would have been correct.
-// Even if we managed to generate the final MVs without jitters included, it seemengly doesn't look any better anyway.
-#if GAME_PREY || GAME_MAFIA_III
-				| NVSDK_NGX_DLSS_Feature_Flags_MVJittered
-#endif
-#if 0
-				| NVSDK_NGX_DLSS_Feature_Flags_DoSharpening // Sharpening is currently deprecated (in DLSS 2.5.1 and doesn't do anything), this would re-enable it if it was ever re-allowed by DLSS
-#endif
-#if GAME_MAFIA_III // We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
-				| NVSDK_NGX_DLSS_Feature_Flags_AutoExposure
-#endif
+				// DLSS expects the depth to be the device/HW one (1 being near, not 1 being the camera (linear depth)), CryEngine (Prey) and other games use inverted depth because it's better for quality.
+				// Depth is always meant to be jittered with DLSS.
+				| (settings_data.inverted_depth ? NVSDK_NGX_DLSS_Feature_Flags_DepthInverted : 0)
+				| (settings_data.mvs_jittered ? NVSDK_NGX_DLSS_Feature_Flags_MVJittered : 0)
+				// We either force the exposure to 1 if we run after tonemapping, or feed the correct one if we run before
+				| (settings_data.auto_exposure ? NVSDK_NGX_DLSS_Feature_Flags_AutoExposure : 0)
+				// With this flag on, DLSS process colors "better", and it expects them to be in linear space.
+				// If this flag is false, then colors should be in gamma space (values beyond 0-1 are allowed anyway, but are not guaranteed to be preserved, especially not below 0).
+				| (settings_data.hdr ? NVSDK_NGX_DLSS_Feature_Flags_IsHDR : 0)
 				;
 
-			const NVSDK_NGX_PerfQuality_Value perfQualityValue = static_cast<NVSDK_NGX_PerfQuality_Value>(qualityValue);
+			const NVSDK_NGX_PerfQuality_Value perf_quality_value = static_cast<NVSDK_NGX_PerfQuality_Value>(quality_value);
 
 			// DLAA might have been "NVSDK_NGX_PerfQuality_Value_UltraQuality" or "NVSDK_NGX_PerfQuality_Value_MaxQuality" but it shouldn't matter, it's about whether the in/out res are matching.
-			// NOTE: we might also want to check against the closest "DLSSOptimalSettingsInfo" for its "MaxWidth" and "MaxHeight"
+			// NOTE: we might also want to check against the closest "DLSSOptimalSettingsInfo" for its "Max_width" and "Max_height"
 			// to check if we are actually running DLAA or DLSS? It's probably unnecessary.
-			const bool isDLAA = perfQualityValue == NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_DLAA || (renderWidth >= outputWidth && renderHeight >= outputHeight);
+			const bool is_dlaa = perf_quality_value == NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_DLAA || (settings_data.render_width >= settings_data.output_width && settings_data.render_height >= settings_data.output_height);
 
-			NVSDK_NGX_DLSS_Hint_Render_Preset renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
+			NVSDK_NGX_DLSS_Hint_Render_Preset render_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default;
 #if DLSS_FORCE_RENDER_PRESET
-
-#if DLSS_FORCE_K_J_RENDER_PRESET
-
-			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset((int)NVSDK_NGX_DLSS_Hint_Render_Preset_K);
-
-#else // !DLSS_FORCE_K_J_RENDER_PRESET
-
-#if DLSS_FORCE_E_RENDER_PRESET
-			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_E;
-
-#if DLSS_FORCE_F_RENDER_PRESET // && DLSS_FORCE_F_RENDER_PRESET
-			if (isDLAA)
+			if (settings_data.use_experimental_features)
 			{
-				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
+				render_preset = NVSDK_NGX_DLSS_Hint_Render_Preset((int)NVSDK_NGX_DLSS_Hint_Render_Preset_K);
 			}
-#endif // DLSS_FORCE_F_RENDER_PRESET
-
-#elif DLSS_FORCE_F_RENDER_PRESET // && !DLSS_FORCE_E_RENDER_PRESET
-
-			renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
-
-#else // Automatically pick the best one if no specific one is forced
-
-			switch (perfQualityValue)
+			else
 			{
-			case NVSDK_NGX_PerfQuality_Value_UltraPerformance:
-			{
-				// F: The default preset for Ultra Perf and DLAA modes.
-				// 
-				// NOTE: we could actually just use "NVSDK_NGX_DLSS_Hint_Render_Preset_Default" here, as it would internally fall back to "F",
-				// but allow for automatic changes from NV in future versions of DLSS?
-				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
+				render_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_E;
+				if (is_dlaa)
+				{
+					render_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
+				}
 			}
-			break;
-			default:
-			{
-				// C: Preset which generally favors current frame information. Generally well-suited for fast paced game content.
-				// For First Person games, it might be better than E.
-				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_C;
-			}
-			break;
-			}
-			if (isDLAA)
-			{
-				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_F;
-			}
-
-#endif // DLSS_FORCE_E_RENDER_PRESET
-
-#endif // DLSS_FORCE_K_J_RENDER_PRESET
-
 #endif // DLSS_FORCE_RENDER_PRESET
 
 			// Set all of them for simplicity, these params belong to a specific quality mode anyway.
 			// If we set "NVSDK_NGX_DLSS_Hint_Render_Preset_Default", it should be equal to not setting anything at all.
-			NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, renderPreset);
-			NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, renderPreset);
-			NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, renderPreset);
-			NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, renderPreset);
-			NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, renderPreset);
-			NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, renderPreset);
+			NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_DLAA, render_preset);
+			NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraQuality, render_preset);
+			NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Quality, render_preset);
+			NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, render_preset);
+			NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Performance, render_preset);
+			NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_UltraPerformance, render_preset);
 
-			// With this flag on, DLSS process colors "better",
-			// and it expects them to be in linear space.
-			// If this flag is false, then colors should be in gamma space (values beyond 0-1 are allowed anyway).
-			if (_hdr)
-			{
-				createFlags |= NVSDK_NGX_DLSS_Feature_Flags_IsHDR;
-			}
+			NVSDK_NGX_DLSS_Create_Params create_params;
+			std::memset(&create_params, 0, sizeof(create_params));
 
-			NVSDK_NGX_DLSS_Create_Params CreateParams;
-			std::memset(&CreateParams, 0, sizeof(CreateParams));
-
-			CreateParams.Feature.InTargetWidth = outputWidth;
-			CreateParams.Feature.InTargetHeight = outputHeight;
-			CreateParams.Feature.InWidth = renderWidth;
-			CreateParams.Feature.InHeight = renderHeight;
+			create_params.Feature.InTargetWidth = settings_data.output_width;
+			create_params.Feature.InTargetHeight = settings_data.output_height;
+			create_params.Feature.InWidth = settings_data.render_width;
+			create_params.Feature.InHeight = settings_data.render_height;
 			// The quality value here is optional and likely irrelevant, as we already specify the input and output resolution (that's why we don't hash it in the map key).
-			CreateParams.Feature.InPerfQualityValue = perfQualityValue;
-			CreateParams.InFeatureCreateFlags = createFlags;
+			create_params.Feature.InPerfQualityValue = perf_quality_value;
+			create_params.InFeatureCreateFlags = create_flags;
 
-			NVSDK_NGX_Result createResult = NGX_D3D11_CREATE_DLSS_EXT(
-				commandList,
+			NVSDK_NGX_Result create_result = NGX_D3D11_CREATE_DLSS_EXT(
+				command_list,
 				&feature,
-				runtimeParams,
-				&CreateParams);
+				runtime_params,
+				&create_params);
 
 			// It's possible that DLSS will reject that the "NVSDK_NGX_PerfQuality_Value" parameter, so try again with a different quality mode (they are often meaningless, as what matters is only the resolution).
-			if (NVSDK_NGX_FAILED(createResult))
+			if (NVSDK_NGX_FAILED(create_result))
 			{
-				renderPreset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default; // Let's pick the default just to be sure.
-				NVSDK_NGX_Parameter_SetUI(runtimeParams, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, renderPreset);
+				render_preset = NVSDK_NGX_DLSS_Hint_Render_Preset_Default; // Let's pick the default just to be sure.
+				NVSDK_NGX_Parameter_SetUI(runtime_params, NVSDK_NGX_Parameter_DLSS_Hint_Render_Preset_Balanced, render_preset);
 
-				CreateParams.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_Balanced;
+				create_params.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_Balanced;
 
-				createResult = NGX_D3D11_CREATE_DLSS_EXT(
-					commandList,
+				create_result = NGX_D3D11_CREATE_DLSS_EXT(
+					command_list,
 					&feature,
-					runtimeParams,
-					&CreateParams);
+					runtime_params,
+					&create_params);
 			}
 
 			// Continue even if we got an error, we handle them later.
 			// If this mode creation failed, it's likely it will always fail anyway.
-			assert(NVSDK_NGX_SUCCEED(createResult));
+			assert(NVSDK_NGX_SUCCEED(create_result));
 
-			return DLSSInternalInstance{ feature, runtimeParams, commandList };
+			return DLSSInternalInstance{ feature, runtime_params, command_list };
 		}
 	};
 }
 
-bool NGX::DLSS::Init(DLSSInstanceData*& data, ID3D11Device* device, IDXGIAdapter* adapter)
+bool NGX::DLSS::Init(SR::InstanceData*& data, ID3D11Device* device, IDXGIAdapter* adapter)
 {
 	if (data)
 	{
 		Deinit(data); // This will also null the pointer
 	}
+	
+	auto& custom_data = reinterpret_cast<DLSSInstanceData*&>(data);
 
 	// We expect Deinit() to be called first if the device/adapter changed
-	if (!data && device)
+	if (!custom_data && device)
 	{
-		const wchar_t* dataPath = L".";
-		NVSDK_NGX_Result result = NVSDK_NGX_D3D11_Init_with_ProjectID(projectID, NVSDK_NGX_ENGINE_TYPE_CUSTOM, engineVersion, dataPath, device);
+		const wchar_t* data_path = L"."; // The DLSS DLL should be distributed with Luma and be in the same folder as the mod
+		NVSDK_NGX_Result result = NVSDK_NGX_D3D11_Init_with_ProjectID(project_id, NVSDK_NGX_ENGINE_TYPE_CUSTOM, engine_version, data_path, device);
 
 		if (NVSDK_NGX_SUCCEED(result))
 		{
-			data = new DLSSInstanceData();
-			data->device = device;
+			custom_data = new DLSSInstanceData();
+			custom_data->device = device;
 
-			result = NVSDK_NGX_D3D11_GetCapabilityParameters(&data->capabilitiesParams);
+			custom_data->min_resolution = 32; // DLSS doesn't support output below 32x32
+
+			result = NVSDK_NGX_D3D11_GetCapabilityParameters(&custom_data->capabilities_params);
 			assert(NVSDK_NGX_SUCCEED(result));
 		}
 
-		if (data && data->capabilitiesParams != nullptr)
+		if (custom_data && custom_data->capabilities_params != nullptr)
 		{
-			int superSamplingAvailable = 0;
+			int super_sampling_available = 0;
 			// The documentation mentions to use the "NVSDK_NGX_Parameter_SuperSampling_Available" parameter,
 			// but the public Unreal Engine implementation uses this one. It probably makes no difference.
-			data->capabilitiesParams->Get(NVSDK_NGX_EParameter_SuperSampling_Available, &superSamplingAvailable);
+			custom_data->capabilities_params->Get(NVSDK_NGX_EParameter_SuperSampling_Available, &super_sampling_available);
 
-			data->isSupported = superSamplingAvailable > 0;
+			custom_data->is_supported = super_sampling_available > 0;
 
 #if 0 // This extra check isn't really needed unless we want to know the reason DLSS SR might not be supported
-			if (data->isSupported && adapter != nullptr)
+			if (custom_data->is_supported && adapter != nullptr)
 			{
 				NVSDK_NGX_FeatureDiscoveryInfo featureDiscoveryInfo;
 				std::memset(&featureDiscoveryInfo, 0, sizeof(NVSDK_NGX_FeatureDiscoveryInfo));
@@ -293,222 +218,195 @@ bool NGX::DLSS::Init(DLSSInstanceData*& data, ID3D11Device* device, IDXGIAdapter
 				featureDiscoveryInfo.Identifier.v.ProjectDesc.ProjectId = projectID;
 				featureDiscoveryInfo.Identifier.v.ProjectDesc.EngineType = NVSDK_NGX_ENGINE_TYPE_CUSTOM;
 				featureDiscoveryInfo.Identifier.v.ProjectDesc.EngineVersion = engineVersion;
-				featureDiscoveryInfo.ApplicationDataPath = dataPath;
+				featureDiscoveryInfo.ApplicationDataPath = data_path;
 				NVSDK_NGX_FeatureRequirement featureRequirement;
 				result = NVSDK_NGX_D3D11_GetFeatureRequirements(adapter, &featureDiscoveryInfo, &featureRequirement);
 				assert(NVSDK_NGX_SUCCEED(result)); // NOTE: this might fail on AMD if we somehow got here, so maybe we shouldn't assert
-				data->isSupported &= NVSDK_NGX_SUCCEED(result) && featureRequirement.FeatureSupported == NVSDK_NGX_Feature_Support_Result::NVSDK_NGX_FeatureSupportResult_Supported;
+				custom_data->is_supported &= NVSDK_NGX_SUCCEED(result) && featureRequirement.FeatureSupported == NVSDK_NGX_Feature_Support_Result::NVSDK_NGX_FeatureSupportResult_Supported;
 			}
 #endif
 		}
 	}
 
-	return data != nullptr && data->isSupported;
+	return custom_data != nullptr && custom_data->is_supported;
 }
 
-void NGX::DLSS::Deinit(DLSSInstanceData*& data, ID3D11Device* optional_device)
+void NGX::DLSS::Deinit(SR::InstanceData*& data, ID3D11Device* optional_device)
 {
-	if (data != nullptr)
+	auto& custom_data = reinterpret_cast<DLSSInstanceData*&>(data);
+
+	if (custom_data != nullptr)
 	{
 		if (optional_device == nullptr)
 		{
-			optional_device = data->device.Get();
+			optional_device = custom_data->device.Get();
 		}
 		else
 		{
-			assert(data->device.Get() == optional_device);
+			assert(custom_data->device.Get() == optional_device);
 		}
 
 		// Needs to be done before "NVSDK_NGX_D3D11_Shutdown1()"
-		delete data;
-		data = nullptr;
+		delete custom_data;
+		custom_data = nullptr;
 
 		assert(NVSDK_NGX_SUCCEED(NVSDK_NGX_D3D11_Shutdown1(optional_device)));
 	}
 }
 
-bool NGX::DLSS::HasInit(const DLSSInstanceData* data)
+bool NGX::DLSS::HasInit(const SR::InstanceData* data) const
 {
 	return data != nullptr;
 }
 
-bool NGX::DLSS::IsSupported(const DLSSInstanceData* data)
+bool NGX::DLSS::IsSupported(const SR::InstanceData* data) const
 {
-	return data && data->isSupported;
+	return data && data->is_supported;
 }
 
-bool NGX::DLSS::UpdateSettings(DLSSInstanceData* data, ID3D11DeviceContext* commandList, unsigned int outputWidth, unsigned int outputHeight, unsigned int renderWidth, unsigned int renderHeight, bool hdr, bool dynamicResolution)
+bool NGX::DLSS::UpdateSettings(SR::InstanceData* data, ID3D11DeviceContext* command_list, const SR::SettingsData& settings_data)
 {
+	auto& custom_data = reinterpret_cast<DLSSInstanceData*&>(data);
+
 	// Early exit if DLSS is not supported by hardware or driver.
-	if (!commandList || !data || !data->isSupported)
+	if (!command_list || !custom_data || !custom_data->is_supported)
 		return false;
 
-#ifndef NDEBUG
+#ifndef NDEBUG 
 	Microsoft::WRL::ComPtr<ID3D11Device> device;
-	commandList->GetDevice(device.GetAddressOf());
-	assert(data->device.Get() == device.Get());
+	command_list->GetDevice(device.GetAddressOf());
+	assert(custom_data->device.Get() == device.Get());
 
 	Microsoft::WRL::ComPtr<ID3D11DeviceContext> immediate_context;
 	device->GetImmediateContext(&immediate_context);
-	assert(immediate_context.Get() == commandList); // DLSS only supports the immediate context apparently (both here and in the actual draw function)!
+	assert(immediate_context.Get() == command_list); // DLSS only supports the immediate context apparently (both here and in the actual draw function)!
 #endif
 
-	bool featureInstanceCreated = data->instance.superSamplingFeature != nullptr && data->instance.runtimeParams != nullptr;
+	bool feature_instance_created = custom_data->instance.super_sampling_feature != nullptr && custom_data->instance.runtime_params != nullptr;
 
 	// No need to re-instantiate DLSS "features" if all the params are the same
-	if ((int)outputWidth == data->outputWidth && (int)outputHeight == data->outputHeight
-		&& (int)renderWidth == data->renderWidth && (int)renderHeight == data->renderHeight
-		&& dynamicResolution == data->dynamicResolution && hdr == data->hdr
-		&& data->instance.commandList.Get() == commandList && featureInstanceCreated)
+	if (memcmp(&settings_data, &custom_data->settings_data, sizeof(SR::SettingsData)) == 0
+		&& custom_data->instance.command_list.Get() == command_list && feature_instance_created)
 	{
 		return true;
 	}
 
-	data->sharpness = DLSS_DEFAULT_SHARPNESS; // Reset to default, in case a new one won't be found
+	int quality_mode = static_cast<int>(NVSDK_NGX_PerfQuality_Value_Balanced); // Default to balanced if none is found
 
-	int qualityMode = static_cast<int>(NVSDK_NGX_PerfQuality_Value_Balanced); // Default to balanced if none is found
-
-	unsigned int bestModeDelta = (std::numeric_limits<unsigned int>::max)(); // Wrap it around () because "max" might already be defined as macro
+	unsigned int best_mode_delta = (std::numeric_limits<unsigned int>::max)(); // Wrap it around () because "max" might already be defined as macro
 
 	// Instead of first picking a quality mode and then finding the best render resolution for it,
 	// we find the most suitable quality mode for the resolutions we fed in.
 	for (int i = 0; i < NUM_PERF_QUALITY_MODES; ++i)
 	{
-		unsigned int optimalWidth = 0;
-		unsigned int optimalHeight = 0;
-		unsigned int minWidth = 0, maxWidth = 0, minHeight = 0, maxHeight = 0;
-		float sharpness = data->sharpness;
+		unsigned int optimal_width = 0;
+		unsigned int optimal_height = 0;
+		unsigned int min_width = 0, max_width = 0, min_height = 0, max_height = 0;
+		float sharpness = 0.f; // Unused
 
-		NVSDK_NGX_Result res = NGX_DLSS_GET_OPTIMAL_SETTINGS(data->capabilitiesParams, outputWidth, outputHeight, static_cast<NVSDK_NGX_PerfQuality_Value>(i), &optimalWidth, &optimalHeight, &maxWidth, &maxHeight, &minWidth, &minHeight, &sharpness);
+		NVSDK_NGX_Result res = NGX_DLSS_GET_OPTIMAL_SETTINGS(custom_data->capabilities_params, settings_data.output_width, settings_data.output_height, static_cast<NVSDK_NGX_PerfQuality_Value>(i), &optimal_width, &optimal_height, &max_width, &max_height, &min_width, &min_height, &sharpness);
 
-		if (NVSDK_NGX_SUCCEED(res) && optimalWidth != 0 && optimalHeight != 0)
+		if (NVSDK_NGX_SUCCEED(res) && optimal_width != 0 && optimal_height != 0)
 		{
-			const bool isDLAA = static_cast<NVSDK_NGX_PerfQuality_Value>(i) == NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_DLAA;
+			const bool is_dlaa = static_cast<NVSDK_NGX_PerfQuality_Value>(i) == NVSDK_NGX_PerfQuality_Value::NVSDK_NGX_PerfQuality_Value_DLAA;
 
 			// Just make sure DLSS is always using the full output resolution (it should be, but we never know, DLAA might allow for res inputs higher than outputs in the future)
-			if (isDLAA)
+			if (is_dlaa)
 			{
-				assert(optimalWidth == outputWidth);
-				optimalWidth = outputWidth;
-				optimalHeight = outputHeight;
-				maxWidth = outputWidth;
-				maxHeight = outputHeight;
+				assert(optimal_width == settings_data.output_width);
+				optimal_width = settings_data.output_width;
+				optimal_height = settings_data.output_height;
+				max_width = settings_data.output_width;
+				max_height = settings_data.output_height;
 			}
 			// This probably can't happen, but I fear I have seen it before, so protect against it
-			else if (maxWidth == 0 || maxHeight == 0)
+			else if (max_width == 0 || max_height == 0)
 			{
 				assert(false);
-				maxWidth = optimalWidth;
-				maxHeight = optimalHeight;
+				max_width = optimal_width;
+				max_height = optimal_height;
 			}
 
-			const unsigned int deltaFromOptimal = std::abs((int)renderWidth - (int)optimalWidth) + std::abs((int)renderHeight - (int)optimalHeight);
-			const bool isInRange = renderWidth >= minWidth && renderWidth <= maxWidth && renderHeight >= minHeight && renderHeight <= maxHeight;
+			const unsigned int delta_from_optimal = std::abs((int)settings_data.render_width - (int)optimal_width) + std::abs((int)settings_data.render_height - (int)optimal_height);
+			const bool is_in_range = settings_data.render_width >= min_width && settings_data.render_width <= max_width && settings_data.render_height >= min_height && settings_data.render_height <= max_height;
 
 			// Pick the first one with a matching optimal resolution (unless we are doing dynamic resolution, in that case, simply checking for a raw match isn't enough)
-			if (!dynamicResolution && optimalWidth == renderWidth && optimalHeight == renderHeight)
+			if (!settings_data.dynamic_resolution && optimal_width == settings_data.render_width && optimal_height == settings_data.render_height)
 			{
-				data->sharpness = sharpness;
-				qualityMode = i;
+				quality_mode = i;
 				break;
 			}
 			// or fall back on the one cloest to the optimal resolution range
-			else if (isInRange && deltaFromOptimal < bestModeDelta)
+			else if (is_in_range && delta_from_optimal < best_mode_delta)
 			{
-				data->sharpness = sharpness;
-				qualityMode = i;
-				bestModeDelta = deltaFromOptimal;
+				quality_mode = i;
+				best_mode_delta = delta_from_optimal;
 			}
 		}
 	}
 
-	if ((!dynamicResolution || bestModeDelta == (std::numeric_limits<unsigned int>::max)()) && renderWidth >= outputWidth && renderHeight >= outputHeight)
+	if ((!settings_data.dynamic_resolution || best_mode_delta == (std::numeric_limits<unsigned int>::max)()) && settings_data.render_width >= settings_data.output_width && settings_data.render_height >= settings_data.output_height)
 	{
-		assert(qualityMode == NVSDK_NGX_PerfQuality_Value_DLAA);
-		qualityMode = NVSDK_NGX_PerfQuality_Value_DLAA; // Just in case (this isn't expected to happen)
+		assert(quality_mode == NVSDK_NGX_PerfQuality_Value_DLAA);
+		quality_mode = NVSDK_NGX_PerfQuality_Value_DLAA; // Just in case (this isn't expected to happen)
 	}
 
-	data->instance.commandList.Reset(); // Just to be explicit
-	data->instance = data->CreateSuperSamplingFeature(commandList, outputWidth, outputHeight, renderWidth, renderHeight, qualityMode, hdr);
-	data->uniqueHandles.insert(data->instance.superSamplingFeature);
-	data->uniqueParameters.insert(data->instance.runtimeParams);
-
-	data->outputWidth = outputWidth;
-	data->outputHeight = outputHeight;
-	data->renderWidth = renderWidth;
-	data->renderHeight = renderHeight;
-	data->dynamicResolution = dynamicResolution;
-
-	data->hdr = hdr;
+	custom_data->settings_data = settings_data;
+	custom_data->instance.command_list.Reset(); // Just to be explicit
+	custom_data->instance = custom_data->CreateSuperSamplingFeature(command_list, quality_mode);
+	custom_data->unique_handles.insert(custom_data->instance.super_sampling_feature);
+	custom_data->unique_parameters.insert(custom_data->instance.runtime_params);
 
 	// If any of these are nullptr, then the initialization failed
-	return data->instance.superSamplingFeature != nullptr && data->instance.runtimeParams != nullptr;
+	return custom_data->instance.super_sampling_feature != nullptr && custom_data->instance.runtime_params != nullptr;
 }
 
-bool NGX::DLSS::Draw(const DLSSInstanceData* data, ID3D11DeviceContext* commandList, ID3D11Resource* outputColor, ID3D11Resource* sourceColor, ID3D11Resource* motionVectors, ID3D11Resource* depthBuffer, ID3D11Resource* exposure, float preExposure, float jitterX, float jitterY, bool reset, unsigned int renderWidth, unsigned int renderHeight, bool flipMVsX, bool flipMVsY)
+bool NGX::DLSS::Draw(const SR::InstanceData* data, ID3D11DeviceContext* command_list, const DrawData& draw_data)
 {
-	assert(data->isSupported);
-	assert(data->instance.superSamplingFeature != nullptr && data->instance.runtimeParams != nullptr);
-	assert(data->instance.commandList.Get() == commandList);
+	const auto& custom_data = reinterpret_cast<const DLSSInstanceData*&>(data);
 
-	NVSDK_NGX_D3D11_DLSS_Eval_Params evalParams;
-	memset(&evalParams, 0, sizeof(evalParams));
+	assert(custom_data->is_supported);
+	assert(custom_data->instance.super_sampling_feature != nullptr && custom_data->instance.runtime_params != nullptr);
+	assert(custom_data->instance.command_list.Get() == command_list);
 
-	if (renderWidth == 0)
+	NVSDK_NGX_D3D11_DLSS_Eval_Params eval_params;
+	memset(&eval_params, 0, sizeof(eval_params));
+
+	auto render_width = draw_data.render_width;
+	auto render_height = draw_data.render_height;
+
+	if (render_width == 0)
 	{
-		renderWidth = data->renderWidth;
+		render_width = custom_data->settings_data.render_width;
 	}
-	if (renderHeight == 0)
+	if (render_height == 0)
 	{
-		renderHeight = data->renderHeight;
+		render_height = custom_data->settings_data.render_height;
 	}
 
-	evalParams.pInDepth = depthBuffer;
-	evalParams.pInDepthHighRes = depthBuffer;
-	evalParams.pInMotionVectors = motionVectors;
-	evalParams.InRenderSubrectDimensions.Width = renderWidth;
-	evalParams.InRenderSubrectDimensions.Height = renderHeight;
-	evalParams.Feature.pInColor = sourceColor;
-	evalParams.Feature.pInOutput = outputColor; // Needs to be a UAV
-	evalParams.pInExposureTexture = exposure; // Only used in HDR mode. Needs to be a 2D texture.
-	if (preExposure != 0.f)
+	eval_params.pInDepth = draw_data.depth_buffer;
+	eval_params.pInMotionVectors = draw_data.motion_vectors;
+	eval_params.InRenderSubrectDimensions.Width = draw_data.render_width;
+	eval_params.InRenderSubrectDimensions.Height = draw_data.render_height;
+	eval_params.Feature.pInColor = draw_data.source_color;
+	eval_params.Feature.pInOutput = draw_data.output_color; // Needs to be a UAV
+	eval_params.pInExposureTexture = draw_data.exposure; // Only used in HDR mode. Needs to be a 2D texture.
+	if (draw_data.pre_exposure != 0.f)
 	{
-		evalParams.InPreExposure = preExposure;
+		eval_params.InPreExposure = draw_data.pre_exposure;
 	}
-	evalParams.InReset = reset ? 1 : 0;
-#if 0 // Disabled to avoid sharpening randomly coming back if users used old DLLs or NV restored it
-	evalParams.Feature.InSharpness = data->sharpness; // It's likely clamped between 0 and 1 internally, though a value of 0 might fall back to the internal default
-#endif
+	eval_params.InReset = draw_data.reset ? 1 : 0;
 	// MVs need to have positive values when moving towards the top left of the screen
-#if !GAME_PREY && !GAME_MAFIA_III
-	evalParams.InMVScaleX = flipMVsX ? -1.0 : 1.0;
-	evalParams.InMVScaleY = flipMVsY ? -1.0 : 1.0;
-#else // Prey and Mafia have MVs in UV space, so we need to scale by the render resolution to transform to pixel space // TODO: isn't it in NDC space?
-	evalParams.InMVScaleX = static_cast<float>(renderWidth);
-	evalParams.InMVScaleY = static_cast<float>(renderHeight);
-#endif
-#if 0
-	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth);
-	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight);
-#elif GAME_FF7_REMAKE
-	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * 0.5f;
-	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * -0.5f;
-#elif GAME_PREY // This is what's needed by vanilla Prey
-	evalParams.InJitterOffsetX = jitterX * static_cast<float>(renderWidth) * -0.5f;
-	evalParams.InJitterOffsetY = jitterY * static_cast<float>(renderHeight) * 0.5f;
-#elif GAME_PREY && 0 // This is an alternative version we modified Prey to follow, but it ended up being wrong
-	evalParams.InJitterOffsetX = jitterX * static_cast<float>(data->outputWidth) * -0.5f * (static_cast<float>(data->outputWidth) / static_cast<float>(renderWidth));
-	evalParams.InJitterOffsetY = jitterY * static_cast<float>(data->outputHeight) * 0.5f * (static_cast<float>(data->outputHeight) / static_cast<float>(renderHeight));
-#else
-	evalParams.InJitterOffsetX = jitterX;
-	evalParams.InJitterOffsetY = jitterY;
-#endif
+	eval_params.InMVScaleX = custom_data->settings_data.mvs_x_scale;
+	eval_params.InMVScaleY = custom_data->settings_data.mvs_y_scale;
+	eval_params.InJitterOffsetX = draw_data.jitter_x;
+	eval_params.InJitterOffsetY = draw_data.jitter_y;
 
 	NVSDK_NGX_Result result = NGX_D3D11_EVALUATE_DLSS_EXT(
-		commandList,
-		data->instance.superSamplingFeature,
-		data->instance.runtimeParams,
-		&evalParams
+		command_list,
+		custom_data->instance.super_sampling_feature,
+		custom_data->instance.runtime_params,
+		&eval_params
 	);
 
 	return NVSDK_NGX_SUCCEED(result);

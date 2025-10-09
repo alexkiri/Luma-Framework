@@ -1,8 +1,5 @@
 #define GAME_GENERIC 1
 
-#define ENABLE_NGX 0
-#define UPGRADE_SAMPLERS 0
-
 #include "..\..\Core\core.hpp"
 
 namespace
@@ -51,18 +48,21 @@ public:
 
       ImGui::NewLine();
       // Requires a change in resolution to (~fully) apply (no texture cloning yet)
-      if (enable_swapchain_upgrade ? ImGui::Button("Disable Swapchain Upgrade") : ImGui::Button("Enable Swapchain Upgrade"))
+      if (swapchain_format_upgrade_type > TextureFormatUpgradesType::None)
       {
-         enable_swapchain_upgrade = !enable_swapchain_upgrade;
+         if (swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled ? ImGui::Button("Disable Swapchain Upgrade") : ImGui::Button("Enable Swapchain Upgrade"))
+         {
+            swapchain_format_upgrade_type = swapchain_format_upgrade_type == TextureFormatUpgradesType::AllowedEnabled ? TextureFormatUpgradesType::AllowedDisabled : TextureFormatUpgradesType::AllowedEnabled;
+         }
       }
-      if (enable_texture_format_upgrades ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
+      if (texture_format_upgrades_type > TextureFormatUpgradesType::None)
       {
-         enable_texture_format_upgrades = !enable_texture_format_upgrades;
-      }
+         if (texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled ? ImGui::Button("Disable Texture Format Upgrades") : ImGui::Button("Enable Texture Format Upgrades"))
+         {
+            texture_format_upgrades_type = texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled ? TextureFormatUpgradesType::AllowedDisabled : TextureFormatUpgradesType::AllowedEnabled;
+         }
 
-      // TODO: serialize all this stuff!
-      if (enable_texture_format_upgrades)
-      {
+         // TODO: serialize all this stuff!
          ImGui::NewLine();
          ImGui::Text("Texture Format Upgrades:");
          for (auto toggleable_texture_upgrade_format : toggleable_texture_upgrade_formats)
@@ -131,9 +131,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       uint32_t mod_version = 1;
       Globals::SetGlobals(game_name, mod_description.c_str(), "https://github.com/Filoppi/Luma-Framework/", mod_version);
 
-      enable_swapchain_upgrade = true;
+      swapchain_format_upgrade_type = TextureFormatUpgradesType::AllowedEnabled;
       swapchain_upgrade_type = SwapchainUpgradeType::scRGB;
-      enable_texture_format_upgrades = true;
+      texture_format_upgrades_type = TextureFormatUpgradesType::AllowedEnabled;
       toggleable_texture_upgrade_formats = {
             reshade::api::format::r8g8b8a8_unorm,
             reshade::api::format::r8g8b8a8_unorm_srgb,

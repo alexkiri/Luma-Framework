@@ -27,7 +27,7 @@ float main() : SV_Target0
 #if ENABLE_EXPOSURE_CLAMPING
 	fExposure = clamp(fExposure, HDREyeAdaptation.y /*MinExposure*/, HDREyeAdaptation.z /*MaxExposure*/);
 #endif
-#if DLSS_RELATIVE_PRE_EXPOSURE >= 1
+#if SR_RELATIVE_PRE_EXPOSURE >= 1
 	float fExposureMidPoint = lerp(HDREyeAdaptation.y, HDREyeAdaptation.z, 0.5);
 	// What's important for DLSS is the relative exposure value (how much it changes from the "baseline", most commonly used value in a level, or the average anyway),
 	// so we divide it by the mid point, hoping it'd match that (it probably doesn't, but it's a good start).

@@ -86,6 +86,7 @@ void main(
   r1.xy = MaterialParams[0].ww * ScreenExtents.zw;
   r1.zw = -r1.xy;
   float2 centralUV = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
+  bool forceSDR = ShouldForceSDR(centralUV.xy, true);
   r1.xyzw = centralUV.xxyy + r1.xzyw;
   scale = 1.0 / scale;
   r0.w = p_default_Material_25C00A2410422479_DeferredBufferTexture_texture.Sample(p_default_Material_25C00A2410422479_DeferredBufferTexture_sampler_s, lerp(centralUV, r1.xw, scale)).w;
@@ -98,9 +99,21 @@ void main(
   r0.z = p_default_Material_25C00A2410422479_DeferredBufferTexture_texture.Sample(p_default_Material_25C00A2410422479_DeferredBufferTexture_sampler_s, lerp(centralUV, r1.yz, scale)).w;
   r0.z = max(r0.z, r1.x);
   r0.z = max(r0.z, r0.w);
-  r0.w = (r0.y >= 0.00999999978);
+  r0.w = (r0.y >= 0.01);
   r0.z = r0.w ? 0 : r0.z;
   r0.x = r0.y * r0.x + r0.z;
   o0.w = MaterialOpacity * r0.x;
   o0.xyz = MaterialParams[0].xyz;
+  
+  if (o0.a != 0.0 && !forceSDR)
+  {
+    float4 premultipliedColor = o0.rgba * o0.a; // Alpha gets premultiplied too, yes
+
+    // Luma: apply the inverse of the emissive intensity boost, to avoid it applying on the hud
+    float emissiveScale = forceSDR ? 0.0 : LumaSettings.GameSettings.EmissiveIntensity;
+    float emissiveMaxReduction = 0.667; // Empryically found (they still need boosted visibility)
+    premultipliedColor.rgb *= lerp(1.0, max(sqr(sqr(saturate(1.0 - premultipliedColor.a))), 0.01), saturate(emissiveScale) * emissiveMaxReduction);
+    
+    o0.rgb = premultipliedColor.rgb / o0.a;
+  }
 }

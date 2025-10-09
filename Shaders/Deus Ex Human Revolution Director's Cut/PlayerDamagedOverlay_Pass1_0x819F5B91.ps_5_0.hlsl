@@ -59,6 +59,7 @@ SamplerState p_default_Material_0CF14BD417760485_Param_sampler_s : register(s1);
 Texture2D<float4> p_default_Material_0C50C07417868015_Param_texture : register(t0);
 Texture2D<float4> p_default_Material_0CF14BD417760485_Param_texture : register(t1);
 
+// Applies some kind of waves effect when damaged
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)
@@ -72,8 +73,15 @@ void main(
   r1.x = InstanceParams[0].z * r0.x;
   r0.xy = v0.xy * ScreenExtents.zw + ScreenExtents.xy;
   r0.zw = r0.xy * MaterialParams[0].xy + r1.xy;
-  r0.zw = p_default_Material_0C50C07417868015_Param_texture.Sample(p_default_Material_0C50C07417868015_Param_sampler_s, r0.zw).xy;
+  r0.zw = p_default_Material_0C50C07417868015_Param_texture.Sample(p_default_Material_0C50C07417868015_Param_sampler_s, r0.zw).xy; // Fixed offset texture
   r0.zw = r0.zw * float2(2,2) + float2(-1,-1);
+#if 1 // Fixed damage overaly being a lot more shifted in UW
+  float2 size;
+  p_default_Material_0CF14BD417760485_Param_texture.GetDimensions(size.x, size.y);
+  float sourceAspectRatio = 16.0 / 9.0; // What the vertex shader assumed (it seems to help at 4:3 too)
+  float targetAspectRatio = size.x / size.y;
+  r0.z *= sourceAspectRatio / targetAspectRatio;
+#endif
   r0.xy = r0.zw * InstanceParams[0].xx + r0.xy;
   r0.xyz = p_default_Material_0CF14BD417760485_Param_texture.Sample(p_default_Material_0CF14BD417760485_Param_sampler_s, r0.xy).xyz;
   o0.xyz = InstanceParams[1].xyz * r0.xyz;

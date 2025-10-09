@@ -82,6 +82,12 @@ namespace Math
       return *reinterpret_cast<uint32_t*>(&value_float);
    }
 
+   template<typename T>
+   constexpr T SignOf(T val)
+   {
+      return (T(0) < val) - (val < T(0));
+   }
+
    bool IsMemoryAllZero(const char* begin, std::size_t bytes)
    {
       return std::all_of(begin, begin + bytes, [](char byte) { return byte == 0; });

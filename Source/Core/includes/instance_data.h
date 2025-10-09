@@ -181,6 +181,9 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
    // Always start from dirty given that deferred command lists inherit the cbuffers data from the immediate ones, but we don't know when they will get joined, so we always need to assume the data was dirty and needs to be re-set from scratch
    bool force_cb_luma_instance_data_dirty = true;
 
+   // Whether the luma global settings have been set in this command list (device context), in case it was a deferred one
+   bool async_set_cb_luma_global_settings = false;
+
    reshade::api::pipeline pipeline_state_original_compute_shader = reshade::api::pipeline(0);
    reshade::api::pipeline pipeline_state_original_vertex_shader = reshade::api::pipeline(0);
    reshade::api::pipeline pipeline_state_original_pixel_shader = reshade::api::pipeline(0);
@@ -195,6 +198,8 @@ struct __declspec(uuid("90d9d05b-fdf5-44ee-8650-3bfd0810667a")) CommandListData
 #if DEVELOPMENT
    std::shared_mutex mutex_trace;
    std::vector<TraceDrawCallData> trace_draw_calls_data;
+
+   bool requires_join = false;
 
    bool any_draw_done = false;
    bool any_dispatch_done = false;
@@ -262,19 +267,23 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    // Custom samplers mapped to original ones by texture LOD bias
    std::unordered_map<uint64_t, std::unordered_map<float, com_ptr<ID3D11SamplerState>>> custom_sampler_by_original_sampler;
 
-   bool dlss_sr = true; // If true DLSS is enabled by the user and supported+initialized correctly on this device
-#if ENABLE_NGX
-   NGX::DLSSInstanceData* dlss_sr_handle = nullptr;
-#endif // ENABLE_NGX
+#if ENABLE_SR
+   SR::Type sr_type = SR::Type::None; // If active, the SR tech enabled by the user and supported+initialized correctly on this device
+   std::map<SR::Type, SR::InstanceData*> sr_implementations_instances; // All implementations allowed by the current mod, might not all be compatible
+   SR::InstanceData* GetSRInstanceData() const
+   {
+      auto it = sr_implementations_instances.find(sr_type);
+      return (it != sr_implementations_instances.end()) ? it->second : nullptr;
+   }
+#endif
 
    // Resources:
 
-#if ENABLE_NGX
-   // DLSS SR
-   com_ptr<ID3D11Texture2D> dlss_output_color;
-   com_ptr<ID3D11Texture2D> dlss_exposure;
-   float dlss_exposure_texture_value = 1.f;
-#endif // ENABLE_NGX
+#if ENABLE_SR
+   com_ptr<ID3D11Texture2D> sr_output_color;
+   com_ptr<ID3D11Texture2D> sr_exposure;
+   float sr_exposure_texture_value = 1.f;
+#endif // ENABLE_SR
 
    // Native Shaders (from "native_shaders_definitions")
    bool created_native_shaders = false;
@@ -296,7 +305,7 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11Buffer> luma_instance_data;
    com_ptr<ID3D11Buffer> luma_ui_data;
    CB::LumaUIDataPadded cb_luma_ui_data = {};
-   bool cb_luma_global_settings_dirty = true;
+   std::atomic<bool> cb_luma_global_settings_dirty = true;
 
    // UI
    com_ptr<ID3D11Texture2D> ui_texture;
@@ -316,11 +325,6 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    com_ptr<ID3D11Buffer> cb_per_view_global_buffer;
 #if DEVELOPMENT
    std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers;
-   std::unordered_set<ID3D11Buffer*> cb_non_per_view_global_buffers;
-#endif
-#if GAME_PREY // TODO: temp
-   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers_confirmed;
-   std::unordered_set<ID3D11Buffer*> cb_per_view_global_buffers_denied;
 #endif
    void* cb_per_view_global_buffer_map_data = nullptr;
 #if DEVELOPMENT
@@ -342,14 +346,16 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
    std::atomic<bool> has_drawn_main_post_processing = false;
    // Useful to know if rendering was skipped in the previous frame (e.g. in case we were in a UI view)
    bool has_drawn_main_post_processing_previous = false;
-   // Might not be used by all games but it's a global feature
-   std::atomic<bool> has_drawn_dlss_sr = false;
+   // Might not be used by all games but it's a global feature (not necessarily related to "ENABLE_SR", the game might have a native implementation)
+   std::atomic<bool> has_drawn_sr = false;
    // Set to true once we can tell with certainty that TAA was active in the game
    std::atomic<bool> taa_detected = false;
 
-   std::atomic<bool> force_reset_dlss_sr = false;
-   std::atomic<float> dlss_render_resolution_scale = 1.f;
-   std::atomic<bool> dlss_sr_suppressed = false;
+#if ENABLE_SR
+   std::atomic<bool> force_reset_sr = false;
+   std::atomic<bool> sr_suppressed = false;
+   std::atomic<float> sr_render_resolution_scale = 1.f;
+#endif
 
    // TODO: make changes thread safe
    float2 render_resolution = { 1, 1 };
@@ -359,15 +365,18 @@ struct __declspec(uuid("cfebf6d4-d184-4e1a-ac14-09d088e560ca")) DeviceData
 
    // Live settings (set by the code, not directly by users):
    float default_user_peak_white = default_peak_white;
-   bool dlss_sr_supported = false;
    float texture_mip_lod_bias_offset = 0.f;
-   float dlss_scene_exposure = 1.f;
-   float dlss_scene_pre_exposure = 1.f;
+#if ENABLE_SR
+   float sr_scene_exposure = 1.f;
+   float sr_scene_pre_exposure = 1.f;
+#endif
 
    std::atomic<bool> cloned_pipelines_changed = false; // Atomic so it doesn't rely on "s_mutex_generic"
    uint32_t cloned_pipeline_count = 0; // How many pipelines (shaders/passes) we replaced with custom ones and are currently "replaced" (if zero, we can assume the mod isn't doing much)
 
-   bool has_drawn_dlss_sr_imgui = false;
+#if ENABLE_SR
+   bool has_drawn_sr_imgui = false;
+#endif
 
    // Per game custom data
    GameDeviceData* game = nullptr;

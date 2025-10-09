@@ -74,7 +74,7 @@ pixout main(vtxOut IN)
 	const float2 vVelocityObjs = _tex2_D3D11.Load(pixelCoord).xy; // LUMA FT: if this is zero it means there was no movement in dynamic objects
 	bool noVelocityObj = vVelocityObjs.x == 0 && vVelocityObjs.y == 0; // LUMA FT: fixed the y axis not being checked (maybe it was intentional, but it seems bad)
 
-	bool MVsNeedDejittering = LumaSettings.DLSS;
+	bool MVsNeedDejittering = LumaSettings.SRType > 0;
 #if FORCE_MOTION_VECTORS_JITTERED // This seems to look a tiny bit better in MB
 	MVsNeedDejittering = true;
 #endif

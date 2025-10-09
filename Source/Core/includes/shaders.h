@@ -109,7 +109,7 @@ namespace Shader
    struct CachedShader
    {
 #if ALLOW_SHADERS_DUMPING || DEVELOPMENT
-      void* data = nullptr; // Shader binary, allocated by ourselves. Immutable once set.
+      void* data = nullptr; // Shader binary, allocated by ourselves. A copy of the original shader data. Immutable once set.
       size_t size = 0;
 #endif
       reshade::api::pipeline_subobject_type type = reshade::api::pipeline_subobject_type::unknown;
@@ -136,7 +136,7 @@ namespace Shader
       // Unordered Access Views
       bool uavs[D3D11_1_UAV_SLOT_COUNT] = {};
 
-      const void* live_patched_data = nullptr; // Usually nullptr. Valid if we edited the byte code of the shader live when it was created (the data in here should be the original, not the patched one)
+      const void* live_patched_data = nullptr; // Usually nullptr. Valid if we edited the byte code of the shader live when it was created (including shader debug data stripped)
       size_t live_patched_size = 0;
 #endif
 

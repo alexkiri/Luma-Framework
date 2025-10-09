@@ -1,3 +1,5 @@
+#include "../Includes/Common.hlsl"
+
 Texture2D<float4> t0 : register(t0); // Normal map buffer
 Texture2D<float4> t1 : register(t1); // Depth or something
 Texture2D<float4> t2 : register(t2); // Some buffer with some highlights
@@ -100,16 +102,20 @@ void main(
     r4.xyzw += r2.x * r5.xyzw;
     r4.xyzw += r2.z * r6.xyzw;
     r3.xyzw = r2.w * r1.xyzw + r4.xyzw;
-  float4 test = r4.xyzw;
-  if (test.x != test.x || test.y != test.y || test.z != test.z || test.w != test.w) // NaN
-  {
-    // o0 = float4(10, 0, 0, 1);
-    // return;
-  }
+
+    // Luma
+    float4 test = r4.xyzw;
+    if (test.x != test.x || test.y != test.y || test.z != test.z || test.w != test.w) // NaN
+    {
+      // o0 = float4(10, 0, 0, 1);
+      // return;
+    }
   }
   else
   {
   }
+
+  // Luma
   if (r3.x != r3.x || r3.y != r3.y || r3.z != r3.z || r3.w != r3.w) // NaN
   //if (r4.x != r4.x || r4.y != r4.y || r4.z != r4.z || r4.w != r4.w) // NaN
   //if (r1.x != r1.x || r1.y != r1.y || r1.z != r1.z || r1.w != r1.w) // NaN
@@ -122,22 +128,25 @@ void main(
     //o0 = float4(10, 0, 0, 1);
     //return;
   }
+  
   r0.x = r0.w;
   r0.y = 1;
   r1.xyz = r3.xyz * r0.x;
   r0.x = r3.w * r0.y - 1;
   o0.w = saturate(r0.w * r0.x + 1);
   o0.xyz = r1.xyz;
+
+  // Luma
   if (skipIt) // NaN
   {
     o0.xyz = float3(0, 0, 0);
     o0 = 0;
   }
-  if (any(isnan(o0.xyz)))
+  if (any(IsNaN_Strict(o0.xyz)))
   {
     //o0.xyz = float3(0, 0, 0);
   }
-   //o0 = float4(1, 0, 0, 1);
+  //o0 = float4(1, 0, 0, 1);
   //o0.xyz = 0;
   //o0.xyz = saturate(o0.xyz);
 }

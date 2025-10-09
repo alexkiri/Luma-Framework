@@ -8,6 +8,9 @@
     <ClCompile Include="utils\system.cpp">
       <Filter>Utils</Filter>
     </ClCompile>
+    <ClCompile Include="fsr\FSR.cpp">
+      <Filter>FSR</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="DLSS">
@@ -18,6 +21,9 @@
     </Filter>
     <Filter Include="Utils">
       <UniqueIdentifier>{b8e435d6-17be-4021-a8aa-c11c6ceb044c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="FSR">
+      <UniqueIdentifier>{7373d656-7d70-4fc5-8b73-efa2b6af7433}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -79,6 +85,12 @@
       <Filter>Utils</Filter>
     </ClInclude>
     <ClInclude Include="includes\hash.h">
+      <Filter>Includes</Filter>
+    </ClInclude>
+    <ClInclude Include="fsr\FSR.h">
+      <Filter>FSR</Filter>
+    </ClInclude>
+    <ClInclude Include="includes\super_resolution.h">
       <Filter>Includes</Filter>
     </ClInclude>
   </ItemGroup>

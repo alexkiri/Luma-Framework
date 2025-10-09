@@ -19,4 +19,8 @@ static const float DevelopmentVerticalResolution = 1080.0;
 #define ENABLE_AUTO_HDR 1
 #endif
 
+#if !defined(ENABLE_HIGHLIGHTS_DESATURATION_TYPE)
+#define ENABLE_HIGHLIGHTS_DESATURATION_TYPE 0
+#endif
+
 #endif // SRC_GAME_SETTINGS_HLSL

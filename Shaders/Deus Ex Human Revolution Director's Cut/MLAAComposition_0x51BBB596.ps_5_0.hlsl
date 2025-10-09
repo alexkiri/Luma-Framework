@@ -5,6 +5,43 @@
 Texture2D<float4> g_txInitialImage : register(t0);
 Texture2D<uint2> g_txCount : register(t2);
 
+cbuffer SceneBuffer : register(b2)
+{
+  row_major float4x4 View : packoffset(c0);
+  row_major float4x4 ScreenMatrix : packoffset(c4);
+  float2 DepthExportScale : packoffset(c8);
+  float2 FogScaleOffset : packoffset(c9);
+  float3 CameraPosition : packoffset(c10);
+  float3 CameraDirection : packoffset(c11);
+  float3 DepthFactors : packoffset(c12);
+  float2 ShadowDepthBias : packoffset(c13);
+  float4 SubframeViewport : packoffset(c14);
+  row_major float3x4 DepthToWorld : packoffset(c15);
+  float4 DepthToView : packoffset(c18);
+  float4 OneOverDepthToView : packoffset(c19);
+  float4 DepthToW : packoffset(c20);
+  float4 ClipPlane : packoffset(c21);
+  float2 ViewportDepthScaleOffset : packoffset(c22);
+  float2 ColorDOFDepthScaleOffset : packoffset(c23);
+  float2 TimeVector : packoffset(c24);
+  float3 HeightFogParams : packoffset(c25);
+  float3 GlobalAmbient : packoffset(c26);
+  float4 GlobalParams[16] : packoffset(c27);
+  float DX3_SSAOScale : packoffset(c43);
+  float4 ScreenExtents : packoffset(c44);
+  float2 ScreenResolution : packoffset(c45);
+  float4 PSSMToMap1Lin : packoffset(c46);
+  float4 PSSMToMap1Const : packoffset(c47);
+  float4 PSSMToMap2Lin : packoffset(c48);
+  float4 PSSMToMap2Const : packoffset(c49);
+  float4 PSSMToMap3Lin : packoffset(c50);
+  float4 PSSMToMap3Const : packoffset(c51);
+  float4 PSSMDistances : packoffset(c52);
+  row_major float4x4 WorldToPSSM0 : packoffset(c53);
+  float StereoOffset : packoffset(c25.w);
+}
+
+
 uint spvBitfieldUExtract(uint Base, uint Offset, uint Count)
 {
     uint Mask = Count == 32 ? 0xffffffff : ((1 << Count) - 1);
@@ -254,25 +291,40 @@ float4 main(float4 gl_FragCoord : SV_Position) : SV_Target0
         outColor.w = _454;
     }
     
-  if (!LumaSettings.GameSettings.HasColorGradingPass) // Luma
+  float2 uv = gl_FragCoord.xy * ScreenExtents.zw + ScreenExtents.xy;
+  bool forceSDR = ShouldForceSDR(uv, true);
+  if (!LumaSettings.GameSettings.HasColorGradingPass && !forceSDR) // Luma
   {
     outColor.rgb = gamma_to_linear(outColor.rgb, GCT_MIRROR);
     
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
+    bool tonemapPerChannel = LumaSettings.DisplayMode != 1;
+#if ENABLE_HIGHLIGHTS_DESATURATION_TYPE == 1 || ENABLE_HIGHLIGHTS_DESATURATION_TYPE >= 3
+    tonemapPerChannel = true;
+#endif
     if (LumaSettings.DisplayMode == 1)
     {
-      DICESettings settings = DefaultDICESettings(DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE); // The game simply clipped all values beyond 1, many times across rendering, but anyway it doesn't seem to rely on hue shifts so tonemapping by luminance is the best
+      DICESettings settings = DefaultDICESettings(tonemapPerChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
       outColor.rgb = DICETonemap(outColor.rgb * paperWhite, peakWhite, settings) / paperWhite;
     }
     else
     {
-      outColor.rgb = RestoreLuminance(outColor.rgb, Reinhard::ReinhardRange(GetLuminance(outColor.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
-      outColor.rgb = CorrectOutOfRangeColor(outColor.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite); // TM by luminance generates out of gamut colors (beyond 1), so recompress them
+      if (tonemapPerChannel)
+      {
+        outColor.rgb = Reinhard::ReinhardRange(outColor.rgb, MidGray, -1.0, peakWhite / paperWhite, false);
+      }
+      else
+      {
+        outColor.rgb = RestoreLuminance(outColor.rgb, Reinhard::ReinhardRange(GetLuminance(outColor.rgb), MidGray, -1.0, peakWhite / paperWhite, false).x, true);
+        outColor.rgb = CorrectOutOfRangeColor(outColor.rgb, true, true, 0.5, 0.5, peakWhite / paperWhite);
+      }
     }
   
 #if UI_DRAW_TYPE == 2
+    ColorGradingLUTTransferFunctionInOutCorrected(outColor.rgb, VANILLA_ENCODING_TYPE, GAMMA_CORRECTION_TYPE, true);
     outColor.rgb *= LumaSettings.GamePaperWhiteNits / LumaSettings.UIPaperWhiteNits;
+    ColorGradingLUTTransferFunctionInOutCorrected(outColor.rgb, GAMMA_CORRECTION_TYPE, VANILLA_ENCODING_TYPE, true);
 #endif // UI_DRAW_TYPE == 2
 
     outColor.rgb = linear_to_gamma(outColor.rgb, GCT_MIRROR);
