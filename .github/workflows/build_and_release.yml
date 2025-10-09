@@ -35,6 +35,9 @@ jobs:
         .\vcpkg\vcpkg install --triplet x64-windows --x-manifest-root=./Source/Games/Prey
         #.\vcpkg\vcpkg install --triplet x86-windows --x-manifest-root=./Source/Games/Prey
       continue-on-error: true
+    
+    - name: Install WDK
+      run: winget install --source winget --exact --id Microsoft.WindowsWDK.10.0.26100 --log $env:USERPROFILE/Desktop/wdk-install.log
 
     - name: Integrate vcpkg with MSBuild
       run: .\vcpkg\vcpkg integrate install

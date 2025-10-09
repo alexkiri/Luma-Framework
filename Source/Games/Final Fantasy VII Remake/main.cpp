@@ -2,8 +2,7 @@
 
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 1
-#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
-#define SKIP_COMPOSITION 1
+#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 0
 #ifdef NDEBUG
 #define ALLOW_SHADERS_DUMPING 1
 #endif
@@ -50,8 +49,8 @@ namespace
 					.labels = { "ACES 1", "ACES 2" },
 					.min = 0.f,
 					.max = 1.f,
-					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); },
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1 && (DEVELOPMENT || TEST); }
+					.is_enabled = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR && (DEVELOPMENT || TEST); },
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR && (DEVELOPMENT || TEST); }
 				},
 				new Luma::Settings::Setting{
 					.key = "FXBloom",
@@ -87,7 +86,7 @@ namespace
 					.tooltip = "Film grain strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
-					// .is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					//.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR; },
 					.parse = [](float value) { return value * 0.02f; }
 				},
 				new Luma::Settings::Setting{
@@ -100,7 +99,7 @@ namespace
 					.tooltip = "RCAS strength multiplier. Default is 50, for Vanilla look set to 0.",
 					.min = 0.f,
 					.max = 100.f,
-					.is_visible = []() { return dlss_sr == 1; },
+					.is_visible = []() { return sr_user_type != SR::UserType::None; },
 					.parse = [](float value) { return value * 0.01f; }
 				},
 				new Luma::Settings::Setting{
@@ -113,7 +112,7 @@ namespace
 					.tooltip = "LUT strength multiplier. Default is 100.",
 					.min = 0.f,
 					.max = 100.f,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; },
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR; },
 					.parse = [](float value) { return value * 0.01f; }
 				},
 				new Luma::Settings::Setting{
@@ -126,7 +125,7 @@ namespace
 					.tooltip = "Enable or disable HDR video playback. Default is On.",
 					.min = 0,
 					.max = 1,
-					.is_visible = []() { return cb_luma_global_settings.DisplayMode == 1; }
+					.is_visible = []() { return cb_luma_global_settings.DisplayMode == DisplayModeType::HDR; }
 				}
 			}
 		},
@@ -147,19 +146,19 @@ namespace
 					.type = Luma::Settings::SettingValueType::BOOLEAN,
 					.default_value = 1.f,
 					.can_reset = true,
-					.label = "Enable Custom Pre-Exposure for DLSS",
-					.tooltip = "Computes custom pre-exposure value for DLSS (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
-					.is_visible = []() { return dlss_sr != 0; }
+					.label = "Enable Custom Pre-Exposure for Super Resolution",
+					.tooltip = "Computes custom pre-exposure value for Super Resolution (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
+					.is_visible = []() { return sr_user_type != SR::UserType::None; }
 				},
 				// ,
 				//new Luma::Settings::Setting{
 				//	.key = "CustomPreExposure",
-				//	.binding = &dlss_custom_pre_exposure,
+				//	.binding = &sr_custom_pre_exposure,
 				//	.type = Luma::Settings::SettingValueType::FLOAT,
 				//	.default_value = 0.f,
 				//	.can_reset = true,
-				//	.label = "DLSS Pre Exposure",
-				//	.tooltip = "Manually set pre-exposure value for DLSS. This is for testing only.",
+				//	.label = "Super Resolution Pre Exposure",
+				//	.tooltip = "Manually set pre-exposure value for Super Resolution. This is for testing only.",
     //                .min = 0.f,
     //                .max = 10.f,
     //                .format = "%.3f",
@@ -249,7 +248,11 @@ public:
 		device_data.game = new GameDeviceDataFF7Remake;
 	}
 
-    std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte* code, size_t& size, reshade::api::pipeline_subobject_type type, uint64_t shader_hash) override
+    std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte *code, size_t &size,
+                                                      reshade::api::pipeline_subobject_type type,
+                                                      uint64_t shader_hash = -1,
+                                                      const std::byte *shader_object = nullptr,
+                                                      size_t shader_object_size = 0) override
     {
         if (type != reshade::api::pipeline_subobject_type::pixel_shader)
             return nullptr;
