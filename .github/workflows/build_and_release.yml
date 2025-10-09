@@ -189,7 +189,7 @@ jobs:
               -or $projectName -like '*Mafia III*' `
               -or $projectName -like '*Dishonored 2*' `
               -or $projectName -like '*Final Fantasy VII Remake*' `
-              -or $projectName -like '*Final Fantasy XV*'
+              -or $projectName -like '*Final Fantasy XV*' `
               -or $projectName -like '*Trine 5*' ) {
             # Source path for NGX DLSS DLL
             
