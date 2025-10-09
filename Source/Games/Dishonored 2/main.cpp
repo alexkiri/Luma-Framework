@@ -307,9 +307,9 @@ public:
          bool drew_sr = cb_luma_global_settings.SRType > 0; // If this was true, SR would have been enabled and probably drew
          device_data.taa_detected = game_device_data.prey_taa_active || game_device_data.previous_prey_taa_active[0]; // This one has a two frames tolerance. We let it persist even if the game stopped drawing the 3D scene.
          cb_luma_global_settings.SRType = (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected) ? (uint(device_data.sr_type) + 1) : 0; // No need for "s_mutex_reshade" here, given that they are generally only also changed by the user manually changing the settings in ImGUI, which runs at the very end of the frame
-         device_data.cb_luma_global_settings_dirty |= (cb_luma_global_settings.SRType > 0) != drew_sr;
          if (cb_luma_global_settings.SRType > 0 && !drew_sr)
          {
+            device_data.cb_luma_global_settings_dirty = true;
             // Reset DLSS history when we toggle DLSS on and off manually, or when the user in the game changes the AA mode,
             // otherwise the history from the last time DLSS was active will be kept (DLSS doesn't know time passes since it was last used).
             // We could also clear DLSS resources here when we know it's unused for a while, but it would possibly lead to stutters.
