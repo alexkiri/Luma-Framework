@@ -215,7 +215,7 @@ void main(
     float normalizationPoint = 0.02;
     float fakeHDRIntensity = 0.4;
     
-    float3 fakeHDRColor = FakeHDR(gradedSceneColorLinear, normalizationPoint, fakeHDRIntensity, false);
+    float3 fakeHDRColor = FakeHDR(gradedSceneColorLinear, normalizationPoint, fakeHDRIntensity, 0.0); // TODO: try boosting saturation here
     
     // Boost saturation
     float highlightsSaturationIntensity = 0.25; // Anything more is deep fried.

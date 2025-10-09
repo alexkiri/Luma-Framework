@@ -2841,7 +2841,7 @@ namespace
                         }
                      }
 
-                     ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace? It's supposed but weird
+                     ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace? It's supported but weird
                      found_code_chunk = true;
 
 #if DEVELOPMENT // Verify that the size is right
