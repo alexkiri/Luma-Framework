@@ -22,8 +22,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           style: file
-          files-changed-only: false
+          files-changed-only: false # should be set to true initially, but false for testing
           thread-comments: false
+          ignore: |
+            Source/External/**
       - name: Fail fast?!
         if: steps.linter.outputs.checks-failed > 0
         run: exit 1
