@@ -1,0 +1,68 @@
+#!/bin/bash
+
+# Get list of C/C++ and HLSL files that are staged for commit
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h|hpp|hlsl|hlsli)$')
+
+if [ -z "$STAGED_FILES" ]; then
+    echo "No C/C++/HLSL files to lint."
+    exit 0
+fi
+
+echo "Running clang-format and clang-tidy on staged files..."
+
+# Store the current stash state
+STASH_NAME="pre-commit-$(date +%s)"
+git stash save -q --keep-index "$STASH_NAME"
+
+# Run clang-format and clang-tidy check on each staged file
+FORMAT_FAILED=0
+TIDY_FAILED=0
+
+# Use process substitution to handle filenames with spaces correctly
+while IFS= read -r FILE; do
+    echo ""
+    echo "Checking: $FILE"
+    
+    # Check if file needs formatting
+    clang-format --style=file --dry-run --Werror "$FILE" 2>&1
+    if [ $? -ne 0 ]; then
+        echo "❌ Formatting issues found in: $FILE"
+        FORMAT_FAILED=1
+    else
+        echo "✅ Format check passed: $FILE"
+    fi
+    
+    # Run clang-tidy only on C/C++ files (not HLSL)
+    if [[ "$FILE" =~ \.(cpp|h|hpp)$ ]]; then
+        clang-tidy "$FILE" -- -std=c++17 2>&1
+        if [ $? -ne 0 ]; then
+            echo "❌ Clang-tidy issues found in: $FILE"
+            TIDY_FAILED=1
+        else
+            echo "✅ Clang-tidy passed: $FILE"
+        fi
+    fi
+done < <(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h|hpp|hlsl|hlsli)$')
+
+# Restore stashed changes
+STASH_NUM=$(git stash list | grep "$STASH_NAME" | cut -d: -f1)
+if [ -n "$STASH_NUM" ]; then
+    git stash pop -q $STASH_NUM
+fi
+
+# Check if either tool failed
+if [ $FORMAT_FAILED -ne 0 ] || [ $TIDY_FAILED -ne 0 ]; then
+    echo ""
+    echo "❌ Commit rejected due to linting errors:"
+    if [ $FORMAT_FAILED -ne 0 ]; then
+        echo "   - Format issues detected. Run: clang-format -i <filename> to fix"
+    fi
+    if [ $TIDY_FAILED -ne 0 ]; then
+        echo "   - Clang-tidy issues detected. Review and fix the reported problems"
+    fi
+    exit 1
+fi
+
+echo ""
+echo "✅ All files passed formatting and linting checks"
+exit 0
