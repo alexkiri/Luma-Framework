@@ -31,6 +31,7 @@ namespace
 	ShaderHashesList shader_hashes_Velocity_Gather;
 	const uint32_t CBPerViewGlobal_buffer_size = 4096;
 	float enabled_custom_exposure = 1.f;
+	float enabled_dithering_fix = 1.f;
 	float sr_custom_pre_exposure = 0.f; // Ignored at 0
 	float ignore_warnings = 0.f;
 
@@ -150,6 +151,16 @@ namespace
 					.tooltip = "Computes custom pre-exposure value for Super Resolution (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
 					.is_visible = []() { return sr_user_type != SR::UserType::None; }
 				},
+				new Luma::Settings::Setting{
+					.key = "EnableDitheringFix",
+					.binding = &enabled_dithering_fix,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.default_value = 1.f,
+					.can_reset = true,
+					.label = "Enable Dithering Fix (Experimental)",
+					.tooltip = "Enables a fix for dithering that can cause checkered patterns when using Super Resolution. Default is On, requires restart to take effect.",
+					.is_visible = []() { return sr_user_type != SR::UserType::None; }
+				}
 				// ,
 				//new Luma::Settings::Setting{
 				//	.key = "CustomPreExposure",
@@ -254,6 +265,8 @@ public:
                                                       const std::byte *shader_object = nullptr,
                                                       size_t shader_object_size = 0) override
     {
+		if (enabled_dithering_fix == 0.f)
+			return nullptr;
         if (type != reshade::api::pipeline_subobject_type::pixel_shader)
             return nullptr;
 
