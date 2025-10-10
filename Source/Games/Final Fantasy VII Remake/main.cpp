@@ -2,7 +2,7 @@
 
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 1
-#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 0
+#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
 #ifdef NDEBUG
 #define ALLOW_SHADERS_DUMPING 1
 #endif
@@ -161,21 +161,6 @@ namespace
 					.tooltip = "Enables a fix for dithering that can cause checkered patterns when using Super Resolution. Default is On, requires restart to take effect.",
 					.is_visible = []() { return sr_user_type != SR::UserType::None; }
 				}
-				// ,
-				//new Luma::Settings::Setting{
-				//	.key = "CustomPreExposure",
-				//	.binding = &sr_custom_pre_exposure,
-				//	.type = Luma::Settings::SettingValueType::FLOAT,
-				//	.default_value = 0.f,
-				//	.can_reset = true,
-				//	.label = "Super Resolution Pre Exposure",
-				//	.tooltip = "Manually set pre-exposure value for Super Resolution. This is for testing only.",
-    //                .min = 0.f,
-    //                .max = 10.f,
-    //                .format = "%.3f",
-				//	.is_enabled = []() { return sr_user_type != SR::UserType::None && enabled_custom_exposure == 0.f && (DEVELOPMENT || TEST); },
-				//	.is_visible = []() { return sr_user_type != SR::UserType::None && (DEVELOPMENT || TEST); },
-				//}
 			}
 		}
 	};
