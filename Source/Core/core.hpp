@@ -2328,7 +2328,7 @@ namespace
          ASSERT_ONCE((desc.present_flags & DXGI_SWAP_CHAIN_FLAG_FULLSCREEN_VIDEO) == 0); // Uh?
 
          desc.present_flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING; // Games will still need to call "Present()" with "DXGI_PRESENT_ALLOW_TEARING" for this to do anything (ReShade will automatically do it if this flag is set)
-         if (prevent_fullscreen_state) // TODO: test this
+         if (prevent_fullscreen_state) // Not sure this helps but it doesn't seem to hurt
          {
             desc.present_flags &= ~DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
          }
@@ -2841,7 +2841,7 @@ namespace
                         }
                      }
 
-                     ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace? It's supposed but weird
+                     ASSERT_ONCE(!found_code_chunk); // Why does a shader byte code have two chunks that we can replace? It's supported but weird
                      found_code_chunk = true;
 
 #if DEVELOPMENT // Verify that the size is right
@@ -2867,14 +2867,20 @@ namespace
 
                      uint32_t prev_size = 8;
                      uint32_t byte_code_size = (chunk_byte_code->chunk_size_dword * sizeof(uint32_t)) - prev_size; // The size is stored in "DWORD" elements and counted the size and program version/type in its count, so we remove them
-#if DEVELOPMENT // Verify that the size is right
+#if DEVELOPMENT
+                     // Verify that the size is right
                      ASSERT_ONCE(chunk->chunk_size == (byte_code_size + prev_size)); // Add back the two DWORD that we excluded from the size
+
+                     uint8_t version_major = uint8_t((chunk_byte_code->version_major_and_minor >> 4) & 0xF); // E.g. SM4/5
+                     uint8_t version_minor = uint8_t(chunk_byte_code->version_major_and_minor & 0xF);
+                     ASSERT_ONCE(version_major >= 4 && version_major <= 6);
 #endif
                      const std::byte* byte_code = reinterpret_cast<const std::byte*>(chunk_byte_code->byte_code);
 
                      size_t new_byte_code_size = byte_code_size;
                      if (std::unique_ptr<std::byte[]> patched_byte_code = game->ModifyShaderByteCode(byte_code, new_byte_code_size, subobject.type, shader_luma_hash, static_cast<const std::byte*>(current_shader_data.code), current_shader_data.code_size))
                      {
+                        const size_t byte_code_offset = byte_code - (std::byte*)current_shader_data.code;
                         const bool byte_code_size_changed = new_byte_code_size != byte_code_size;
                         const int32_t byte_code_size_diff = int32_t(new_byte_code_size) - int32_t(byte_code_size); // int32 should always be enough
                         if (!patched_shader_code || byte_code_size_changed)
@@ -2895,6 +2901,10 @@ namespace
 
                               patched_shader_code = std::move(new_patched_shader_code);
                               current_shader_data.Set(patched_shader_code.get(), new_patched_shader_code_size);
+
+                              // Update the chunks to point to the new data
+                              chunk = reinterpret_cast<DXBCChunk*>((uint8_t*)current_shader_data.code + current_shader_data.header->chunk_offsets[i]);
+                              chunk_byte_code = reinterpret_cast<DXBCByteCodeChunk*>(chunk->chunk_data);
                            }
 
                            // Check if size changed, if it did we have to reconstruct the shader headers and chunk index as well as the replace with a new shader description for dx11
@@ -2916,9 +2926,7 @@ namespace
                         // Calculate the offset relative to original code and copy the replaced byte code in it
                         // (we don't overwrite the original shader code because it's const, ReShade or the game's memory might expect it to not change,
                         // and plus it'd break other mods that load before us that replace shaders by hash on creation)
-
-                        const size_t offset = byte_code - (std::byte*)current_shader_data.code;
-                        std::memcpy(patched_shader_code.get() + offset, patched_byte_code.get(), byte_code_size + byte_code_size_diff);
+                        std::memcpy(patched_shader_code.get() + byte_code_offset, patched_byte_code.get(), byte_code_size + byte_code_size_diff);
 
                         needs_new_md5_hash = true;
                      }

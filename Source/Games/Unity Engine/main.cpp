@@ -12,7 +12,7 @@ namespace
    constexpr uint32_t GAME_VERTIGO = 3;
    constexpr uint32_t GAME_POPTLC = 4;
    constexpr uint32_t GAME_COCOON = 5;
-   constexpr uint32_t GAME_REMOVED = 6; // TODO: replace with a new game when adding the first one
+   constexpr uint32_t GAME_SKATE_STORY = 6;
    constexpr uint32_t GAME_FAR_LONE_SAILS = 7;
    constexpr uint32_t GAME_FAR_CHANGING_TIDES = 8;
    constexpr uint32_t GAME_HOLLOW_KNIGHT_SILKSONG = 9;
@@ -28,7 +28,7 @@ namespace
        { { "Vertigo.exe" }, MAKE_GAME_INFO("Vertigo", "VRTG", GAME_VERTIGO, { "Pumbo" }) },
        { { "TheLostCrown.exe", "TheLostCrown_plus.exe" }, MAKE_GAME_INFO("Prince of Persia: The Lost Crown", "PoPTLC", GAME_POPTLC, std::vector<std::string>({ "Ersh", "Pumbo" })), },
        { { "universe.exe" }, MAKE_GAME_INFO("COCOON", "COCN", GAME_COCOON, { "Pumbo" }) },
-       { { "???.exe" }, MAKE_GAME_INFO("REMOVED", "???", GAME_REMOVED, { "Pumbo" }) },
+       { { "SkateStory.exe" }, MAKE_GAME_INFO("Skate Story", "SK8S", GAME_SKATE_STORY, { "Pumbo" }) },
        { { "FarLoneSails.exe" }, MAKE_GAME_INFO("FAR: Lone Sails", "FLS", GAME_FAR_LONE_SAILS, { "Pumbo" }) },
        { { "FarChangingTides.exe" }, MAKE_GAME_INFO("FAR: Changing Tides", "FCT", GAME_FAR_CHANGING_TIDES, { "Pumbo" }) },
        { { "Hollow Knight Silksong.exe" }, MAKE_GAME_INFO("Hollow Knight: Silksong", "HKS", GAME_HOLLOW_KNIGHT_SILKSONG, { "Pumbo" }) },
@@ -143,6 +143,7 @@ public:
          if (game_id == GAME_COCOON // Main menu is 16:9
             || game_id == GAME_POPTLC // Whole game is 16:9
             || game_id == GAME_FAR_CHANGING_TIDES // Whole game is 16:9
+            || game_id == GAME_SKATE_STORY // Game is Vert- in Ultrawide (at least in the demo), so add proper 16:9 support to the mod
             )
          {
             texture_format_upgrades_2d_size_filters |= (uint32_t)TextureFormatUpgrades2DSizeFilters::CustomAspectRatio;

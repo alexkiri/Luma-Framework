@@ -464,6 +464,8 @@ public:
    // Apply grading (e.g. golden filter, contrast etc)
    // Draw UI (directly on swapchain)
    // Present
+   //
+   // A study is available here: https://www.adriancourreges.com/blog/2015/03/10/deus-ex-human-revolution-graphics-study/
    bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
@@ -1180,7 +1182,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
       // TODO: figure out why the game hangs after alt tabbing back in, or changing FSE resolution. It seems to happen without mods too sometimes though, the game is very crash prone. It also hangs on exit.
       prevent_fullscreen_state = false; // Fixes hangs when alt tabbing out of the game
-      
+
       // TODO: figure out how the game does gamma adjustments fullscreen (they only work in FSE and apply to ReShade too, but they don't seem to be the typical ones)
       //allow_disabling_gamma_ramp = true; // Game uses Windows gamma functions to adjust brightness, but it defaults to a neutral one!
 
