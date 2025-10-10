@@ -2,12 +2,14 @@
 
 #define ENABLE_NGX 1
 #define UPGRADE_SAMPLERS 1
+#define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 0
 #ifdef NDEBUG
 #define ALLOW_SHADERS_DUMPING 1
 #endif
 
 #include <chrono>
 #include <random>
+#include <d3d11TokenizedProgramFormat.hpp>
 #include "includes\settings.hpp"
 #include "..\..\Core\core.hpp"
 
@@ -29,6 +31,7 @@ namespace
 	ShaderHashesList shader_hashes_Velocity_Gather;
 	const uint32_t CBPerViewGlobal_buffer_size = 4096;
 	float enabled_custom_exposure = 1.f;
+	float enabled_dithering_fix = 1.f;
 	float sr_custom_pre_exposure = 0.f; // Ignored at 0
 	float ignore_warnings = 0.f;
 
@@ -148,6 +151,16 @@ namespace
 					.tooltip = "Computes custom pre-exposure value for Super Resolution (This is an estimate value), seems to reduce ghosting and other artifacts. Set to Off have fixed pre-exposure of 1.",
 					.is_visible = []() { return sr_user_type != SR::UserType::None; }
 				},
+				new Luma::Settings::Setting{
+					.key = "EnableDitheringFix",
+					.binding = &enabled_dithering_fix,
+					.type = Luma::Settings::SettingValueType::BOOLEAN,
+					.default_value = 1.f,
+					.can_reset = true,
+					.label = "Enable Dithering Fix (Experimental)",
+					.tooltip = "Enables a fix for dithering that can cause checkered patterns when using Super Resolution. Default is On, requires restart to take effect.",
+					.is_visible = []() { return sr_user_type != SR::UserType::None; }
+				}
 				// ,
 				//new Luma::Settings::Setting{
 				//	.key = "CustomPreExposure",
@@ -246,7 +259,242 @@ public:
 		device_data.game = new GameDeviceDataFF7Remake;
 	}
 
-	void PrepareDrawForEarlyUpscaling(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data)
+    std::unique_ptr<std::byte[]> ModifyShaderByteCode(const std::byte *code, size_t &size,
+                                                      reshade::api::pipeline_subobject_type type,
+                                                      uint64_t shader_hash = -1,
+                                                      const std::byte *shader_object = nullptr,
+                                                      size_t shader_object_size = 0) override
+    {
+		if (enabled_dithering_fix == 0.f)
+			return nullptr;
+        if (type != reshade::api::pipeline_subobject_type::pixel_shader)
+            return nullptr;
+
+        // Pattern: cb1[139].z + literal l(3) used around the ishl sequence
+        const std::vector<std::byte> dithering_anchor = {
+            std::byte{0x2A}, std::byte{0x80}, std::byte{0x20}, std::byte{0x00}, // CONST_BUFFER, 4-comp SELECT_1 (.z)
+            std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, // cb index = 1
+            std::byte{0x8B}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, // element = 139
+            std::byte{0x01}, std::byte{0x40}, std::byte{0x00}, std::byte{0x00}, // IMMEDIATE32 (1 component)
+            std::byte{0x03}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}  // literal value = 3
+        };
+
+        // Scan for our dithering anchor
+        std::vector<std::byte*> anchors = System::ScanMemoryForPattern(code, size, dithering_anchor);
+        if (anchors.empty())
+            return nullptr;
+
+        // Confirm we are inside an 'ishl' (cb-pattern is +12 bytes from instruction start)
+        const std::byte* cb_match = anchors[0];
+        if (cb_match < code + 12)
+            return nullptr;
+        const std::byte* ishl_start = cb_match - 12;
+
+        // Verify ishl opcode token = 0x08000029 -> bytes LE: 29 00 00 08
+        if (ishl_start[0] != std::byte{0x29} || ishl_start[1] != std::byte{0x00} ||
+            ishl_start[2] != std::byte{0x00} || ishl_start[3] != std::byte{0x08})
+            return nullptr;
+
+        constexpr size_t   ishl_instruction_size = 32; // keep existing behavior
+        constexpr size_t   iadd_instruction_size = 32;
+
+        const size_t injection_point_offset = static_cast<size_t>(ishl_start - code) + ishl_instruction_size;
+
+        // Additional check: Only inject if a DISCARD instruction exists after the ISHL.
+        bool discard_found = false;
+        if (injection_point_offset + sizeof(uint32_t) <= size) {
+            const size_t window_begin = injection_point_offset;
+            const size_t window_len = size - window_begin;
+
+            const std::vector<std::byte> discard_pat = { std::byte{uint8_t(D3D10_SB_OPCODE_DISCARD)}, std::byte{0x00} };
+            auto disc_hits = System::ScanMemoryForPattern(code + window_begin, window_len, discard_pat);
+
+            for (const std::byte* pbyte : disc_hits) {
+                const size_t offset = static_cast<size_t>(pbyte - code);
+                if ((offset & 0x3) != 0 || offset + 4 > size)
+                    continue;
+
+                const uint32_t opcode_tok0 = *reinterpret_cast<const uint32_t*>(code + offset);
+                if (DECODE_D3D10_SB_OPCODE_TYPE(opcode_tok0) != D3D10_SB_OPCODE_DISCARD)
+                    continue;
+
+                const uint32_t len = DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(opcode_tok0);
+                if (len >= 1 && len <= MAX_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH) {
+                    discard_found = true;
+                    break;
+                }
+            }
+        }
+
+        if (discard_found) {
+            const uint32_t dest_token = *reinterpret_cast<const uint32_t*>(ishl_start + 4);
+            const uint32_t dest_index = *reinterpret_cast<const uint32_t*>(ishl_start + 8);
+
+            auto dest_to_src_select1 = [](uint32_t token) -> uint32_t {
+                const uint32_t mask = (token >> 4) & 0xF; // xyzw bits
+                uint32_t comp = (mask & 0x1) ? 0u : (mask & 0x2) ? 1u : (mask & 0x4) ? 2u : 3u;
+                token &= ~(0x3u << 2);
+                token |=  (2u   << 2);  // SELECT_1
+                token &= ~(0x30u);
+                token |=  ((comp & 3u) << 4);
+                return token;
+            };
+
+            const uint32_t src0_token = dest_to_src_select1(dest_token);
+            const uint32_t src0_index = dest_index;
+
+            const uint32_t cb_token_z = *reinterpret_cast<const uint32_t*>(cb_match + 0);
+            const uint32_t cb_index   = *reinterpret_cast<const uint32_t*>(cb_match + 4);
+            const uint32_t cb_elem    = *reinterpret_cast<const uint32_t*>(cb_match + 8);
+
+            auto set_select1_comp = [](uint32_t token, uint32_t comp) -> uint32_t {
+                token &= ~(0x3u << 2);
+                token |=  (2u   << 2);        // SELECT_1
+                token &= ~(0x30u);            // clear selected component (bits 5:4)
+                token |=  ((comp & 3u) << 4); // set to X/Y/Z/W = 0/1/2/3
+                return token;
+            };
+            const uint32_t cb_token_w = set_select1_comp(cb_token_z, 3u);
+
+            const size_t new_size = size + iadd_instruction_size;
+            auto new_code = std::make_unique<std::byte[]>(new_size);
+
+            std::memcpy(new_code.get(), code, injection_point_offset);
+
+            uint32_t iadd[8] = {};
+            iadd[0] = ENCODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(8u) | D3D10_SB_OPCODE_IADD;
+            iadd[1] = dest_token;
+            iadd[2] = dest_index;
+            iadd[3] = src0_token;
+            iadd[4] = src0_index;
+            iadd[5] = cb_token_w;
+            iadd[6] = cb_index;
+            iadd[7] = cb_elem;
+
+            std::memcpy(new_code.get() + injection_point_offset, iadd, sizeof(iadd));
+            std::memcpy(new_code.get() + injection_point_offset + sizeof(iadd), code + injection_point_offset, size - injection_point_offset);
+
+            size += sizeof(iadd);
+            return new_code;
+        }
+
+        // No DISCARD => remove dithering: find the LD reading t0 near ISHL and replace with MOV dest, l(1)
+        {
+			// ld[_aoffimmi(u,v,w)] dest[.mask], srcAddress[.swizzle], srcResource[.swizzle]
+            const size_t window_begin = injection_point_offset;
+            const size_t window_len   = size - window_begin;
+
+            const std::vector<std::byte> ld_pat = { std::byte{uint8_t(D3D10_SB_OPCODE_LD)}, std::byte{0x00} };
+            auto ld_hits = System::ScanMemoryForPattern(code + window_begin, window_len, ld_pat);
+
+            for (const std::byte* pbyte : ld_hits) {
+                size_t offset_to_ld = static_cast<size_t>(pbyte - code);
+                if ((offset_to_ld & 0x3) != 0 || offset_to_ld + 4 > size)
+                    continue;
+
+                const uint32_t* ld_start = reinterpret_cast<const uint32_t*>(code + offset_to_ld);
+                const uint32_t opcode_tok0 = ld_start[0];
+                if (DECODE_D3D10_SB_OPCODE_TYPE(opcode_tok0) != D3D10_SB_OPCODE_LD)
+                    continue;
+
+                const uint32_t old_len = DECODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(opcode_tok0);
+                if (old_len < 3 || offset_to_ld + old_len * 4 > size)
+                    continue;
+
+                // check if extensions
+				uint32_t is_ext = 0;
+                while (DECODE_IS_D3D10_SB_OPCODE_EXTENDED(ld_start[is_ext]) != 0)
+                {
+                    is_ext++;
+                }
+
+                // Operand 0: dest (TEMP). If this is not TEMP we likely misaligned; skip this hit.
+                const uint32_t* dest_operand_start = ld_start + 1 + is_ext;
+				uint32_t index_represntation = DECODE_D3D10_SB_OPERAND_INDEX_REPRESENTATION(DECODE_D3D10_SB_RESOURCE_DIMENSION(dest_operand_start[0]), dest_operand_start[0]);
+				if (index_represntation != D3D10_SB_OPERAND_INDEX_IMMEDIATE32) continue;
+                is_ext = DECODE_IS_D3D10_SB_OPERAND_EXTENDED(dest_operand_start[0]);
+				ASSERT_ONCE(is_ext == 0); // should not be extended for LD
+                if (DECODE_D3D10_SB_OPERAND_TYPE(dest_operand_start[0]) != D3D10_SB_OPERAND_TYPE_TEMP) continue;
+
+                // Operand 1: uv source. Must be Temp
+                const uint32_t* src_operand_start = dest_operand_start + 2 + is_ext;
+				index_represntation = DECODE_D3D10_SB_OPERAND_INDEX_REPRESENTATION(DECODE_D3D10_SB_RESOURCE_DIMENSION(src_operand_start[0]), src_operand_start[0]);
+				if (index_represntation != D3D10_SB_OPERAND_INDEX_IMMEDIATE32) continue;
+                is_ext = DECODE_IS_D3D10_SB_OPERAND_EXTENDED(src_operand_start[0]);
+				ASSERT_ONCE(is_ext == 0); // should not be extended for LD
+                if (DECODE_D3D10_SB_OPERAND_TYPE(src_operand_start[0]) != D3D10_SB_OPERAND_TYPE_TEMP) continue;
+
+				// Operand 2: resource. Must be Resource
+                const uint32_t* res_operand_start = src_operand_start + 2 + is_ext;
+				is_ext = DECODE_IS_D3D10_SB_OPERAND_EXTENDED(res_operand_start[0]);
+				ASSERT_ONCE(is_ext == 0); // should not be extended for LD
+				if (DECODE_D3D10_SB_OPERAND_TYPE(res_operand_start[0]) != D3D10_SB_OPERAND_TYPE_RESOURCE) continue;
+				if (DECODE_D3D10_SB_OPERAND_INDEX_DIMENSION(res_operand_start[0]) != D3D10_SB_OPERAND_INDEX_1D) continue;
+                if (DECODE_D3D10_SB_OPERAND_INDEX_REPRESENTATION(D3D10_SB_OPERAND_INDEX_1D, res_operand_start[0]) !=
+                    D3D10_SB_OPERAND_INDEX_IMMEDIATE32)
+                   continue;
+
+                const uint32_t res_index = res_operand_start[1 + is_ext];
+                if (res_index != 0)
+                   continue; // must be resource 0
+
+
+                // Replace LD with MOV dest, l(1) and pad with NOPs
+                auto new_code = std::make_unique<std::byte[]>(size);
+                std::memcpy(new_code.get(), code, size);
+
+                std::vector<uint32_t> repl;
+                repl.reserve(old_len);
+
+                // placeholder for MOV token0
+                repl.push_back(0u);
+
+                // copy dest operand
+				repl.push_back(dest_operand_start[0]);
+				repl.push_back(dest_operand_start[1]); // index
+                    // repl.push_back(op_dest[i]);
+
+                // Immediate32 operand: match dest component count (1 or 4)
+                const uint32_t dest_tok0 = dest_operand_start[0];
+                const auto dest_numc = DECODE_D3D10_SB_OPERAND_NUM_COMPONENTS(dest_tok0);
+
+                if (dest_numc == D3D10_SB_OPERAND_1_COMPONENT) {
+                    const uint32_t imm_tok =
+                        ENCODE_D3D10_SB_OPERAND_TYPE(D3D10_SB_OPERAND_TYPE_IMMEDIATE32) |
+                        ENCODE_D3D10_SB_OPERAND_NUM_COMPONENTS(D3D10_SB_OPERAND_1_COMPONENT);
+                    repl.push_back(imm_tok);
+                    repl.push_back(0x3F000000u); // 1.0f
+                } else {
+                    const uint32_t imm_tok =
+                        ENCODE_D3D10_SB_OPERAND_TYPE(D3D10_SB_OPERAND_TYPE_IMMEDIATE32) |
+                        ENCODE_D3D10_SB_OPERAND_NUM_COMPONENTS(D3D10_SB_OPERAND_4_COMPONENT) |
+                        ENCODE_D3D10_SB_OPERAND_4_COMPONENT_SELECTION_MODE(D3D10_SB_OPERAND_4_COMPONENT_SWIZZLE_MODE) |
+                        D3D10_SB_OPERAND_4_COMPONENT_NOSWIZZLE;
+                    repl.push_back(imm_tok);
+                    repl.push_back(0x3F000000u);
+                    repl.push_back(0x3F000000u);
+                    repl.push_back(0x3F000000u);
+                    repl.push_back(0x3F000000u);
+                }
+
+                // finalize MOV token0
+                const uint32_t mov_len = static_cast<uint32_t>(repl.size());
+                repl[0] = ENCODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(mov_len) | D3D10_SB_OPCODE_MOV;
+
+                // pad with NOPs to preserve original instruction size
+                while (repl.size() < old_len)
+                    repl.push_back(ENCODE_D3D10_SB_TOKENIZED_INSTRUCTION_LENGTH(1u) | D3D10_SB_OPCODE_NOP);
+
+                std::memcpy(reinterpret_cast<uint8_t*>(new_code.get()) + offset_to_ld, repl.data(), old_len * sizeof(uint32_t));
+                return new_code;
+            }
+        }
+
+        // No LD t0 near ISHL found; do nothing for now.
+        return nullptr;
+    }
+
+    void PrepareDrawForEarlyUpscaling(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, DeviceData& device_data)
 	{
 		auto& game_device_data = FF7Remake::GetGameDeviceData(device_data);
 
@@ -824,6 +1072,9 @@ public:
 		auto& game_device_data = GetGameDeviceData(device_data);
 
 		// The frames until this draw have a defaulted 1920x1080 resolution (and slightly after too)
+		if (game_device_data.found_per_view_globals) {
+			return;
+		}
 		if (!game_device_data.has_drawn_title) {
 			return;
 		}
@@ -853,6 +1104,9 @@ public:
 		ID3D11Buffer* buffer = reinterpret_cast<ID3D11Buffer*>(resource.handle);
 		DeviceData& device_data = *device->get_private_data<DeviceData>();
 		auto& game_device_data = GetGameDeviceData(device_data);
+		if (game_device_data.found_per_view_globals) {
+			return;
+		}
 		bool is_global_cbuffer = device_data.cb_per_view_global_buffer != nullptr && device_data.cb_per_view_global_buffer == buffer;
 		ASSERT_ONCE(!device_data.cb_per_view_global_buffer_map_data || is_global_cbuffer);
 		if (is_global_cbuffer && device_data.cb_per_view_global_buffer_map_data != nullptr)
@@ -1044,8 +1298,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 		// LUT is 3D 32x
 		texture_format_upgrades_lut_size = 32;
 		texture_format_upgrades_lut_dimensions = LUTDimensions::_3D;
-		redirected_shader_hashes["Output_HDR"] = {"A8EB118F", "922A71D1", "3A4D858E", "D950DA01", "5CD12E67", "3B489929"};
-		redirected_shader_hashes["Output_SDR"] = {"506D5998", "F68D39B5", "BBB9CE42", "51E2B894", "803889E8", "D96EF76D"};
+		redirected_shader_hashes["Output_HDR"] = {"A8EB118F", "922A71D1", "3A4D858E", "D950DA01", "5CD12E67", "3B489929", "8D04181D", "6846FF90"};
+		redirected_shader_hashes["Output_SDR"] = {"506D5998", "F68D39B5", "BBB9CE42", "51E2B894", "803889E8", "D96EF76D", "5C2D3A71", "66162229"};
 		Luma::Settings::Initialize(&settings);
 
 		game = new FF7Remake();
