@@ -496,6 +496,7 @@ void main(
     r3.xyz = SampleLUT(lut1Tex, pqColor);
 
 // not sure what this does.
+
     r2.xyz = saturate(colorSample);
     r2.xyz = log2(r2.xyz);
     r2.xyz = float3(0.454545438,0.454545438,0.454545438) * r2.xyz;

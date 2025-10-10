@@ -6,7 +6,6 @@ Checks:
   - google-*
   - llvm-*
   - misc-*
-  - modernize-*
   - performance-*
   - portability-*
   - readability-*
