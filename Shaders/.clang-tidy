@@ -46,4 +46,4 @@ CheckOptions:
 WarningsAsErrors: ""
 HeaderFilterRegex: ".*.hpp"
 HeaderFileExtensions: ["", "h", "hh", "hpp", "hxx"]
-ImplementationFileExtensions: ["c", "cc", "cpp", "cxx"]
+ImplementationFileExtensions: ["c", "cc", "cpp", "cxx", "hlsl"]

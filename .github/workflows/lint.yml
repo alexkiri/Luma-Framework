@@ -1,4 +1,4 @@
-name: Lint
+name: cpp-linter
 
 on:
   push:
@@ -8,23 +8,22 @@ on:
     branches:
       - main
 
-permissions:
-  checks: write
-  contents: write
-
 jobs:
-  run-linters:
-    name: Run linters
+  cpp-linter:
+    name: Run linter
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out Git repository
-        uses: actions/checkout@v4
-
-      - name: Install ClangFormat
-        run: sudo apt-get install -y clang-format
-
-      - name: Run linters
-        uses: wearerequired/lint-action@v2
+      - uses: actions/checkout@v5
+      - uses: cpp-linter/cpp-linter-action@main
+        id: linter
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          clang_format: true
+          style: file
+          files-changed-only: false
+          thread-comments: false
+      - name: Fail fast?!
+        if: steps.linter.outputs.checks-failed > 0
+        run: exit 1
