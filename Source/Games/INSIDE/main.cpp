@@ -316,7 +316,7 @@ public:
 
       if (original_shader_hashes.Contains(shader_hashes_LightingBufferEnd))
       {
-         ASSERT_ONCE(game_device_data.lighting_buffer_rtv.get());
+         ASSERT_ONCE(game_device_data.lighting_buffer_rtv.get()); // Can happen on boot when first loading
          game_device_data.is_drawing_materials = true;
 
          // Sanitize the lighting buffer, if it had values beyond 1 (which happens), it'd mean lighting would go subtractive/negative (it was stored with flipped values)
@@ -506,7 +506,7 @@ public:
 
       if (original_shader_hashes.Contains(shader_hashes_TAA))
       {
-         ASSERT_ONCE(!game_device_data.is_drawing_materials);
+         ASSERT_ONCE(!game_device_data.is_drawing_materials); // Can happen on boot when first loading
          game_device_data.is_drawing_materials = false;
          device_data.has_drawn_main_post_processing = true;
 
@@ -616,7 +616,7 @@ public:
          {
             ImGui::SetTooltip("Luma automatically unlocks the aspect ratio for the game from 16:9 on boot,"
                "\nhowever the game was designed for 16:9, and some objects might be missing from the edges on wider aspect ratios, other might end up being visible before they were meant to,"
-               " this allows you to customize it.\nFor the change to apply, it's necessary to change the resolution or fullscreen state in the graphics settings menu.\nIf HDR seems disabled after changing the aspect ratio, restart the game"); // TODO: needs texture cloning as RTs are resized before the swapchain when we change resolution (aspect ratio)
+               " this allows you to customize it.\nFor the change to apply, it's necessary to change the resolution or fullscreen state in the graphics settings menu.\nIf HDR seems disabled after changing the aspect ratio, restart the game"); // TODO: needs texture cloning as RTs are resized before the swapchain when we change resolution (aspect ratio) (maybe)
          }
 
          if (custom_aspect_ratio_enabled)

@@ -108,7 +108,7 @@ bool3 IsInfinite_Strict(float3 x)
     return abs(x) > FLT_MAX;
 }
 
-float inverseLerp(float a, float b, float value)
+float InverseLerp(float a, float b, float value)
 {
   // Avoid division by zero
   if (a == b) {
@@ -137,6 +137,62 @@ float min3(float3 _a) { return min(_a.x, min(_a.y, _a.z)); }
 float3 max3(float3 _a, float3 _b, float3 _c) { return max(_a, max(_b, _c)); }
 float max3(float _a, float _b, float _c) { return max(_a, max(_b, _c)); }
 float max3(float3 _a) { return max(_a.x, max(_a.y, _a.z)); }
+
+// Returns the median value of 3 channels
+float GetMidValue(float3 x)
+{
+    return x.x + x.y + x.z - (min3(x) + max3(x));
+}
+
+// Returns the first channel if they are all the same
+uint GetMaxIndex(float3 x)
+{
+  uint maxIndex = 0;
+  if (x.g > x[maxIndex]) maxIndex = 1;
+  if (x.b > x[maxIndex]) maxIndex = 2;
+  return maxIndex;
+}
+uint GetMaxIndex(int3 x)
+{
+  uint maxIndex = 0;
+  if (x.g > x[maxIndex]) maxIndex = 1;
+  if (x.b > x[maxIndex]) maxIndex = 2;
+  return maxIndex;
+}
+uint GetMinIndex(float3 x)
+{
+  uint minIndex = 0;
+  if (x.g < x[minIndex]) minIndex = 1;
+  if (x.b < x[minIndex]) minIndex = 2;
+  return minIndex;
+}
+uint GetMinIndex(int3 x)
+{
+  uint minIndex = 0;
+  if (x.g < x[minIndex]) minIndex = 1;
+  if (x.b < x[minIndex]) minIndex = 2;
+  return minIndex;
+}
+// Returns the index that isn't either min nor max
+uint GetMidIndex(float3 x)
+{
+  uint minIndex = GetMinIndex(x);
+  uint maxIndex = GetMaxIndex(x);
+  return (minIndex == maxIndex) ? 0 : (3 - (minIndex + maxIndex));
+}
+uint GetMidIndex(int3 x)
+{
+  uint minIndex = GetMinIndex(x);
+  uint maxIndex = GetMaxIndex(x);
+  return (minIndex == maxIndex) ? 0 : (3 - (minIndex + maxIndex));
+}
+
+void SetIndexValue(inout float3 x, uint index, float value)
+{
+    if (index == 0) x.x = value;
+    else if (index == 1) x.y = value;
+    else x.z = value;
+}
 
 // Returns a random value betweed 0 and 1
 // "seed" can be in any space (e.g. pixel or uv or whatever else)

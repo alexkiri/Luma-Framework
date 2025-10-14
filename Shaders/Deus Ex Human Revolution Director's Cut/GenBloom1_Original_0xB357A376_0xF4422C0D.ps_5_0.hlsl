@@ -45,6 +45,7 @@ cbuffer SceneBuffer : register(b2)
   float4 PSSMToMap3Const : packoffset(c51);
   float4 PSSMDistances : packoffset(c52);
   row_major float4x4 WorldToPSSM0 : packoffset(c53);
+  float StereoOffset : packoffset(c25.w);
 }
 
 cbuffer MaterialBuffer : register(b3)
@@ -55,6 +56,7 @@ cbuffer MaterialBuffer : register(b3)
 SamplerState p_default_Material_0B464C7419133480_Param_sampler_s : register(s0);
 Texture2D<float4> p_default_Material_0B464C7419133480_Param_texture : register(t0); // Scene
 
+// This shader has two hashes because one is for the original game and one for the original bloom in the DC
 void main(
   float4 v0 : SV_POSITION0,
   out float4 o0 : SV_Target0)

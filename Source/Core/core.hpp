@@ -25,6 +25,7 @@
 
 #pragma comment(lib, "Gdi32.lib") // For "SetDeviceGammaRamp"
 #pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "Dxva2.lib")   // For "SetMonitorBrightness"
 
 #define _USE_MATH_DEFINES
 
@@ -37,6 +38,7 @@
 #include <dxgi.h>
 #include <dxgi1_6.h>
 #include <Windows.h>
+#include <HighLevelMonitorConfigurationAPI.h> // For "SetMonitorBrightness"
 
 #include <cstdio>
 #include <filesystem>
@@ -726,6 +728,7 @@ namespace
 
 #if DEVELOPMENT && ALLOW_LOADING_DEV_SHADERS
       // WIP and test and unused shaders (they expect ".../" in front of their include dirs, given the nested path)
+      // Note: these might be hardcoded in github actions!
       const auto dev_directory = game_shader_directory / "Dev";
       const auto unused_directory = game_shader_directory / "Unused";
       if (entry_directory == dev_directory || entry_path == unused_directory)
@@ -10354,7 +10357,7 @@ namespace
 
             auto ChangeDisplayMode = [&](DisplayModeType display_mode, bool enable_hdr_on_display = true, IDXGISwapChain3* swapchain = nullptr)
                {
-                  int display_mode_i = int(cb_luma_global_settings.DisplayMode);
+                  int display_mode_i = int(display_mode);
                   reshade::set_config_value(runtime, NAME, "DisplayMode", display_mode_i);
                   cb_luma_global_settings.DisplayMode = display_mode;
                   OnDisplayModeChanged();
@@ -10577,6 +10580,68 @@ namespace
                cb_luma_global_settings.ScenePeakWhite = cb_luma_global_settings.ScenePaperWhite;
             }
 
+#if DEVELOPMENT
+            // Print warnings if the OS gamma wasn't neutral (we don't want that in HDR!)
+            {
+               {
+                  bool neutral_gamma = true;
+
+                  HDC hDC = GetDC(game_window); // Pass NULL to get the DC for the entire screen (NULL = desktop, primary display, the gamma ramp only ever applies to that apparently)
+                  WORD gamma_ramp[3][256];
+                  if (GetDeviceGammaRamp(hDC, gamma_ramp) == TRUE)
+                  {
+                     for (int i = 1; i < 255; i++)
+                     {
+                        neutral_gamma &= (gamma_ramp[0][i] == i * 257) && (gamma_ramp[1][i] == i * 257) && (gamma_ramp[2][i] == i * 257);
+                     }
+                  }
+                  ReleaseDC(game_window, hDC);
+
+                  if (!neutral_gamma)
+                  {
+                     ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "Warning: Non Neutral Device Gamma Ramp");
+                  }
+               }
+
+               if (auto native_swapchain = device_data.GetMainNativeSwapchain())
+               {
+                  bool neutral_gamma = true;
+
+                  com_ptr<IDXGIOutput> output;
+                  native_swapchain->GetContainingOutput(&output);
+                  if (output)
+                  {
+                     DXGI_GAMMA_CONTROL gamma_control;
+                     if (SUCCEEDED(output->GetGammaControl(&gamma_control)))
+                     {
+                        neutral_gamma &= gamma_control.Scale.Red == 1.0f;
+                        neutral_gamma &= gamma_control.Scale.Green == 1.0f;
+                        neutral_gamma &= gamma_control.Scale.Blue == 1.0f;
+                        neutral_gamma &= gamma_control.Offset.Red == 0.0f;
+                        neutral_gamma &= gamma_control.Offset.Green == 0.0f;
+                        neutral_gamma &= gamma_control.Offset.Blue == 0.0f;
+                        for (int i = 0; i < std::size(gamma_control.GammaCurve); ++i)
+                        {
+                           float value = i / ((float)std::size(gamma_control.GammaCurve) - 1.f);
+                           neutral_gamma &= gamma_control.GammaCurve[i].Red == value;
+                           neutral_gamma &= gamma_control.GammaCurve[i].Green == value;
+                           neutral_gamma &= gamma_control.GammaCurve[i].Blue == value;
+                        }
+                     }
+
+                     DXGI_OUTPUT_DESC output_desc = {};
+                     output->GetDesc(&output_desc);
+
+                     HMONITOR hMonitor = output_desc.Monitor;
+                  }
+
+                  if (!neutral_gamma)
+                  {
+                     ImGui::TextColored(ImVec4(1.0, 0.0, 0.0, 1.0), "Warning: Non Neutral Output Gamma Control");
+                  }
+               }
+            }
+#endif
             if (allow_disabling_gamma_ramp && ImGui::Button("Reset Gamma Ramp"))
             {
                // First do it the old way, given that games like Bioshock 2 do it. This seemengly works in windowed mode too, and applies to HDR.
@@ -10584,7 +10649,7 @@ namespace
                   HDC hDC = GetDC(game_window); // Pass NULL to get the DC for the entire screen (NULL = desktop, primary display, the gamma ramp only ever applies to that apparently)
                   WORD gamma_ramp[3][256];
 
-#if 1 // Analyze the gamma ramp to see if it's not neutral
+#if 0 // Analyze the gamma ramp to see if it's not neutral (now we do it above)
                   if (GetDeviceGammaRamp(hDC, gamma_ramp) == TRUE)
                   {
 #if 1 // Make sure the gamma was absolutely neutral
@@ -10671,6 +10736,7 @@ namespace
                }
 
                // Second, do it the more modern way (this way seems to only work in SDR or any FSE mode)
+               // Third, do it in another weird way (that was probably never used by games)
                if (auto native_swapchain = device_data.GetMainNativeSwapchain())
                {
                   com_ptr<IDXGIOutput> output;
@@ -10703,6 +10769,31 @@ namespace
 
                      ASSERT_ONCE(output->SetGammaControl(&gamma_control));
 #endif
+
+                     DXGI_OUTPUT_DESC output_desc = {};
+                     if (SUCCEEDED(output->GetDesc(&output_desc)))
+                     {
+                        HMONITOR hMonitor = output_desc.Monitor;
+                        if (hMonitor)
+                        {
+                           // Step 3: Enumerate physical monitors for this HMONITOR
+                           DWORD num_monitors = 0;
+                           if (GetNumberOfPhysicalMonitorsFromHMONITOR(hMonitor, &num_monitors) || num_monitors == 0)
+                           {
+                              std::vector<PHYSICAL_MONITOR> physical_monitors(num_monitors);
+                              if (GetPhysicalMonitorsFromHMONITOR(hMonitor, num_monitors, physical_monitors.data()))
+                              {
+                                 for (DWORD i = 0; i < num_monitors; ++i)
+                                 {
+                                    SetMonitorBrightness(physical_monitors[i].hPhysicalMonitor, 50);
+                                 }
+
+                                 DestroyPhysicalMonitors(num_monitors, physical_monitors.data());
+                              }
+                           }
+                        }
+
+                     }
                   }
                }
             }
