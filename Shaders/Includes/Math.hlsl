@@ -69,9 +69,11 @@ bool IsNaN_Strict(float x)
 {
 #if 0 // float!=float is only true if the number is NaN. This doesn't always work, it's probably optimized away!
   return x.x != x.x;
-#else // This will cover all the possible nan cases
+#elif 1 // This will cover all the possible nan cases
   uint bits = asuint(x);
-  return ((bits & 0x7F800000u) == 0x7F800000u) && ((bits & 0x007FFFFFu) != 0);
+  return ((bits & 0x7F800000) == 0x7F800000) && ((bits & 0x007FFFFF) != 0);
+#else // Dunno if this one is good
+  return (asuint(x) & 0x7FFFFFFF) > 0x7F800000;
 #endif
 }
 bool2 IsNaN_Strict(float2 x)
