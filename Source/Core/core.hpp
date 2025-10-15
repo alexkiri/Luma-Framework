@@ -482,7 +482,7 @@ namespace
 
    // These default should ideally match shaders values (Settings.hlsl), but it's not necessary because whatever the default values they have they will be overridden.
 	// For further descriptions, see their shader declarations.
-   // TODO: add grey out conditions (another define, by name, whether its value is > 0, or flipped (we can already manually toggle their editability manually)), and also add min/max values range (to limit the user insertable values), and "category"
+   // TODO: add grey out conditions (another define, by name, whether its value is > 0, or flipped (we can already manually toggle their editability manually)), and also add min/max values range (to limit the user insertable values) (and turn the 0-1 ones into a checkbox), and "category"
    std::vector<ShaderDefineData> shader_defines_data = {
        {"DEVELOPMENT", DEVELOPMENT ? '1' : '0', true, DEVELOPMENT ? false : true, "Enables some development/debug features that are otherwise not allowed (use a DEVELOPMENT build if you want to use this)"},
        {"TEST", (TEST || DEVELOPMENT) ? '1' : '0', true, (TEST || DEVELOPMENT) ? false : true, "Enables some test features to aid with development (use a DEVELOPMENT or TEST build if you want to use this)"},
