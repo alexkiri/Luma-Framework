@@ -3219,7 +3219,6 @@ namespace
 
       DeviceData& device_data = *device->get_private_data<DeviceData>();
 
-      const std::unique_lock lock(s_mutex_generic);
       for (uint32_t i = 0; i < subobject_count; ++i)
       {
          const auto& subobject = subobjects[i];
@@ -3652,6 +3651,7 @@ namespace
 #endif
 
 #if DEVELOPMENT
+               // Not protected by mutex as this data is generally const after boot
                auto forced_shader_names_it = forced_shader_names.find(shader_hash);
                if (forced_shader_names_it != forced_shader_names.end())
                {
@@ -3659,16 +3659,6 @@ namespace
                }
 #endif
 
-               // Make sure we didn't already have a valid pipeline in there (this should never happen, if not with input layout vertex shaders?, or anyway unless the game compiled the same shader twice)
-               auto pipelines_pair = device_data.pipeline_caches_by_shader_hash.find(shader_hash);
-               if (pipelines_pair != device_data.pipeline_caches_by_shader_hash.end())
-               {
-                  pipelines_pair->second.emplace(cached_pipeline);
-               }
-               else
-               {
-                  device_data.pipeline_caches_by_shader_hash[shader_hash] = { cached_pipeline };
-               }
                {
                   const std::shared_lock lock(s_mutex_loading);
                   found_custom_shader_file |= custom_shaders_cache.contains(shader_hash);
@@ -3700,8 +3690,25 @@ namespace
          return;
       }
 
-      ASSERT_ONCE(device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle) == device_data.pipeline_cache_by_pipeline_handle.end());
-      device_data.pipeline_cache_by_pipeline_handle[pipeline.handle] = cached_pipeline;
+      {
+         const std::unique_lock lock(s_mutex_generic);
+         for (const auto shader_hash : cached_pipeline->shader_hashes)
+         {
+            // Make sure we didn't already have a valid pipeline in there (this should never happen, if not with input layout vertex shaders?, or anyway unless the game compiled the same shader twice)
+            auto pipelines_pair = device_data.pipeline_caches_by_shader_hash.find(shader_hash);
+            if (pipelines_pair != device_data.pipeline_caches_by_shader_hash.end())
+            {
+               pipelines_pair->second.emplace(cached_pipeline);
+            }
+            else
+            {
+               device_data.pipeline_caches_by_shader_hash[shader_hash] = { cached_pipeline };
+            }
+
+            ASSERT_ONCE(device_data.pipeline_cache_by_pipeline_handle.find(pipeline.handle) == device_data.pipeline_cache_by_pipeline_handle.end());
+            device_data.pipeline_cache_by_pipeline_handle[pipeline.handle] = cached_pipeline;
+         }
+      }
 
       // Automatically load any custom shaders that might have been bound to this pipeline.
       // To avoid this slowing down everything, we only do it if we detect the user already had a matching shader in its custom shaders folder.
