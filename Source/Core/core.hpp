@@ -4049,7 +4049,7 @@ namespace
 #if DEVELOPMENT
          cmd_list_data.temp_custom_depth_stencil = cached_pipeline ? cached_pipeline->custom_depth_stencil : ShaderCustomDepthStencilType::None;
 #endif
-         
+
          if (cached_pipeline)
          {
 #if DX12
@@ -5465,7 +5465,7 @@ namespace
                   srv->GetResource(&source_resource);
             }
          }
-			break;
+         break;
          case CachedPipeline::RedirectData::RedirectSourceType::UAV:
          {
             com_ptr<ID3D11UnorderedAccessView> uav;
@@ -5494,7 +5494,7 @@ namespace
                com_ptr<ID3D11RenderTargetView> rtvs[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT];
                native_device_context->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, &rtvs[0], nullptr);
                if (rtvs[redirect_data.target_index])
-						rtvs[redirect_data.target_index]->GetResource(&target_resource);
+                  rtvs[redirect_data.target_index]->GetResource(&target_resource);
             }
          }
          break;
@@ -6254,8 +6254,10 @@ namespace
          return std::nullopt;
       }
 
+      const bool is_cube = (desc.flags & reshade::api::resource_flags::cube_compatible) != 0 && (desc.texture.depth_or_layers % 6) == 0 && desc.texture.depth_or_layers != 0;
+
       // Note: we can't fully exclude texture 2D arrays here, because they might still have 1 layer
-      bool type_and_size_filter = desc.type == reshade::api::resource_type::texture_2d && (desc.texture.depth_or_layers == 1 || ((desc.flags & reshade::api::resource_flags::cube_compatible) != 0 && (desc.texture.depth_or_layers % 6) == 0));
+      bool type_and_size_filter = desc.type == reshade::api::resource_type::texture_2d && (desc.texture.depth_or_layers == 1 || is_cube);
 
       if (texture_format_upgrades_2d_size_filters != (uint32_t)TextureFormatUpgrades2DSizeFilters::All)
       {
@@ -6280,13 +6282,12 @@ namespace
          // Flipped condition, given we already allowed them above in "type_and_size_filter"
          if ((texture_format_upgrades_2d_size_filters & (uint32_t)TextureFormatUpgrades2DSizeFilters::Cubes) == 0)
          {
-            bool is_cube = (desc.flags & reshade::api::resource_flags::cube_compatible) != 0 && (desc.texture.depth_or_layers % 6) == 0;
             size_filter &= !is_cube;
          }
          // No limits on the size, we can assume it was square
          else
          {
-            size_filter |= true;
+            size_filter |= is_cube;
          }
 
          // Always scale from the smallest dimension, as that gives up more threshold, depending on how the devs scaled down textures (they can use multiple rounding models)
@@ -12388,11 +12389,11 @@ namespace
                   ImGui::NewLine();
                   bool samplers_changed = ImGui::SliderInt("Texture Samplers Upgrade Mode", &samplers_upgrade_mode, 0, 7);
                   samplers_changed |= ImGui::SliderInt("Texture Samplers Upgrade Mode - 2", &samplers_upgrade_mode_2, 0, 6);
-               ImGui::Checkbox("Custom Texture Samplers Mip LOD Bias", &custom_texture_mip_lod_bias_offset);
-               if (samplers_upgrade_mode > 0 && custom_texture_mip_lod_bias_offset)
-               {
-                  const std::unique_lock lock_samplers(s_mutex_samplers);
-                  samplers_changed |= ImGui::SliderFloat("Texture Samplers Mip LOD Bias", &device_data.texture_mip_lod_bias_offset, -8.f, +8.f);
+                  ImGui::Checkbox("Custom Texture Samplers Mip LOD Bias", &custom_texture_mip_lod_bias_offset);
+                  if (samplers_upgrade_mode > 0 && custom_texture_mip_lod_bias_offset)
+                  {
+                     const std::unique_lock lock_samplers(s_mutex_samplers);
+                     samplers_changed |= ImGui::SliderFloat("Texture Samplers Mip LOD Bias", &device_data.texture_mip_lod_bias_offset, -8.f, +8.f);
                   }
                   if (samplers_changed)
                   {
