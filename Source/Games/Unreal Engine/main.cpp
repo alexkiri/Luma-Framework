@@ -1,6 +1,5 @@
 #define GAME_UNREAL_ENGINE 1
 #define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
-#define UPGRADE_SAMPLERS 1
 #define ENABLE_NGX 1
 
 #include "..\..\Core\core.hpp"
@@ -795,12 +794,13 @@ public:
                if (samplers_handle.second.contains(new_texture_mip_lod_bias_offset))
                   continue; // Skip "resolutions" that already got their custom samplers created
                ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(samplers_handle.first);
-               D3D11_SAMPLER_DESC  native_desc;
-               native_sampler->GetDesc(&native_desc);
                shared_lock_samplers.unlock(); // This is fine!
                {
-                  std::unique_lock unique_lock_samplers(s_mutex_samplers);
-                  samplers_handle.second[new_texture_mip_lod_bias_offset] = CreateCustomSampler(device_data, native_device, native_desc);
+                  D3D11_SAMPLER_DESC native_desc;
+                  native_sampler->GetDesc(&native_desc);
+                  com_ptr<ID3D11SamplerState> custom_sampler = CreateCustomSampler(device_data, native_device, native_desc);
+                  const std::unique_lock unique_lock_samplers(s_mutex_samplers);
+                  samplers_handle.second[new_texture_mip_lod_bias_offset] = custom_sampler;
                }
                shared_lock_samplers.lock();
             }
@@ -837,6 +837,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // };
       // ### Check these if textures are not upgraded ###
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
+
+      enable_samplers_upgrade = true;
 
       game = new UnrealEngine();
    }
