@@ -638,7 +638,7 @@ namespace
    {
       uint32_t debug_draw_shader_hash = 0;
       char debug_draw_shader_hash_string[HASH_CHARACTERS_LENGTH + 1] = {};
-      uint64_t debug_draw_pipeline = 0;
+      uint64_t debug_draw_pipeline = 0; // In DX11 shaders and pipelines are the same thing so this is kinda useless (excluding the rare case where multiple pipelines (compiled shader objects) were based on the same shader, and hence had the same hash)
       int32_t debug_draw_pipeline_target_instance = -1;
       std::thread::id debug_draw_pipeline_target_thread = std::thread::id(); // Filter target instances by thread, which would hopefully reliably match the command lists, over multiple frames
 
@@ -650,7 +650,7 @@ namespace
       int32_t debug_draw_mip = 0;
       bool debug_draw_pipeline_instance_filter_by_thread = false; // Not true by default as it seems like quite a few games set up multiple render threads, so this conflicts between frames
       bool debug_draw_auto_clear_texture = false;
-      bool debug_draw_replaced_pass = false; // Whether we print the debugging of the original or replaced pass (the resources bindings etc might be different, though this won't forcefully run the original pass if it was skipped by the game's mod custom code)
+      bool debug_draw_replaced_pass = false; // Whether we print the debugging of the original or replaced pass (the resources bindings etc might be different, though this won't forcefully run the original pass if it was skipped by the game's mod custom code, so this isn't fully reliable)
       bool debug_draw_auto_gamma = true;
    }
 
@@ -4624,6 +4624,7 @@ namespace
             {
                // We might not be able to rely on SRVs automatic generation (by passing a nullptr desc), because depth resources take a custom view format etc
 
+               // Note: it's possible to use "ID3D11Resource::GetType()" instead of this
                com_ptr<ID3D11Texture2D> debug_draw_texture_2d;
                device_data.debug_draw_texture->QueryInterface(&debug_draw_texture_2d);
                com_ptr<ID3D11Texture3D> debug_draw_texture_3d;
@@ -5547,7 +5548,8 @@ namespace
       DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
-		wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle);
+      wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle);
+      wants_debug_draw &= (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id());
 
       com_ptr<ID3D11DepthStencilState> original_depth_stencil_state;
       UINT original_stencil_ref = 0;
@@ -5604,7 +5606,7 @@ namespace
 #endif
 
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
+      if (wants_debug_draw)
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -5691,6 +5693,7 @@ namespace
 
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_pixel_shader.handle);
+      wants_debug_draw &= (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id());
 
       com_ptr<ID3D11DepthStencilState> original_depth_stencil_state;
       UINT original_stencil_ref = 0;
@@ -5733,7 +5736,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, false);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_graphics_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
+      if (wants_debug_draw)
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -5813,6 +5816,7 @@ namespace
 
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       wants_debug_draw &= (debug_draw_pipeline == 0 || debug_draw_pipeline == cmd_list_data.pipeline_state_original_compute_shader.handle);
+      wants_debug_draw &= (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_compute_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id());
 
       DrawStateStack<DrawStateStackType::Compute> pre_draw_state_stack;
       if (wants_debug_draw)
@@ -5831,7 +5835,7 @@ namespace
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, true);
 #if DEVELOPMENT
       // First run the draw call (don't delegate it to ReShade) and then copy its output
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || cmd_list_data.pipeline_state_original_compute_shader_hashes.Contains(debug_draw_shader_hash, reshade::api::shader_stage::compute)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
+      if (wants_debug_draw)
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -5903,8 +5907,11 @@ namespace
       ID3D11DeviceContext* native_device_context = (ID3D11DeviceContext*)(cmd_list->get_native());
       DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
 
+      const auto& original_shader_hashes = is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader_hashes : cmd_list_data.pipeline_state_original_graphics_shader_hashes;
+
       bool wants_debug_draw = debug_draw_shader_hash != 0 || debug_draw_pipeline != 0;
       wants_debug_draw &= debug_draw_pipeline == 0 || debug_draw_pipeline == (is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader.handle : cmd_list_data.pipeline_state_original_pixel_shader.handle);
+      wants_debug_draw &= (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id());
 
       com_ptr<ID3D11DepthStencilState> original_depth_stencil_state;
       UINT original_stencil_ref = 0;
@@ -5955,8 +5962,7 @@ namespace
 #endif
       bool cancelled_or_replaced = OnDraw_Custom(cmd_list, is_dispatch);
 #if DEVELOPMENT
-      const auto& original_shader_hashes = is_dispatch ? cmd_list_data.pipeline_state_original_compute_shader_hashes : cmd_list_data.pipeline_state_original_graphics_shader_hashes;
-      if (wants_debug_draw && (debug_draw_shader_hash == 0 || original_shader_hashes.Contains(debug_draw_shader_hash, is_dispatch ? reshade::api::shader_stage::compute : reshade::api::shader_stage::pixel)) && (debug_draw_pipeline_target_thread == std::thread::id() || debug_draw_pipeline_target_thread == std::this_thread::get_id()))
+      if (wants_debug_draw)
       {
          auto local_debug_draw_pipeline_instance = debug_draw_pipeline_instance.fetch_add(1);
          if (debug_draw_pipeline_target_instance == -1 || local_debug_draw_pipeline_instance == debug_draw_pipeline_target_instance)
@@ -6833,6 +6839,7 @@ namespace
          ID3D11Texture2D* texture_2d = nullptr;
          ID3D11Texture3D* texture_3d = nullptr;
          ID3D11Texture1D* texture_1d = nullptr;
+         // Note: it's possible to use "ID3D11Resource::GetType()" instead of this
          HRESULT hr_2d = native_resource->QueryInterface(__uuidof(ID3D11Texture2D), (void**)&texture_2d);
          HRESULT hr_3d = native_resource->QueryInterface(__uuidof(ID3D11Texture3D), (void**)&texture_3d);
          HRESULT hr_1d = native_resource->QueryInterface(__uuidof(ID3D11Texture1D), (void**)&texture_1d);
@@ -11032,6 +11039,7 @@ namespace
 
                   ImGui::Text("Reference Count: %lu", selected_resource.ref_count() - (unsigned long)(extra_refs));
 
+                  // Note: it's possible to use "ID3D11Resource::GetType()" instead of this
                   com_ptr<ID3D11Texture2D> selected_texture_2d;
                   selected_resource->QueryInterface(&selected_texture_2d);
                   com_ptr<ID3D11Texture3D> selected_texture_3d;
@@ -11093,7 +11101,7 @@ namespace
                      ASSERT_ONCE(GetShaderDefineCompiledNumericalValue(DEVELOPMENT_HASH) >= 1); // Development flag is needed in shaders for this to output correctly
                      ASSERT_ONCE(device_data.native_pixel_shaders[CompileTimeStringHash("Display Composition")]); // This shader is necessary to draw this debug stuff
 
-                     if (!debug_draw_resource_enabled)
+                     if (!debug_draw_resource_enabled) // Enabled
                      {
                         // Reset all the settings we don't need anymore, as they were for a different debug draw mode
                         debug_draw_pipeline = 0;
@@ -11116,7 +11124,7 @@ namespace
                         device_data.debug_draw_texture_format = selected_texture_format;
                         device_data.debug_draw_texture_size = selected_texture_size;
                      }
-                     else
+                     else // Disabled
                      {
                         device_data.debug_draw_texture = nullptr;
                         device_data.debug_draw_texture_format = DXGI_FORMAT_UNKNOWN;
