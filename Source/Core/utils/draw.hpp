@@ -89,7 +89,6 @@ struct DrawStateStack
          device_context->VSGetConstantBuffers(0, 1, &VSConstantBuffer);
          device_context->IAGetIndexBuffer(&IndexBuffer, &IndexBufferFormat, &IndexBufferOffset);
          device_context->IAGetVertexBuffers(0, 1, &VertexBuffer, &VertexBufferStride, &VertexBufferOffset);
-         device_context->VSGetConstantBuffers(...);
          device_context->GSGetShader(&state->gs, nullptr, 0); // And others
 #endif
       }
@@ -118,6 +117,8 @@ struct DrawStateStack
    // Restore the previous resources/states:
    void Restore(ID3D11DeviceContext* device_context)
    {
+      if (!state) return;
+
       com_ptr<ID3D11DeviceContext1> device_context_1;
       HRESULT hr = device_context->QueryInterface(&device_context_1);
 
@@ -211,6 +212,8 @@ struct DrawStateStack
          device_context->CSSetSamplers(0, samplers_num, cs_samplers_state_const);
       }
    }
+
+   bool IsValid() const { return state.get() != nullptr; }
 
    static constexpr size_t samplers_num = []
       {
