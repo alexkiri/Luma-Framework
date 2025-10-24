@@ -90,7 +90,6 @@ cbuffer _PrevVSGlobals : register(b3)
   float4 PrevBlurMatrixYYY : packoffset(c3);
   float4 PrevBlurMatrixWWW : packoffset(c4);
 }
-
 #endif
 
 SamplerState SamplerSource_s : register(s0); // Linear sampler
@@ -118,11 +117,13 @@ static const float LumaForcedMotionBlurDepth = 0.994; // Values lower than this 
 static const float LumaForcedMotionBlurDepth = 1.0;
 #endif
 
+#if ENABLE_IMPROVED_MOTION_BLUR
 float2 CalculateMotionBlurUVOffset(float2 uv, float depth)
 {
   float3 temp = BlurMatrixZZZ.xyz * depth + (BlurMatrixXXX.xyz * uv.x + BlurMatrixYYY.xyz * uv.y + BlurMatrixWWW.xyz);
   return (temp.xy + temp.z * uv) * max(MotionBlurStencilValues.y, MotionBlurStencilValues.x);
 }
+#endif
 
 float3 ApplyLUT(float3 color, float3 sdrColor, Texture3D<float4> _texture, SamplerState _sampler)
 {
@@ -328,7 +329,7 @@ void main(
     currentBlurMatrixZZZ.xyz = -float3(average(currentBlurMatrixWWW.xy), average(currentBlurMatrixWWW.yx), average(float2(currentBlurMatrixXXX.x, currentBlurMatrixYYY.y)));
 #endif
   }
-#endif
+#endif // ENABLE_IMPROVED_MOTION_BLUR
   // "BlurMatrixZZZ.xy" is identical but negative, when compared to "BlurMatrixWWW.xy" from the vertex shader, and "BlurMatrixZZZ.z" is equal to "BlurMatrixXXX.x" and "BlurMatrixXXX.y" (but negative) (which one exactly? Maybe their average?).
   // "BlurMatrixZZZ" and "BlurMatrixWWW" are directy proportional to the camera movement in its forward axis (and flipped when going backwards).
   // "BlurMatrixXXX.z" and "BlurMatrixYYY.z" control the diagonal blur (it seems to be a bit different depending on the aspect ratio).
@@ -374,6 +375,9 @@ void main(
   float3 tempSceneColorSum = 0.0;
   int i = 0;
   int validIterations = 0;
+#if TEST_SDR_HDR_SPLIT_VIEW_MODE // Avoids a warning due to dynamic iterations number
+  [loop]
+#endif
   while (i < iterations)
   {
     float2 localMotionBlurUV = motionBlurUV;
