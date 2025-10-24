@@ -215,7 +215,7 @@ void main(
 #endif // MOTION_BLUR_QUALITY >= 2
   int iterations = originalIterations;
 #if ENABLE_IMPROVED_MOTION_BLUR
-  iterations = forceVanilla ? originalIterations : 48; // 32 looks good but 48 seems like the sweet spot
+  iterations = forceVanilla ? originalIterations : 48; // 32 looks good but 48 seems like the sweet spot // TODO: make this scale by velocity to improve performance?
 #endif
 
   float4 baseSceneColor = SamplerSourceTexture.Sample(SamplerSource_s, v1.xy); // This is a mask that represents different types of objects (like a stencil)

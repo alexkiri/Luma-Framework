@@ -343,18 +343,23 @@ using D3D11_RESOURCE_VIEW_DESC = std::conditional_t<typeid(T) == typeid(ID3D11Sh
 
 // TODO: rename to "Generic"
 template <typename T = ID3D11Resource>
-com_ptr<T> CloneResource_Internal(ID3D11Device* device, ID3D11DeviceContext* device_context, ID3D11Resource* source)
+com_ptr<T> CloneResourceTyped(ID3D11Device* device, ID3D11DeviceContext* device_context, T* source)
 {
    if (!source) return nullptr;
 
    com_ptr<T> cloned_resource;
 
-   com_ptr<T> cast_source;
-   source->QueryInterface(IID_PPV_ARGS(&cast_source)); // Can't fail, we do it just because, we could bruteforce it
-   assert(cast_source);
-
+   // Note: some misc flags like "D3D11_RESOURCE_MISC_SHARED" or "D3D11_RESOURCE_MISC_GUARDED" might theoretically be better removed, but there's no need to until we found a use case.
+   // We could also optionally remove the "CPUAccessFlags" given we likely won't need them, but that should be optional if so.
    D3D11_RESOURCE_DESC<T> desc;
-   cast_source->GetDesc(&desc);
+   source->GetDesc(&desc);
+
+   // Arguable, but return the same resource if it's immutable, we don't really need to clone it and it'd fail if we didn't provide the initial data,
+   // which would require mapping the source resource to be retrieved, and it's just unnecessary.
+   if (desc.Usage == D3D11_USAGE_IMMUTABLE)
+   {
+      return source;
+   }
 
    HRESULT hr = E_FAIL;
    if constexpr (std::is_same_v<T, ID3D11Buffer>)
@@ -395,19 +400,19 @@ com_ptr<ID3D11Resource> CloneResource(ID3D11Device* device, ID3D11DeviceContext*
    {
    case D3D11_RESOURCE_DIMENSION_BUFFER:
    {
-      return (com_ptr<ID3D11Resource>&&)(CloneResource_Internal<ID3D11Buffer>(device, device_context, source));
+      return (com_ptr<ID3D11Resource>&&)(CloneResourceTyped<ID3D11Buffer>(device, device_context, static_cast<ID3D11Buffer*>(source)));
    }
    case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
    {
-      return (com_ptr<ID3D11Resource>&&)CloneResource_Internal<ID3D11Texture1D>(device, device_context, source);
+      return (com_ptr<ID3D11Resource>&&)CloneResourceTyped<ID3D11Texture1D>(device, device_context, static_cast<ID3D11Texture1D*>(source));
    }
    case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
    {
-      return (com_ptr<ID3D11Resource>&&)CloneResource_Internal<ID3D11Texture2D>(device, device_context, source);
+      return (com_ptr<ID3D11Resource>&&)CloneResourceTyped<ID3D11Texture2D>(device, device_context, static_cast<ID3D11Texture2D*>(source));
    }
    case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
    {
-      return (com_ptr<ID3D11Resource>&&)CloneResource_Internal<ID3D11Texture3D>(device, device_context, source);
+      return (com_ptr<ID3D11Resource>&&)CloneResourceTyped<ID3D11Texture3D>(device, device_context, static_cast<ID3D11Texture3D*>(source));
    }
    }
 
@@ -530,7 +535,7 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
             }
          }
 
-         // TODO: use "CloneResource_Internal()" now that we have it
+         // TODO: use "CloneResourceTyped()" now that we have it
          if constexpr (std::is_same_v<T, ID3D11Texture2D>)
          {
             hr = native_device->CreateTexture2D(&texture_desc, black_initial_data ? &initial_data : nullptr, &cloned_resource);
