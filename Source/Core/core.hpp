@@ -364,12 +364,12 @@ namespace
          // This can be useful for blur passes etc, if they used power of 2 mips, instead of simply halving the base resolution.
          Mips = 1 << 5,
          // Upgrade textures cubes (of all sizes), these are sometimes used by old games to do reflections (e.g. Burnout Revenge cars reflections)
-         Cubes,
+         Cubes = 1 << 6,
          // Checks the swapchain/output resolution width only (e.g. used by games that add horizontal lines, like "Thumper" or" Beyond: Two Souls").
          // These are usually hard to match to an aspect ratio without using the "CustomAspectRatio" with a manually found aspect ratio,
          // and thus mips like bloom might be missing
-         SwapchainResolutionWidth = 1 << 6,
-         SwapchainResolutionHeight = 1 << 7,
+         SwapchainResolutionWidth = 1 << 7,
+         SwapchainResolutionHeight = 1 << 8,
       };
       uint32_t texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
       std::unordered_set<float> texture_format_upgrades_2d_custom_aspect_ratios = { 16.f / 9.f };
@@ -4137,7 +4137,7 @@ namespace
          out_resource = original_resource_view_to_mirrored_upgraded_resource_view_2->second;
          replaced = true;
       }
-      else if (allow_create && in_resource != 0 && !device_data.upgraded_resources.contains(in_resource))
+      else if (allow_create && in_resource != 0 && !device_data.upgraded_resources.contains(in_resource) && (swapchain_upgrade_type == SwapchainUpgradeType::None || !device_data.back_buffers.contains(in_resource)))
       {
          lock_device_read.unlock(); // Avoids deadlocks with the device
 
@@ -6305,7 +6305,7 @@ namespace
    }
 
    // TODO: cache the last "almost" upgraded texture resolution to make sure that when the swapchain changes res, we didn't fail to upgrade resources before
-   std::optional<reshade::api::format> ShouldUpgradeResource(const reshade::api::resource_desc& desc, const DeviceData& device_data)
+   std::optional<reshade::api::format> ShouldUpgradeResource(const reshade::api::resource_desc& desc, const DeviceData& device_data, bool has_initial_data = false)
    {
       if (texture_format_upgrades_type < TextureFormatUpgradesType::AllowedEnabled)
       {
@@ -6313,8 +6313,18 @@ namespace
       }
 
       const bool is_rt_or_ua = (desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0;
+      // Convoluted check to test if the resource is "D3D11_USAGE_DEFAULT" (the only usage type that can be both used as SRV, and be the target of a CopyResource(), otherwise we'd never need to upgrade them).
+      // We also check the initial data for extra safety, in case this was a "static" content texture that accidentally wasn't created as immutable.
+      const bool is_writable_sr = (desc.usage & reshade::api::resource_usage::shader_resource) != 0 && desc.heap == reshade::api::memory_heap::gpu_only && !has_initial_data
+#if 0 // Disabled until reshade implements "reshade::api::resource_flags::immutable"
+         && (desc.flags & reshade::api::resource_flags::immutable) == 0
+#endif
+         ;
+
       const bool is_depth = (desc.usage & reshade::api::resource_usage::depth_stencil) != 0;
-      if ((!is_rt_or_ua || !texture_upgrade_formats.contains(desc.texture.format)) && (!is_depth || !texture_depth_upgrade_formats.contains(desc.texture.format)))
+
+      // Re-use the "enable_automatic_indirect_texture_format_upgrades" flag to allow this case
+      if ((!(is_rt_or_ua || (enable_automatic_indirect_texture_format_upgrades ? is_writable_sr : false)) || !texture_upgrade_formats.contains(desc.texture.format)) && (!is_depth || !texture_depth_upgrade_formats.contains(desc.texture.format)))
       {
          return std::nullopt;
       }
@@ -6628,7 +6638,7 @@ namespace
       DeviceData& device_data = *device->get_private_data<DeviceData>();
       std::shared_lock lock(device_data.mutex); // Note: we possibly don't even need this (or well, we might want to use a different mutex)
       
-      if (std::optional<reshade::api::format> upgraded_format = ShouldUpgradeResource(desc, device_data))
+      if (std::optional<reshade::api::format> upgraded_format = ShouldUpgradeResource(desc, device_data, initial_data && initial_data->data))
       {
          lock.unlock();
 
@@ -7366,7 +7376,7 @@ namespace
       reshade::api::resource_desc upgraded_desc;
       {
          const std::shared_lock lock(device_data.mutex);
-         if (device_data.upgraded_resources.contains(resource.handle))
+         if (device_data.upgraded_resources.contains(resource.handle)) // This cannot be a swapchain texture, they can't be written by the CPU
          {
             upgraded_desc = device->get_resource_desc(resource);
             original_desc = upgraded_desc;
@@ -7582,7 +7592,7 @@ namespace
       const std::shared_lock lock(device_data.mutex); // Mutex needed for further stuff below!
       // Skip if none of the resources match our upgraded ones.
       // This should always be fine, unless the game used the upgraded resource desc to automatically determine other textures (so we try to catch for that in development)
-      if (!forced && !device_data.upgraded_resources.contains(source.handle) && !device_data.upgraded_resources.contains(dest.handle))
+      if (!forced && !device_data.upgraded_resources.contains(source.handle) && !device_data.upgraded_resources.contains(dest.handle) && (swapchain_upgrade_type == SwapchainUpgradeType::None || (!device_data.back_buffers.contains(source.handle) && !device_data.back_buffers.contains(dest.handle))))
       {
 #if !DEVELOPMENT
          return false;
@@ -7942,7 +7952,7 @@ namespace
             ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
             DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
             const std::shared_lock lock(device_data.mutex);
-            if (enable_upgraded_texture_resource_copy_redirection && (device_data.upgraded_resources.contains(source.handle) || device_data.upgraded_resources.contains(dest.handle)))
+            if (enable_upgraded_texture_resource_copy_redirection && (device_data.upgraded_resources.contains(source.handle) || device_data.upgraded_resources.contains(dest.handle) || (swapchain_upgrade_type > SwapchainUpgradeType::None && (device_data.back_buffers.contains(source.handle) || device_data.back_buffers.contains(dest.handle)))))
             {
                ASSERT_ONCE(AreResourcesEqual(source_resource, target_resource)); // Note: this might catch some false positives too
             }
@@ -7991,7 +8001,7 @@ namespace
          ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
          DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
          // If any of the resources has been upgraded but the format specified by the game doesn't match, enforce the right format
-         if ((device_data.upgraded_resources.contains(source.handle) || device_data.upgraded_resources.contains(dest.handle)) && DXGI_FORMAT(format) != DXGI_FORMAT_R16G16B16A16_FLOAT)
+         if ((device_data.upgraded_resources.contains(source.handle) || device_data.upgraded_resources.contains(dest.handle) || (swapchain_upgrade_type > SwapchainUpgradeType::None && device_data.back_buffers.contains(dest.handle))) && DXGI_FORMAT(format) != DXGI_FORMAT_R16G16B16A16_FLOAT)
          {
             if (AreResourcesEqual(source_resource, target_resource, true, false))
             {
@@ -8011,7 +8021,7 @@ namespace
             ID3D11Resource* target_resource = reinterpret_cast<ID3D11Resource*>(dest.handle);
             DeviceData& device_data = *cmd_list->get_device()->get_private_data<DeviceData>();
             const std::shared_lock lock(device_data.mutex);
-            if (enable_upgraded_texture_resource_copy_redirection && (device_data.upgraded_resources.contains(source.handle) || device_data.upgraded_resources.contains(dest.handle)))
+            if (enable_upgraded_texture_resource_copy_redirection && (device_data.upgraded_resources.contains(source.handle) || device_data.upgraded_resources.contains(dest.handle) || (swapchain_upgrade_type > SwapchainUpgradeType::None && (device_data.back_buffers.contains(source.handle) || device_data.back_buffers.contains(dest.handle)))))
             {
                ASSERT_ONCE(AreResourcesEqual(source_resource, target_resource)); // Note: this might catch some false positives too
             }

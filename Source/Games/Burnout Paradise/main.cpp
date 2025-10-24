@@ -450,7 +450,7 @@ public:
       }
       DrawResetButton(cb_luma_global_settings.GameSettings.ColorGradingIntensity, default_luma_global_game_settings.ColorGradingIntensity, "ColorGradingIntensity", runtime);
 
-      if (ImGui::SliderFloat("Color Grading Filter Redurection Intensity", &cb_luma_global_settings.GameSettings.ColorGradingFilterReductionIntensity, 0.f, 1.f))
+      if (ImGui::SliderFloat("Color Grading Filter Reduction Intensity", &cb_luma_global_settings.GameSettings.ColorGradingFilterReductionIntensity, 0.f, 1.f))
       {
          reshade::set_config_value(runtime, NAME, "ColorGradingFilterReductionIntensity", cb_luma_global_settings.GameSettings.ColorGradingFilterReductionIntensity);
       }
@@ -570,9 +570,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r11g11b10_float,
       };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
-      // The game has issues with motion blur warping when using direct upgrades
       enable_indirect_texture_format_upgrades = true;
       enable_automatic_indirect_texture_format_upgrades = true;
+      // The game has issues with motion blur warping when using direct upgrades, and some particles don't draw (we should try again, it might be fixed after polishing the code)
 
       // Game floors are blurry without this
       enable_samplers_upgrade = true;

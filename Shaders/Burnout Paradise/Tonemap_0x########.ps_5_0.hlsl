@@ -399,7 +399,7 @@ void main(
 #endif
     float4 tempSceneTextureColor = SamplerSourceTexture.Sample(SamplerSource_s, localMotionBlurUV);
     float localMotionBlurStencilValue = (tempSceneTextureColor.a < MotionBlurStrencilThreshold) ? lerp(MotionBlurStencilValues.y, MotionBlurStencilValues.x, saturate(InverseLerp(LumaForcedMotionBlurDepth, 1.0, depth))) : MotionBlurStencilValues.x;
-#if ENABLE_IMPROVED_MOTION_BLUR && MOTION_BLUR_IMPROVE_STENCIL_FILTER // Avoids motion blur next to cars leaking cars pixels (this results in some slightly weird outlines around cars, but it still looks better than broken bloom around objects, maybe the new error is due to linear sampling leaking values?)
+#if ENABLE_IMPROVED_MOTION_BLUR && MOTION_BLUR_IMPROVE_STENCIL_FILTER // Avoids motion blur next to cars leaking cars pixels (this results in some slightly weird outlines around cars, but it still looks better than broken bloom around objects, maybe the new error is due to linear sampling leaking values? Probably because many textures are half res actually)
     bool ignoreMB = localMotionBlurStencilValue < motionBlurStencilValue;
     if (!ignoreMB)
 #endif
