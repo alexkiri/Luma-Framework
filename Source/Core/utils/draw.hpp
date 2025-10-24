@@ -71,8 +71,8 @@ struct DrawStateStack
          }
          device_context->OMGetDepthStencilState(&state->depth_stencil_state, &state->stencil_ref);
 #if ENABLE_SHADER_CLASS_INSTANCES
-         device_context->VSGetShader(&state->vs, state->vs_instances, &state->vs_instances_count);
-         device_context->PSGetShader(&state->ps, state->ps_instances, &state->ps_instances_count);
+         device_context->VSGetShader(&state->vs, &state->vs_instances[0], &state->vs_instances_count);
+         device_context->PSGetShader(&state->ps, &state->ps_instances[0], &state->ps_instances_count);
          ASSERT_ONCE(state->vs_instances_count == 0 && state->ps_instances_count == 0);
 #else
          device_context->VSGetShader(&state->vs, nullptr, 0);
@@ -107,7 +107,7 @@ struct DrawStateStack
          }
          device_context->CSGetUnorderedAccessViews(0, state->uav_num, &state->unordered_access_views[0]);
 #if ENABLE_SHADER_CLASS_INSTANCES
-         device_context->CSGetShader(&state->cs, state->cs_instances, &state->cs_instances_count);
+         device_context->CSGetShader(&state->cs, &state->cs_instances[0], &state->cs_instances_count);
          ASSERT_ONCE(state->vs_instances_count == 0 && state->cs_instances_count == 0);
 #else
          device_context->CSGetShader(&state->cs, nullptr, 0);
@@ -164,22 +164,10 @@ struct DrawStateStack
          if (shaders)
          {
 #if ENABLE_SHADER_CLASS_INSTANCES
-            device_context->VSSetShader(state->vs.get(), state->vs_instances, state->vs_instances_count);
-            device_context->PSSetShader(state->ps.get(), state->ps_instances, state->ps_instances_count);
-            static_assert(false); // Turn into com_ptr for safety, otherwise it might cause memory leaks
-            for (UINT i = 0; i < max_shader_class_instances; i++)
-            {
-               if (state->vs_instances[i] != nullptr)
-               {
-                  state->vs_instances[i]->Release();
-                  state->vs_instances[i] = nullptr;
-               }
-               if (state->ps_instances[i] != nullptr)
-               {
-                  state->ps_instances[i]->Release();
-                  state->ps_instances[i] = nullptr;
-               }
-            }
+            ID3D11ClassInstance* const* vs_instances_const = (ID3D11ClassInstance**)std::addressof(state->vs_instances[0]);
+            ID3D11ClassInstance* const* ps_instances_const = (ID3D11ClassInstance**)std::addressof(state->ps_instances[0]);
+            device_context->VSSetShader(state->vs.get(), vs_instances_const, state->vs_instances_count);
+            device_context->PSSetShader(state->ps.get(), ps_instances_const, state->ps_instances_count);
 #else
             device_context->VSSetShader(state->vs.get(), nullptr, 0);
             device_context->PSSetShader(state->ps.get(), nullptr, 0);
@@ -213,15 +201,8 @@ struct DrawStateStack
          if (shaders)
          {
 #if ENABLE_SHADER_CLASS_INSTANCES
-            device_context->CSSetShader(state->cs.get(), state->cs_instances, state->cs_instances_count);
-            for (UINT i = 0; i < max_shader_class_instances; i++)
-            {
-               if (state->cs_instances[i] != nullptr)
-               {
-                  state->cs_instances[i]->Release();
-                  state->cs_instances[i] = nullptr;
-               }
-            }
+            ID3D11ClassInstance* const* cs_instances_const = (ID3D11ClassInstance**)std::addressof(state->cs_instances[0]);
+            device_context->CSSetShader(state->cs.get(), cs_instances_const, state->cs_instances_count);
 #else
             device_context->CSSetShader(state->cs.get(), nullptr, 0);
 #endif
@@ -261,17 +242,6 @@ struct DrawStateStack
    {
       State()
       {
-#if ENABLE_SHADER_CLASS_INSTANCES
-         if constexpr (Mode == DrawStateStackType::SimpleGraphics || Mode == DrawStateStackType::FullGraphics)
-         {
-            std::memset(&vs_instances, 0, sizeof(void*) * max_shader_class_instances);
-            std::memset(&ps_instances, 0, sizeof(void*) * max_shader_class_instances);
-         }
-         else if constexpr (Mode == DrawStateStackType::Compute)
-         {
-            std::memset(&cs_instances, 0, sizeof(void*) * max_shader_class_instances);
-         }
-#endif
 #if 0 // Not needed
       std::fill(std::begin(constant_buffers_num_constant), std::end(constant_buffers_num_constant), 4096); // Default from docs
       std::fill(std::begin(vs_constant_buffers_num_constant), std::end(vs_constant_buffers_num_constant), 4096); // Default from docs
@@ -319,9 +289,9 @@ struct DrawStateStack
       UINT vs_instances_count = max_shader_class_instances;
       UINT ps_instances_count = max_shader_class_instances;
       UINT cs_instances_count = max_shader_class_instances;
-      ID3D11ClassInstance* vs_instances[max_shader_class_instances];
-      ID3D11ClassInstance* ps_instances[max_shader_class_instances];
-      ID3D11ClassInstance* cs_instances[max_shader_class_instances];
+      com_ptr<ID3D11ClassInstance> vs_instances[max_shader_class_instances];
+      com_ptr<ID3D11ClassInstance> ps_instances[max_shader_class_instances];
+      com_ptr<ID3D11ClassInstance> cs_instances[max_shader_class_instances];
 #endif
       D3D11_PRIMITIVE_TOPOLOGY primitive_topology;
 
