@@ -32,7 +32,7 @@ void main(
   // This creates a weird jitter pattern?
   r0.w = asfloat(asint(r1.y) & asint(r1.x));
   r0.w = asfloat(asint(r1.z) & asint(r0.w));
-  r0.w = asfloat(asint(r0.w) & 0x3f800000);
+  r0.w = asfloat(asint(r0.w) & 0x3f800000); // x ? 1.0 : 0.0
   r0.z = -r0.z * 0.5 + 1;
   r0.xy = 0.5 * r0.xy;
   r1.xyzw = g_headlightConeSamplerTexture.Sample(g_headlightConeSampler_s, r0.xy).xyzw;

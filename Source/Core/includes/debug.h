@@ -8,6 +8,12 @@
 // DEFINE_VALUE_AS_STRING
 #define _STRINGIZE2(x) #x
 
+#if DEVELOPMENT || TEST
+#define PUBLISHING_CONSTEXPR
+#else
+#define PUBLISHING_CONSTEXPR constexpr
+#endif
+
 // In non debug builds, replace asserts with a message box
 #if defined(NDEBUG) && (DEVELOPMENT || TEST)
 #define ASSERT(expression) ((void)(                                                       \

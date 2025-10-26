@@ -552,7 +552,8 @@ com_ptr<T> CloneTexture(ID3D11Device* native_device, ID3D11Resource* texture_res
 
          if (black_initial_data)
          {
-            delete data; data = nullptr;
+            free(data);
+            data = nullptr;
          }
 
          if (copy_data && SUCCEEDED(hr) && cloned_resource.get())

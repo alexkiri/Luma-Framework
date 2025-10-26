@@ -70,6 +70,7 @@ public:
          {"ENABLE_IMPROVED_MOTION_BLUR", '1', true, false, "Increase the quality of the game's motion blur in multiple ways", 1},
          {"ENABLE_IMPROVED_BLOOM", '1', true, false, "Increase the quality of the game's motion blur, and makes it more \"HDR\"", 1},
          {"ENABLE_VIGNETTE", '1', true, false, "Allows disabling the game's vignette. This will also disable the blue/yellow filter and increase the brightness of the whole image", 1},
+         {"ENABLE_DOF", '1', true, false, "Allows disabling the game's depth of field effect", 1},
          {"REMOVE_BLACK_BARS", '0', true, false, "Removes ugly black bars from Ultrawide, given that often menus and game were both pillarboxed and letterboxed at the same time.\nThis will also reveal some bad menus backgrounds", 1},
          {"LUT_SAMPLING_ERROR_EMULATION_MODE", '0', true, false,
             "Burnout Paradise had a bug in the color grading shader that accidentally boosted contrast and clipped both shadow and highlight."
@@ -175,8 +176,6 @@ public:
             std::memcpy(new_code.get() + size, appended_patch.data(), appended_patch.size());
          }
 
-         size += appended_patch.size();
-
          // float3(0.299, 0.587, 0.114)
          const std::vector<std::byte> pattern_bt_601_luminance = {
             std::byte{0x87}, std::byte{0x16}, std::byte{0x99}, std::byte{0x3E},
@@ -194,12 +193,14 @@ public:
             size_t offset = match - code;
             std::memcpy(new_code.get() + offset, pattern_bt_709_luminance.data(), pattern_bt_709_luminance.size());
          }
+
+         size += appended_patch.size();
       }
 
       return new_code;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -577,7 +578,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       // Game floors are blurry without this
       enable_samplers_upgrade = true;
 
-      // With or without these the game occasionally loses input and draws behind the Windows taskbar, even when "force_borderless" is true, so let's just keep it vanilla, it already offers FSE/borderless/windowed
+      // With or without these the game occasionally loses input and draws behind the Windows taskbar, even when "force_borderless" is true
       prevent_fullscreen_state = false;
 #if 0
       force_borderless = true;

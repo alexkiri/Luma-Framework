@@ -532,7 +532,7 @@ public:
    // pretty much) -Render additive lights -Draw motion vectors for dynamic objects (rest is
    // calculated from the camera I think) -TAA -Bloom and emissive color -Tonemap -Swapchain output
    // (possibly draws black bars)
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = *static_cast<GameDeviceDataINSIDE*>(device_data.game);
 
@@ -590,7 +590,7 @@ public:
 
             if (game_device_data.lighting_buffer_srv.get() && game_device_data.lighting_buffer_width != 0)
             {
-               DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
+               DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbind the same resource being bound as SRV
                draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                com_ptr<ID3D11Resource> rtv_resource;
@@ -643,7 +643,7 @@ public:
          ASSERT_ONCE(game_device_data.scene_color_rtv.get());
          game_device_data.is_drawing_materials = false;
 
-         DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
+         DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbind the same resource being bound as SRV
          DrawStateStack<DrawStateStackType::Compute> compute_state_stack;
          draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
          compute_state_stack.Cache(native_device_context, device_data.uav_max_count);

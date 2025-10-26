@@ -520,7 +520,7 @@ public:
    // Present
    //
    // A study is available here: https://www.adriancourreges.com/blog/2015/03/10/deus-ex-human-revolution-graphics-study/
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -620,7 +620,7 @@ public:
                // The lighting buffer always has a different SRV slot in all materials, so just cache it upfront and modulate it when materials rendering begins
                if (!game_device_data.has_modulated_lighting && game_device_data.lighting_buffer_rtv.get() && cb_luma_global_settings.GameSettings.LightingColor != float4{ 1.f, 1.f, 1.f, 1.f } && test_index != 14)
                {
-                  DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
+                  DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbind the same resource being bound as SRV
                   draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                   com_ptr<ID3D11HullShader> hs;
@@ -700,7 +700,7 @@ public:
                   // We don't want any blurring of NaNs with the background because they happen in this game and they are actually meant to turn black.
                   if (!game_device_data.has_drawn_opaque_geometry && !IsRTRGBBlendDisabled(blend_desc.RenderTarget[0]) && test_index != 18)
                   {
-                     DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbound the same resource being bound as SRV
+                     DrawStateStack<DrawStateStackType::FullGraphics> draw_state_stack; // Use full mode because setting the RTV here might unbind the same resource being bound as SRV
                      draw_state_stack.Cache(native_device_context, device_data.uav_max_count);
 
                      game_device_data.has_drawn_opaque_geometry = true;
@@ -1219,10 +1219,10 @@ public:
       ImGui::Text("Luma for \"Deus Ex: Human Revolution - Director's Cut\"/\"Deus Ex: Human Revolution\" is developed by Pumbo and is open source and free.\nIf you enjoy it, consider donating.\n"
          "The mod adds HDR rendering to the game, and additionally restores the full color grading from the original release,\n"
          "superseding the \"Gold Filter Restoration\" mod from \"CookiePLMonster\" given that Luma natively re-enables the original color filter of each game's scene, instead of forcing a fixed preset.\n"
-         "The mod has some additional fixes like:"
-         "-fixes the UI being tiny at horizontal resolutions beyond 1280, and dynamically calculates the best UI size for Ultrawide displays.\n"
-         "-improves support for high resolutions and Ultrawide, as some effects (e.g. objects highlights grid) became tiny at 4k, and some lens effects would be stretched in Ultrawide.\n"
-         "-fixes bullet decals being black.", "");
+         "The mod has some additional fixes like:\n"
+         "- Fixes the UI being tiny at horizontal resolutions beyond 1280, and dynamically calculates the best UI size for Ultrawide displays.\n"
+         "- Improves support for high resolutions and Ultrawide, as some effects (e.g. objects highlights grid) became tiny at 4k, and some lens effects would be stretched in Ultrawide.\n"
+         "- Fixes bullet decals being black.", "");
 
       const auto button_color = ImGui::GetStyleColorVec4(ImGuiCol_Button);
       const auto button_hovered_color = ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
@@ -1315,10 +1315,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
       };
       // Depth in DE HR was 24 bits but exhibited some z-fighting, the stencil was only ever used by "Edge Anti Aliasing", which looks bad anyway and won't work properly with Luma,
       // so just upgrade the depth!
-      texture_depth_upgrade_formats = {
-            reshade::api::format(DXGI_FORMAT_R24G8_TYPELESS),
-            reshade::api::format(DXGI_FORMAT_D24_UNORM_S8_UINT),
-      };
+      //texture_depth_upgrade_formats = {
+      //      reshade::api::format(DXGI_FORMAT_R24G8_TYPELESS),
+      //      reshade::api::format(DXGI_FORMAT_D24_UNORM_S8_UINT),
+      //};
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
       // TODO: figure out why the game hangs after alt tabbing back in, or changing FSE resolution. It seems to happen without mods too sometimes though, the game is very crash prone. It also hangs on exit.

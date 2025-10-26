@@ -134,7 +134,7 @@ bool DrawDebugTexture(float3 pos, inout float4 outColor, float gamePaperWhite, f
 	
 		bool validTexel = debugPos.x < debugSize.x && debugPos.y < debugSize.y && debugPos.z < debugSize.z && debugPos.x >= 0.0 && debugPos.y >= 0.0 && debugPos.z >= 0.0;
 		float4 color = 0.0;
-		int sampleIndex = 0; // Not really relevant, from 0 to 3 with MSAA 4 for example, ideally we'd take the average of all samples (maybe we should use a linear sampler instead)
+		int sampleIndex = 0; // Expose for manual analysis if necessary
 		if (_texture1D && _textureArray)
 		{
 			debugTexture1DArray.Load(int3(debugPosInt.x, debugPosInt.y, mipLevel)); // The array elements are spread vertically
@@ -150,11 +150,17 @@ bool DrawDebugTexture(float3 pos, inout float4 outColor, float gamePaperWhite, f
 		// All "_texture2D" from here
 		else if (_textureMS && _textureArray)
 		{
-			color = debugTexture2DMSArray.Load(int3(debugPosInt.x, debugPosInt.y, debugPosInt.z), sampleIndex); // The array elements are spread horizontally
+			for (; sampleIndex < sampleCount; sampleIndex++)
+			{
+				color += debugTexture2DMSArray.Load(int3(debugPosInt.x, debugPosInt.y, debugPosInt.z), sampleIndex); // The array elements are spread horizontally
+			}
 		}
 		else if (_textureMS)
 		{
-			color = debugTexture2DMS.Load(int2(debugPosInt.xy), sampleIndex);
+			for (; sampleIndex < sampleCount; sampleIndex++) // Take all MS samples, to get a better overview of the texture
+			{
+				color += debugTexture2DMS.Load(int2(debugPosInt.xy), sampleIndex); // Ideally we'd average them in linear space, but whatever
+			}
 		}
 		else if (_textureArray)
 		{
@@ -167,6 +173,7 @@ bool DrawDebugTexture(float3 pos, inout float4 outColor, float gamePaperWhite, f
 			else
 				color = debugTexture2D.Load(int3(debugPosInt.x, debugPosInt.y, mipLevel)); // Approximate to the closest texel (sharp!)
 		}
+		color /= sampleCount;
 
 		// Samples on invalid coordinates should already return 0, but we force it anyway
 		if (!validTexel)

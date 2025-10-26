@@ -12,6 +12,10 @@
 #define ENABLE_LUMA 1
 #endif
 
+#ifndef ENABLE_DOF
+#define ENABLE_DOF 1
+#endif
+
 #ifndef ENABLE_VIGNETTE
 #define ENABLE_VIGNETTE 1
 #endif

@@ -475,7 +475,7 @@ void main(
 
 #endif // MOTION_BLUR_QUALITY > 0
 
-#if ENABLE_DOF
+#if ENABLE_DOF // Note: this creates some steps at the edges between sky and mountains (etc), likely due to most textures being half res, and dof being limited by its design the first place
   // Depth of Field
   float dofAlpha = DofParamsB.x * saturate(max(DofParamsB.y * (DofParamsA.y - depth), DofParamsB.z * (-DofParamsA.z + depth)));
   composedColor = lerp(composedColor, dofTextureColor.xyz, dofAlpha); // Blend in DoF by distance etc (focal plane)
@@ -701,7 +701,7 @@ void main(
       }
     }
 
-    composedColor.xyz = linear_to_gamma(composedColor, GCT_MIRROR);
+    composedColor = linear_to_gamma(composedColor, GCT_MIRROR);
   }
 
   o0.xyz = composedColor; 

@@ -216,7 +216,7 @@ void main(
     r0.w = r1.z * r0.w;
     r1.z = r1.y ? 0 : 1;
     r3.x = r1.z * r0.w + v2.x;
-    r1.y = asfloat(asint(r1.y) & 0x3f800000);
+    r1.y = asfloat(asint(r1.y) & 0x3f800000); // x ? 1.0 : 0.0
     r3.y = r1.y * r0.w + v2.y;
     r1.yzw = ScreenTexture.SampleLevel(ScreenSampler_s, r3.xy, 0).xyz;
     r0.xyz = r0.xyz * float3(0.111111112,0.111111112,0.111111112) + -r1.yzw;

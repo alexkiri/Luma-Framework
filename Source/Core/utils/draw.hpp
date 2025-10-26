@@ -73,7 +73,7 @@ struct DrawStateStack
 #if ENABLE_SHADER_CLASS_INSTANCES
          device_context->VSGetShader(&state->vs, &state->vs_instances[0], &state->vs_instances_count);
          device_context->PSGetShader(&state->ps, &state->ps_instances[0], &state->ps_instances_count);
-         ASSERT_ONCE(state->vs_instances_count == 0 && state->ps_instances_count == 0);
+         ASSERT_ONCE(state->vs_instances_count == 0 && state->ps_instances_count == 0); // Make sure they are never used
 #else
          device_context->VSGetShader(&state->vs, nullptr, 0);
          device_context->PSGetShader(&state->ps, nullptr, 0);
@@ -730,6 +730,7 @@ void AddTraceDrawCallData(std::vector<TraceDrawCallData>& trace_draw_calls_data,
 }
 #endif
 
+// Fullscreen (full render target) pass
 void DrawCustomPixelShader(ID3D11DeviceContext* device_context, ID3D11DepthStencilState* depth_stencil_state, ID3D11BlendState* blend_state, ID3D11SamplerState* sampler_state, ID3D11VertexShader* vs, ID3D11PixelShader* ps, ID3D11ShaderResourceView* source_resource_texture_view, ID3D11RenderTargetView* target_resource_texture_view, UINT width, UINT height, bool alpha = true)
 {
    // Set the new resources/states:
@@ -892,9 +893,65 @@ bool IsRTRGBBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
    return false;
 }
 
+// Check if blending is disabled or equivalent
 bool IsRTBlendDisabled(const D3D11_RENDER_TARGET_BLEND_DESC& rt_blend_desc)
 {
    return IsRTRGBBlendDisabled(rt_blend_desc) && IsRTAlphaBlendDisabled(rt_blend_desc);
+}
+
+// Helper to know if a blend inverts any source or dest color/alpha, or subtracts one from another,
+// all operations that work fine in UNORM (as they are limited to 0-1, even within the blend math) render targets but break with SIGNED FLOAT.
+// Alpha checks are separated as often it's manually kept to 0-1 so poses no risk.
+bool IsBlendInverted(const D3D11_BLEND_DESC& blend_desc, UINT render_targets = 1, bool check_alpha = false, UINT first_render_target = 0)
+{
+   auto IsBlendInverted_Internal = [](D3D11_BLEND blend, bool check_alpha)
+   {
+      switch (blend)
+      {
+      // We ignore "D3D11_BLEND_INV_BLEND_FACTOR" as usually it'd be set between 0-1 already, posing no risk.
+      case D3D11_BLEND_INV_SRC_COLOR:
+      case D3D11_BLEND_INV_DEST_COLOR:
+      case D3D11_BLEND_INV_SRC1_COLOR:
+         return true;
+      case D3D11_BLEND_INV_SRC_ALPHA:
+      case D3D11_BLEND_INV_DEST_ALPHA:
+      case D3D11_BLEND_INV_SRC1_ALPHA:
+         return check_alpha;
+      }
+      return false;
+   };
+
+   for (UINT i = first_render_target; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT && i < (render_targets - first_render_target); i++)
+   {
+      if (blend_desc.RenderTarget[i].BlendEnable)
+      {
+         if (blend_desc.RenderTarget[i].BlendOp == D3D11_BLEND_OP_SUBTRACT || blend_desc.RenderTarget[i].BlendOp == D3D11_BLEND_OP_REV_SUBTRACT)
+         {
+            return true;
+         }
+         if (IsBlendInverted_Internal(blend_desc.RenderTarget[i].SrcBlend, check_alpha) || IsBlendInverted_Internal(blend_desc.RenderTarget[i].DestBlend, check_alpha))
+         {
+            return true;
+         }
+         if (check_alpha)
+         {
+            if (blend_desc.RenderTarget[i].BlendOpAlpha == D3D11_BLEND_OP_SUBTRACT || blend_desc.RenderTarget[i].BlendOpAlpha == D3D11_BLEND_OP_REV_SUBTRACT)
+            {
+               return true;
+            }
+            if (IsBlendInverted_Internal(blend_desc.RenderTarget[i].SrcBlendAlpha, check_alpha) || IsBlendInverted_Internal(blend_desc.RenderTarget[i].DestBlendAlpha, check_alpha))
+            {
+               return true;
+            }
+         }
+      }
+
+      if (!blend_desc.IndependentBlendEnable)
+      {
+         break;
+      }
+   }
+   return false;
 }
 
 struct CustomPixelShaderPassData
@@ -931,33 +988,31 @@ void DrawCustomPixelShaderPass(ID3D11Device* device, ID3D11DeviceContext* device
             {
                D3D11_TEXTURE2D_DESC texture_2d_desc;
                texture_2d->GetDesc(&texture_2d_desc);
-               if (IsSignedFloatFormat(texture_2d_desc.Format)) // They couldn't have NaNs otherwise
+               // We use a new/temp texture as SRV and keep the original as RTV, that's usually simpler
+               data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_RENDER_TARGET, false, false, device_context);
+               if (data.texture_2d)
                {
-                  data.texture_2d = CloneTexture<ID3D11Texture2D>(device, resource.get(), DXGI_FORMAT_UNKNOWN, D3D11_BIND_SHADER_RESOURCE, D3D11_BIND_RENDER_TARGET, false, false, device_context);
-                  if (data.texture_2d)
+                  HRESULT hr;
+
+                  data.original_rv = resource_view;
+
+                  com_ptr<ID3D11RenderTargetView> rtv;
+                  hr = resource_view->QueryInterface(&rtv);
+                  if (rtv)
                   {
-                     HRESULT hr;
-
-                     data.original_rv = resource_view;
-
-                     com_ptr<ID3D11RenderTargetView> rtv;
-                     hr = resource_view->QueryInterface(&rtv);
-                     if (rtv)
-                     {
-                        data.original_or_custom_rtv = rtv;
-                     }
-                     else
-                     {
-                        hr = device->CreateRenderTargetView(texture_2d.get(), nullptr, &data.original_or_custom_rtv);
-                        ASSERT_ONCE(SUCCEEDED(hr));
-                     }
-
-                     data.width = texture_2d_desc.Width;
-                     data.height = texture_2d_desc.Height;
-
-                     hr = device->CreateShaderResourceView(data.texture_2d.get(), nullptr, &data.srv);
+                     data.original_or_custom_rtv = rtv;
+                  }
+                  else
+                  {
+                     hr = device->CreateRenderTargetView(texture_2d.get(), nullptr, &data.original_or_custom_rtv);
                      ASSERT_ONCE(SUCCEEDED(hr));
                   }
+
+                  data.width = texture_2d_desc.Width;
+                  data.height = texture_2d_desc.Height;
+
+                  hr = device->CreateShaderResourceView(data.texture_2d.get(), nullptr, &data.srv);
+                  ASSERT_ONCE(SUCCEEDED(hr));
                }
             }
          }

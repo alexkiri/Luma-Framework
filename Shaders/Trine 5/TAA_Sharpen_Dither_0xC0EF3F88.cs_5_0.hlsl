@@ -149,7 +149,7 @@ void main(uint3 vThreadGroupID : SV_GroupID, uint3 vThreadIDInGroup : SV_GroupTh
   r1.xyz = r1.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
   r3.xyz = r2.xyz * float3(12.9200001,12.9200001,12.9200001) + -r1.xyz;
   r2.xyz = cmp(float3(0.00313080009,0.00313080009,0.00313080009) >= r2.xyz);
-  r2.xyz = asfloat(asint(r2.xyz) & 0x3f800000);
+  r2.xyz = asfloat(asint(r2.xyz) & 0x3f800000); // x ? 1.0 : 0.0
   r1.xyz = r2.xyz * r3.xyz + r1.xyz;
 #else
   r1.xyz = r2.xyz;
@@ -185,7 +185,7 @@ void main(uint3 vThreadGroupID : SV_GroupID, uint3 vThreadIDInGroup : SV_GroupTh
   r1.xyz = r1.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
   r3.xyz = r2.xyz * float3(12.9200001,12.9200001,12.9200001) + -r1.xyz;
   r2.xyz = cmp(float3(0.00313080009,0.00313080009,0.00313080009) >= r2.xyz);
-  r2.xyz = asfloat(asint(r2.xyz) & 0x3f800000);
+  r2.xyz = asfloat(asint(r2.xyz) & 0x3f800000); // x ? 1.0 : 0.0
   r1.xyz = r2.xyz * r3.xyz + r1.xyz;
 #else
   r1.xyz = r2.xyz;
@@ -222,7 +222,7 @@ void main(uint3 vThreadGroupID : SV_GroupID, uint3 vThreadIDInGroup : SV_GroupTh
   r1.xyz = r1.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
   r5.xyz = r4.xyz * float3(12.9200001,12.9200001,12.9200001) + -r1.xyz;
   r4.xyz = cmp(float3(0.00313080009,0.00313080009,0.00313080009) >= r4.xyz);
-  r4.xyz = asfloat(asint(r4.xyz) & 0x3f800000);
+  r4.xyz = asfloat(asint(r4.xyz) & 0x3f800000); // x ? 1.0 : 0.0
   r1.xyz = r4.xyz * r5.xyz + r1.xyz;
 #else
   r1.xyz = r4.xyz;
@@ -256,7 +256,7 @@ void main(uint3 vThreadGroupID : SV_GroupID, uint3 vThreadIDInGroup : SV_GroupTh
   r0.xyz = r0.xyz * float3(1.05499995,1.05499995,1.05499995) + float3(-0.0549999997,-0.0549999997,-0.0549999997);
   r3.xyz = r1.xyz * float3(12.9200001,12.9200001,12.9200001) + -r0.xyz;
   r1.xyz = cmp(float3(0.00313080009,0.00313080009,0.00313080009) >= r1.xyz);
-  r1.xyz = asfloat(asint(r1.xyz) & 0x3f800000);
+  r1.xyz = asfloat(asint(r1.xyz) & 0x3f800000); // x ? 1.0 : 0.0
   r0.xyz = r1.xyz * r3.xyz + r0.xyz;
 #else
   r0.xyz = r1.xyz;

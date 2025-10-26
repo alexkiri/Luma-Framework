@@ -319,7 +319,7 @@ public:
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
    }
 
-   bool OnDrawCustom(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers) override
+   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
@@ -1407,6 +1407,7 @@ public:
                draw_data.pre_exposure = dlss_pre_exposure;
                draw_data.jitter_x = projection_jitters.x * static_cast<float>(render_width_dlss) * -0.5f;
                draw_data.jitter_y = projection_jitters.y * static_cast<float>(render_height_dlss) * -0.5f;
+               // TODO: add near and far depth to all SR implementations!
                draw_data.reset = reset_dlss;
                draw_data.render_width = render_width_dlss;
                draw_data.render_height = render_height_dlss;

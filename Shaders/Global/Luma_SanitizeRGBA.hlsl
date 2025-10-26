@@ -19,7 +19,7 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
   if (pixelPos.x >= width || pixelPos.y >= height)
     return;
 
-	float4 color = sourceTargetTexture[pixelPos.xy];
+  float4 color = sourceTargetTexture[pixelPos.xy];
 #else // PS
   float2 size;
   sourceTexture.GetDimensions(size.x, size.y);
@@ -38,6 +38,6 @@ float4 main(float4 pos : SV_Position0) : SV_Target0
 #if CS
   sourceTargetTexture[pixelPos.xy] = color;
 #else // PS
-	return color;
+  return color;
 #endif
 }
