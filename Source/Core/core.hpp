@@ -6436,11 +6436,7 @@ namespace
       const bool is_rt_or_ua = (desc.usage & (reshade::api::resource_usage::render_target | reshade::api::resource_usage::unordered_access)) != 0;
       // Convoluted check to test if the resource is "D3D11_USAGE_DEFAULT" (the only usage type that can be both used as SRV, and be the target of a CopyResource(), otherwise we'd never need to upgrade them).
       // We also check the initial data for extra safety, in case this was a "static" content texture that accidentally wasn't created as immutable.
-      const bool is_writable_sr = (desc.usage & reshade::api::resource_usage::shader_resource) != 0 && desc.heap == reshade::api::memory_heap::gpu_only && !has_initial_data
-#if 0 // Disabled until reshade implements "reshade::api::resource_flags::immutable"
-         && (desc.flags & reshade::api::resource_flags::immutable) == 0
-#endif
-         ;
+      const bool is_writable_sr = (desc.usage & reshade::api::resource_usage::shader_resource) != 0 && desc.heap == reshade::api::memory_heap::gpu_only && !has_initial_data && (desc.flags & reshade::api::resource_flags::immutable) == 0;
 
       const bool is_depth = (desc.usage & reshade::api::resource_usage::depth_stencil) != 0;
 
@@ -7009,7 +7005,7 @@ namespace
             }
             else if (resource_desc.texture.format == reshade::api::format::r32_typeless || resource_desc.texture.format == reshade::api::format::r32_float || resource_desc.texture.format == reshade::api::format::d32_float)
             {
-               if ((usage_type | reshade::api::resource_usage::depth_stencil) != 0)
+               if ((usage_type & reshade::api::resource_usage::depth_stencil) != 0)
                {
                   desc.format = reshade::api::format::d32_float;
                }
@@ -7021,7 +7017,7 @@ namespace
             }
             else if (resource_desc.texture.format == reshade::api::format::r32_g8_typeless || resource_desc.texture.format == reshade::api::format::d32_float_s8_uint)
             {
-               if ((usage_type | reshade::api::resource_usage::depth_stencil) != 0)
+               if ((usage_type & reshade::api::resource_usage::depth_stencil) != 0)
                {
                   desc.format = reshade::api::format::d32_float_s8_uint;
                }
@@ -7033,8 +7029,17 @@ namespace
             }
             else
             {
-               // TODO: make sure the format isn't TYPELESS or anyway is compatible with this view type
-               desc.format = resource_desc.texture.format;
+               if (IsTypelessFormat(DXGI_FORMAT(resource_desc.texture.format)))
+               {
+                  ASSERT_ONCE(!IsTypelessFormat(DXGI_FORMAT(desc.format)));
+                  ASSERT_ONCE(GetTypelessFormat(DXGI_FORMAT(desc.format)) == DXGI_FORMAT(resource_desc.texture.format));
+                  // TODO: return the format we upgraded the resource to, if it's not typeless, otherwise restore the most common one? FLOAT?
+               }
+               else
+               {
+                  ASSERT_ONCE(GetTypelessFormat(DXGI_FORMAT(desc.format)) == GetTypelessFormat(DXGI_FORMAT(resource_desc.texture.format))); // Just verify the game tried to create the resource view with the proper (upgraded) format already? This might trigger and we might need to remove it
+                  desc.format = resource_desc.texture.format; // TODO: select the best version for e.g. depth views etc
+               }
             }
             return true;
          }
@@ -12523,7 +12528,7 @@ namespace
                   }
                }
 
-#if !GAME_GENERIC  // Graphics Analyzer doesn't want upgrades. Generic mod has its own menu.
+#if !GRAPHICS_ANALYZER // Graphics Analyzer doesn't want upgrades
                ImGui::NewLine();
                // Requires a change in resolution to (~fully) apply (no texture cloning yet)
                if (swapchain_format_upgrade_type > TextureFormatUpgradesType::None)
@@ -12539,7 +12544,7 @@ namespace
                   {
                      texture_format_upgrades_type = texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled ? TextureFormatUpgradesType::AllowedDisabled : TextureFormatUpgradesType::AllowedEnabled;
                   }
-                  if (texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled)
+                  //if (texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled) // TODO: hide only the ones that would be restricted by this being disabled, I think most would at least continue to work (at least without clearing what they previously upgraded)
                   {
                      ImGui::Checkbox("Enable Indirect Texture Format Upgrades", &enable_indirect_texture_format_upgrades);
                      ImGui::Checkbox("Enable Automatic Indirect Texture Format Upgrades", &enable_automatic_indirect_texture_format_upgrades);

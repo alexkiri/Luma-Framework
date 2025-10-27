@@ -47,6 +47,7 @@ public:
       reshade::api::effect_runtime* runtime = nullptr;
 
       ImGui::NewLine();
+      // TODO: hide these in development given they are already shown in the dev settings?
       // Requires a change in resolution to (~fully) apply (no texture cloning yet)
       if (swapchain_format_upgrade_type > TextureFormatUpgradesType::None)
       {

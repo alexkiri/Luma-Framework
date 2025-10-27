@@ -899,15 +899,18 @@ namespace
       case DXGI_FORMAT_R8G8_SINT:                            return "R8G8 SINT";
 
       case DXGI_FORMAT_R16G16_TYPELESS:                      return "R16G16 TYPELESS";
+      case DXGI_FORMAT_R16G16_FLOAT:                         return "R16G16 FLOAT";
       case DXGI_FORMAT_R16G16_UNORM:                         return "R16G16 UNORM";
       case DXGI_FORMAT_R16G16_UINT:                          return "R16G16 UINT";
       case DXGI_FORMAT_R16G16_SNORM:                         return "R16G16 SNORM";
       case DXGI_FORMAT_R16G16_SINT:                          return "R16G16 SINT";
-      case DXGI_FORMAT_R16G16_FLOAT:                         return "R16G16 FLOAT";
 
       case DXGI_FORMAT_R16G16B16A16_TYPELESS:                return "R16G16B16A16 TYPELESS";
       case DXGI_FORMAT_R16G16B16A16_FLOAT:                   return "R16G16B16A16 FLOAT";
       case DXGI_FORMAT_R16G16B16A16_UNORM:                   return "R16G16B16A16 UNORM";
+      case DXGI_FORMAT_R16G16B16A16_UINT:                    return "R16G16B16A16 UINT";
+      case DXGI_FORMAT_R16G16B16A16_SNORM:                   return "R16G16B16A16 SNORM";
+      case DXGI_FORMAT_R16G16B16A16_SINT:                    return "R16G16B16A16 SINT";
 
       case DXGI_FORMAT_R32_TYPELESS:                         return "R32 TYPELESS";
       case DXGI_FORMAT_R32_FLOAT:                            return "R32 FLOAT";

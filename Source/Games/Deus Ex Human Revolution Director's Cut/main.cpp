@@ -1314,11 +1314,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r11g11b10_float,
       };
       // Depth in DE HR was 24 bits but exhibited some z-fighting, the stencil was only ever used by "Edge Anti Aliasing", which looks bad anyway and won't work properly with Luma,
-      // so just upgrade the depth!
-      //texture_depth_upgrade_formats = {
-      //      reshade::api::format(DXGI_FORMAT_R24G8_TYPELESS),
-      //      reshade::api::format(DXGI_FORMAT_D24_UNORM_S8_UINT),
-      //};
+      // so just upgrade the depth (it doesn't fix it all)!
+      texture_depth_upgrade_formats = {
+            reshade::api::format(DXGI_FORMAT_R24G8_TYPELESS),
+            reshade::api::format(DXGI_FORMAT_D24_UNORM_S8_UINT),
+      };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
 
       // TODO: figure out why the game hangs after alt tabbing back in, or changing FSE resolution. It seems to happen without mods too sometimes though, the game is very crash prone. It also hangs on exit.
