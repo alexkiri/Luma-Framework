@@ -44,9 +44,12 @@ jobs:
       run: |
         msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="64-bit"
         msbuild "Source\External\reshade\ReShade.sln" /p:Configuration="Release" /p:Platform="32-bit"
-
+      continue-on-error: true
+      
     - name: Build Luma.sln ${{ matrix.config }}-${{ matrix.platform }}
-      run: msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }} /p:DefineConstants="REMOTE_BUILD=1"
+      run: |
+        msbuild Luma.sln /p:Configuration=${{ matrix.config }} /p:Platform=${{ matrix.platform }} /p:DefineConstants="REMOTE_BUILD=1"
+      continue-on-error: true # if only one or a few games failed to build, we should still build and package+release the other # TODO: add code to avoid doing an empty release if they all failed to build
 
     - name: Create ZIP per addon with matching shaders
       id: create_zip
