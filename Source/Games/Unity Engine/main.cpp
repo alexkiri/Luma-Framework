@@ -173,9 +173,6 @@ public:
          shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("871453FD", nullptr, 16));
          shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("DD377C05", nullptr, 16));
 
-         shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("4E2F49B3", nullptr, 16));
-         shader_hashes_Tonemap.pixel_shaders.emplace(std::stoul("C7659A76", nullptr, 16));
-         
          texture_format_upgrades_2d_aspect_ratio_pixel_threshold = 4; // Needed for videos... somehow they have border scaling
 
          std::vector<ShaderDefineData> game_shader_defines_data = {
