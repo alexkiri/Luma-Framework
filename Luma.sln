@@ -55,6 +55,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Unreal Engine", "Source\Gam
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Beyond Two Souls", "Source\Games\Beyond Two Souls\Beyond Two Souls.vcxproj", "{AAC35900-B655-4C8F-A622-CA47604EDC77}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Lara Croft and the Temple of Osiris", "Source\Games\Lara Croft and the Temple of Osiris\Lara Croft and the Temple of Osiris.vcxproj", "{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Development-Debug|Win32 = Development-Debug|Win32
@@ -387,6 +389,18 @@ Global
 		{AAC35900-B655-4C8F-A622-CA47604EDC77}.Test-Release|Win32.ActiveCfg = Test-Release|x64
 		{AAC35900-B655-4C8F-A622-CA47604EDC77}.Test-Release|x64.ActiveCfg = Test-Release|x64
 		{AAC35900-B655-4C8F-A622-CA47604EDC77}.Test-Release|x64.Build.0 = Test-Release|x64
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Development-Debug|Win32.ActiveCfg = Development-Debug|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Development-Debug|Win32.Build.0 = Development-Debug|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Development-Debug|x64.ActiveCfg = Development-Debug|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Development-Release|Win32.ActiveCfg = Development-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Development-Release|Win32.Build.0 = Development-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Development-Release|x64.ActiveCfg = Development-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Publishing-Release|Win32.ActiveCfg = Publishing-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Publishing-Release|Win32.Build.0 = Publishing-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Publishing-Release|x64.ActiveCfg = Publishing-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Test-Release|Win32.ActiveCfg = Test-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Test-Release|Win32.Build.0 = Test-Release|Win32
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE}.Test-Release|x64.ActiveCfg = Test-Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -415,6 +429,7 @@ Global
 		{F4605338-43D9-473F-AD3E-A95380C8AD56} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{9DD802E8-588E-4955-9FF8-21A0F5B06F48} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{AAC35900-B655-4C8F-A622-CA47604EDC77} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{F9E943B8-C7F9-4D0F-8C7D-96247449C7BE} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {8B799422-BA66-3174-B21F-B9FA07C4B2E3}
