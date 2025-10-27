@@ -571,9 +571,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             reshade::api::format::r11g11b10_float,
       };
       texture_format_upgrades_2d_size_filters = 0 | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainResolution | (uint32_t)TextureFormatUpgrades2DSizeFilters::SwapchainAspectRatio;
+      // The game has issues with motion blur warping when using direct upgrades, and some particles don't draw for some reason (maybe the game checks back the resource formats and skips draw calls?)
       enable_indirect_texture_format_upgrades = true;
       enable_automatic_indirect_texture_format_upgrades = true;
-      // The game has issues with motion blur warping when using direct upgrades, and some particles don't draw (we should try again, it might be fixed after polishing the code)
 
       // Game floors are blurry without this
       enable_samplers_upgrade = true;

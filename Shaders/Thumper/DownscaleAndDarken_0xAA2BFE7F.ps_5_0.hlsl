@@ -62,8 +62,7 @@ void main(
   r0.xyz = scaledSceneColor * r1.xyz + 0.5;
   o0.xyz = r2.xyz / r0.xyz;
   
-  // TODO: clamp this to +0? Review this and the other darkening shader... Is the code above safe to not create nans?
-  // Luma: emulate UNORM
+  // Luma: emulate UNORM, without this, darkening goes negative and ends up spreading invalid colors
   o0.xyz = max(o0.xyz, 0.0);
 
   if (forceVanilla)

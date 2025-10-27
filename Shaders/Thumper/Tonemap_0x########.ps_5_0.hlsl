@@ -11,8 +11,11 @@
 #ifndef ENABLE_VIGNETTE
 #define ENABLE_VIGNETTE 1
 #endif
-#ifndef ENABLE_DISTORTION
-#define ENABLE_DISTORTION 1
+#ifndef DISABLE_DISTORTION_TYPE
+#define DISABLE_DISTORTION_TYPE 0
+#endif
+#ifndef VANILLA_LOOK
+#define VANILLA_LOOK 0
 #endif
 
 // Offset and distortion seemengly only apply to bloom (which is actually the scene color?)
@@ -196,6 +199,25 @@ float3 GetLuminance_Custom(float3 color, bool forceVanilla)
   return GetLuminance(color);
 }
 
+// Newton-Raphson Iterative Solver
+float ReverseDistortion(float target = 1.0, int iterations = 5)
+{
+    // Start with a reasonable initial guess (usually target itself, as distortion is typically small)
+    float x = target;
+    [unroll]
+    for (int i = 0; i < iterations; ++i)
+    {
+        float f = (gCubicDistortion * x * x * x * x) + (gDistortion * x * x * x) + x - target;
+        float f_prime = (4.0 * gCubicDistortion * x * x * x) + (3.0 * gDistortion * x * x) + 1.0;
+        // Check for near-zero derivative to prevent division by zero
+        if (abs(f_prime) < 1e-6)
+            break;
+        // Newton-Raphson step: x_new = x - f(x) / f'(x)
+        x -= f / f_prime;
+    }
+    return x;
+}
+
 // Global unified post process shader with all effects, mostly to do tonemapping, grading, etc
 void main(
   float v0 : SV_ClipDistance0,
@@ -217,6 +239,12 @@ void main(
 #endif // !ENABLE_LUMA
 
   float3 tonemappedColor = 0.0;
+  
+#if BLUR || BLOOM // Luma: UW fix to make it look like it would at 16:9
+  float2 size;
+  gAuxTex.GetDimensions(size.x, size.y);
+  float aspectRatio = size.x / size.y;
+#endif
 
 #if BLUR
 
@@ -263,13 +291,32 @@ void main(
 #elif BLOOM
 
   float2 bloomUV = v2.xy;
-#if DISTORTION && ENABLE_DISTORTION // Distortion and offset only apply to bloom
+#if DISTORTION // Distortion and offset only apply to bloom (which is actually the scene color?), they look fine in UW too
+
   float2 ndc = bloomUV - 0.5; // Not scaled by 2.0 as optimization I guess
+
+#if !DISABLE_DISTORTION_TYPE
+
+#if 0 // Luma: UW fix to make it look like it would at 16:9
+  ndc.x *= max(aspectRatio / (16.0 / 9.0), 1.0);
+#endif
   float ndcDistSquared = dot(ndc, ndc);
   float ndcDist = sqrt(ndcDistSquared);
   ndc *= (ndcDistSquared * ((gCubicDistortion * ndcDist) + gDistortion)) + 1.0;
+  
+#elif DISABLE_DISTORTION_TYPE == 2 // Stretch the pillarboxed and letterboxed image to cover the whole screen
+
+#if 1 // Looks good. Ideally we'd just find the original rendering area size but this works too
+  ndc *= abs(gCubicDistortion + gDistortion); // Approximate distortion reverse formula
+#else // Doesn't look right, probably the math is borked
+  ndc /= ReverseDistortion(1.0, 10); // Statically compiled
+#endif
+  
+#endif // DISABLE_DISTORTION_TYPE == 0
+
   bloomUV = ndc + 0.5;
-#endif // DISTORTION && ENABLE_DISTORTION
+
+#endif // DISTORTION
 #if OFFSET
   bloomUV += gOffset.xy;
 #endif // OFFSET
@@ -279,8 +326,9 @@ void main(
     bloomColor = saturate(bloomColor);
   else // Luma: fix NaNs from FLOAT RTs
   {
+    // Probably not needed as bloom was already filtered, however this texture might not come from bloom?
     bloomColor = IsNaN_Strict(bloomColor) ? 0.0 : bloomColor;
-    bloomColor = IsInfinite_Strict(bloomColor) ? 0.0 : bloomColor; // TODO: needed?
+    bloomColor = IsInfinite_Strict(bloomColor) ? 0.0 : bloomColor;
   }
 #if ENABLE_LUMA && 0 // Luma: add optional clamping (Bloom might have some slight negative colors, but we now fix it at source, when it does the darkening phase, before the blurrying phase (if we did max 0 here, after blurrying, the texture would probably get darker as darkness would spread and clip more pixels, shifting the look))
   bloomColor = max(bloomColor, 0.0);
@@ -310,6 +358,9 @@ void main(
 #if BLOOM_SCENE_SATURATION
   // Bloom saturation is actually applied on the scene texture (but only in case there's bloom!)
   bool useLumaSaturation = !forceVanilla;
+#if VANILLA_LOOK
+  useLumaSaturation = false;
+#endif
   if (!useLumaSaturation)
   {
     tonemappedColor = lerp(GetLuminance_Custom(tonemappedColor, forceVanilla), tonemappedColor, gBloomSaturation_Scene_Bloom.x); // Luma: fixed wrong luminance formula (it possibly changes the look a bit, but it should be for the best)
@@ -342,12 +393,16 @@ void main(
 #endif // SCENE || BLUR || BLOOM
 
 #if GAMMA
-  tonemappedColor = pow(abs(tonemappedColor), gInvGammas.xyz) * sign(tonemappedColor); // Luma: added abs*sign on pow
   if (forceVanilla) // Luma: disable clamping
+  {
+    tonemappedColor = pow(abs(tonemappedColor), gInvGammas.xyz) * sign(tonemappedColor); // Luma: added abs*sign on pow
     tonemappedColor = min(tonemappedColor, 1.0);
+  }
+  else // Luma: fixes highlights going wild sometimes (I tried inverting the pow direction beyond 1 but it looks worse)
+  {
+    tonemappedColor = (tonemappedColor < 1.0) ? (pow(abs(tonemappedColor), gInvGammas.xyz) * sign(tonemappedColor)) : tonemappedColor;
+  }
 #endif // GAMMA
-
-  // TODO: review all these funcs in HDR... Also boost saturation?
 
 #if OUTPUT_RANGE
   tonemappedColor = tonemappedColor * gOutputRanges.xyz + gOutputBlacks.xyz;
@@ -360,11 +415,12 @@ void main(
   tonemappedColor *= gBlack_InvRange_InvGamma.y;
 #endif // BLACK_GAMMA_XY
 #if BLACK_GAMMA_Z
+  // Note: this is seemengly only used when receiving damage, to do flashes, so it doesn't seem to need extra branches like the "GAMMA" pow above has
   tonemappedColor = pow(abs(tonemappedColor), gBlack_InvRange_InvGamma.z) * sign(tonemappedColor); // Luma: added abs*sign on pow
 #endif // BLACK_GAMMA_Z
 
 #if FADE
-  tonemappedColor = lerp(tonemappedColor, gFadeColor_Fade.xyz, gFadeColor_Fade.w);
+  tonemappedColor = lerp(tonemappedColor, gFadeColor_Fade.xyz, gFadeColor_Fade.w); // Note: if the game used this much, we could blend the fade with oklab or something to avoid raising blacks
 #endif // FADE
 
 #if OUTPUT_RANGE_BLACK
@@ -377,13 +433,13 @@ void main(
 
 #if (SCENE || BLUR || BLOOM) && VIGNETTE // Other permutations shouldn't be tonemapped! And probably run stacked
   // Luma: Tonemapping
-  if (!forceVanilla) // TODO: here??? Also make sure we never TM twice.
+  if (!forceVanilla) // TODO: absolutely verify this isn't run twice (seems like it's not, but does Vignette always run?).
   {
     tonemappedColor = gamma_to_linear(tonemappedColor, GCT_MIRROR);
     
-    if (LumaSettings.DisplayMode == 1 && 0) // TODO
+    if (LumaSettings.DisplayMode == 1 && 0) // This doesn't seem to be needed, the game is already plently bright and colorful
     {
-      float normalizationPoint = DVS1; // Found empyrically
+      float normalizationPoint = DVS1;
       float fakeHDRIntensity = DVS2;
       float fakeHDRSaturation = DVS3;
       tonemappedColor = FakeHDR(tonemappedColor, normalizationPoint, fakeHDRIntensity, fakeHDRSaturation);
@@ -391,15 +447,24 @@ void main(
     
     const float paperWhite = LumaSettings.GamePaperWhiteNits / sRGB_WhiteLevelNits;
     const float peakWhite = LumaSettings.PeakWhiteNits / sRGB_WhiteLevelNits;
-    bool tonemapPerChannel = LumaSettings.DisplayMode != 1; // Vanilla clipped (hue shifted) look is better preserved with this // TODO
+#if VANILLA_LOOK
+    bool tonemapPerChannel = true;
+#else
+    bool tonemapPerChannel = LumaSettings.DisplayMode != 1; // SDR looks only good by channel. HDR looks good with both, and by luminance clearly shows some hues that weren't intended, however... overall it looks good, we could restore some vanilla hue if ever needed
+#endif
     if (LumaSettings.DisplayMode == 1)
     {
       DICESettings settings = DefaultDICESettings(tonemapPerChannel ? DICE_TYPE_BY_CHANNEL_PQ : DICE_TYPE_BY_LUMINANCE_PQ_CORRECT_CHANNELS_BEYOND_PEAK_WHITE);
       tonemappedColor = DICETonemap(tonemappedColor * paperWhite, peakWhite, settings) / paperWhite;
     }
-    else
+    else if (DVS2)
     {
-      float shoulderStart = 0.5; // Set it higher than "MidGray", otherwise it compresses too much. // TODO
+#if 0 // Nice but changes SDR too much
+      tonemappedColor *= 0.75; // Slightly reduce the brightness to give it more range in SDR
+      float shoulderStart = 0.25;
+#else
+      float shoulderStart = 0.5; // Set it higher than "MidGray", otherwise it compresses too much.
+#endif
       if (tonemapPerChannel)
       {
         tonemappedColor = Reinhard::ReinhardRange(tonemappedColor, shoulderStart, -1.0, peakWhite / paperWhite, false);
@@ -429,9 +494,13 @@ void main(
   r0.z = dot(gVigCenterEyes.yw, icb[r0i.x+0].xz);
   r0i.x = gSliceIndex << 1;
   r0.y = dot(gVigCenterEyes.xz, icb[r0i.x+0].xz);
-  r0.yz = w2.xy - r0.yz;
+  r0.yz = w2.xy - r0.yz; // NDC vignette basically (though based around the vignette screen center)
+#if 0 // Vanilla: this ended up making vignette stronger in UW, which is "wrong" and looked way too intense
   r0.x = gOuterColor_Aspect.w * r0.y;
-  r0.x = dot(r0.xz, r0.xz); // TODO: fix for UW (here and in other places where it's duplicate)
+#else // Luma: UW fix to make it look like it would at 16:9. Actually this makes it worse
+  r0.x = (16.0 / 9.0) * r0.y;
+#endif
+  r0.x = dot(r0.xz, r0.xz);
   r0.x = sqrt(r0.x);
   float vignette = saturate(r0.x / gCenterColor_RadiusV.w);
 #if SCENE || BLUR || BLOOM

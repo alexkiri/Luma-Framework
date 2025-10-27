@@ -25,6 +25,9 @@ void main(
   o0.xyz = kColourAndPower.xyz * r0.x;
   o0.w = OcclusionSourceTexture.Sample(OcclusionSource_s, float2(0,0)).x * LumaSettings.GameSettings.BloomIntensity * 2.0; // Intensity based on how occluded the sun was
 #if 1 // Bloom in the mod defaults to 50% (given it's too strong for a modern HDR look), but the sun bloom we want it at the original intensity (or actually, more), so link it with the HDR boost intensity too, which defaults to 1
-  o0.xyz *= 1.0 + LumaSettings.GameSettings.HDRBoostIntensity * 1.0;
+  float2 uv = v0.xy * 2.0 * LumaSettings.GameSettings.InvRenderRes; // Scale by 2 as this happens at half res
+  bool forceVanillaSDR = ShouldForceSDR(uv);
+  if (LumaSettings.DisplayMode == 1 && !forceVanillaSDR)
+    o0.xyz *= 1.0 + LumaSettings.GameSettings.HDRBoostIntensity * 1.0;
 #endif
 }

@@ -20,6 +20,7 @@ void main(
   o0.xyz = pow(abs(o0.xyz), gv4GammaValues.x) * sign(o0.xyz); // Luma: fixed support for negative values
 
   // Luma: tonemap the UI beyond to fix the boost fire looking weird (hue shifted and clipped) (this probably doesn't fully fix it bu whatever)
+  // TODO: the turbo bar was very clipped in SDR, though for some cars, the clipped color brought it closer to the look of fire, so if we wanted to bother, we could restore a bit of clipped hue here.
   if (o0.a > 0.0)
   {
     float3 prevOutColor = o0.rgb;

@@ -41,7 +41,10 @@ void main(
   r0.x = g_depthConversion.w * r0.x;
   o0.w = r1.w * r0.x;
   o0.xyz = r1.xyz;
-#if 1 // Slightly boost headlights at night // TODO: does this cover all cars that have them?
-  o0.xyz *= 1.0 + LumaSettings.GameSettings.HDRBoostIntensity * 0.333;
+#if 1 // Slightly boost headlights at night // TODO: does this cover all cars that have them? We need to
+  float2 uv = v0.xy * LumaSettings.GameSettings.InvRenderRes;
+  bool forceVanillaSDR = ShouldForceSDR(uv);
+  if (LumaSettings.DisplayMode == 1 && !forceVanillaSDR)
+    o0.xyz *= 1.0 + LumaSettings.GameSettings.HDRBoostIntensity * 0.333;
 #endif
 }

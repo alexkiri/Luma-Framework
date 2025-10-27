@@ -42,6 +42,13 @@ public:
       luma_settings_cbuffer_index = 2; // "TextConstants", only used in UI, which we don't replace
       luma_data_cbuffer_index = 7; // "Down4Constants", only used in the "Downscale and Darken" bloom preparation pass, we swap it live to support outs
 
+      std::vector<ShaderDefineData> game_shader_defines_data = {
+         {"ENABLE_VIGNETTE", '1', true, false, "Allows disabling the game's vignette effect", 1},
+         {"DISABLE_DISTORTION_TYPE", '0', true, false, "The game applies a strong distortion filter, disable it if you like\n0 - Enabled\n1 - Disabled\n2 - Disabled + Stretched", 1},
+         {"VANILLA_LOOK", '0', true, false, "If you prefer to have a look closer to the vanilla one, enable this (the HDR won't be as impactful)", 1},
+      };
+      shader_defines_data.append_range(game_shader_defines_data);
+
       GetShaderDefineData(TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL_HASH).SetDefaultValue('1');
 
       // No gamma mismatch baked in the textures as the game never applied gamma, it was gamma from the beginning to the end.

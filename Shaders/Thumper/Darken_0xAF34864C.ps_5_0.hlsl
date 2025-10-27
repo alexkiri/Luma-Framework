@@ -34,7 +34,7 @@ void main(
   r0.xyz = scaledSceneColor * r1.xyz + float3(0.5,0.5,0.5);
   o0.xyz = r2.xyz / r0.xyz;
   
-  // Luma: emulate UNORM
+  // Luma: emulate UNORM, without this, darkening goes negative and ends up spreading invalid colors
   o0.xyz = max(o0.xyz, 0.0);
 
   o0.w = 1;
