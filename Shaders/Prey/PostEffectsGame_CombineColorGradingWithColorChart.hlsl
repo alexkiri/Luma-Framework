@@ -1,3 +1,5 @@
+#define LUT_SIZE 16u
+
 #include "Includes/Common.hlsl"
 #include "../Includes/ColorGradingLUT.hlsl"
 

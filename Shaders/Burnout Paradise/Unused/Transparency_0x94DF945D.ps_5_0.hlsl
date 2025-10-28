@@ -151,8 +151,7 @@ void main(
   r5.xyz = GlassFractureSamplerTexture.Sample(GlassFractureSampler_s, v7.zw).xyw;
   r4.xyz = max(r5.xyz, r4.xyz);
   r4.xy = saturate(r4.xy * g_glassFractureStrength.yy + -g_glassFractureStrength.xx);
-  r1.w = cmp(-0.0500000007 >= -r4.x);
-  r1.w = r1.w ? 1.000000 : 0;
+  r1.w = cmp(-0.05 >= -r4.x);
   r2.w = v2.y * r1.x + -r4.y;
   r1.x = dot(r2.xzw, r2.xzw);
   r1.x = rsqrt(r1.x);

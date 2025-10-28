@@ -1,5 +1,4 @@
 #define LUT_SIZE 16.0
-#define LUT_MAX (LUT_SIZE - 1.0)
 
 #define GCT_DEFAULT GCT_MIRROR
 

@@ -107,8 +107,7 @@ void main(
   r1.zw = r1.xy / v0.ww;
   r1.xy = -v0.xy + r1.xy;
   r3.xyzw = s_sceneDepth.Sample(s_sceneDepth_s, r1.zw).xyzw;
-  r1.z = cmp(r3.x >= 0.00999999978);
-  r1.z = r1.z ? 1.000000 : 0;
+  r1.z = cmp(r3.x >= 0.01);
   r1.xy = r1.zz * r1.xy + v0.xy;
   r1.xy = r1.xy / v0.ww;
   r3.xyzw = s_distortion.Sample(s_distortion_s, r1.xy).xyzw;

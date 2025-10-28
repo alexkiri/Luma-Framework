@@ -366,13 +366,29 @@ float3 linear_to_sRGB_gamma(float3 Color, int ClampType = GCT_DEFAULT)
 }
 
 // Optimized gamma<->linear functions (don't use unless really necessary, they are not accurate)
+float sqr_mirrored(float x)
+{
+	return sqr(x) * sign(x);
+}
+float sqrt_mirrored(float x)
+{
+	return sqrt(abs(x)) * sign(x);
+}
+float4 sqr_mirrored(float4 x)
+{
+	return sqr(x) * sign(x);
+}
+float4 sqrt_mirrored(float4 x)
+{
+	return sqrt(abs(x)) * sign(x);
+}
 float3 sqr_mirrored(float3 x)
 {
-	return sqr(x) * sign(x); // LUMA FT: added mirroring to support negative colors
+	return sqr(x) * sign(x);
 }
 float3 sqrt_mirrored(float3 x)
 {
-	return sqrt(abs(x)) * sign(x); // LUMA FT: added mirroring to support negative colors
+	return sqrt(abs(x)) * sign(x);
 }
 
 static const float PQ_constant_M1 =  0.1593017578125f;

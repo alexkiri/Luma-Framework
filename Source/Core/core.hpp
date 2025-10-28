@@ -8640,7 +8640,7 @@ namespace
 #endif // DEVELOPMENT
 
 #if DEVELOPMENT || TEST
-      if (ImGui::Button(std::format("Unload Shaders ({})", device_data.cloned_pipeline_count).c_str()))
+      if (ImGui::Button(std::format("Unload Shaders ({})", device_data.cloned_pipeline_count).c_str())) // TODO: show number of custom+native loaded shaders instead of the number of pipelines we currently cloned? Games like Lego City Undercover re-compile the same shader many many times
       {
          needs_unload_shaders = true;
          last_pressed_unload = true;
@@ -11788,7 +11788,10 @@ namespace
             }
 
 #if DEVELOPMENT
-            // Print warnings if the OS gamma wasn't neutral (we don't want that in HDR!)
+            // Print warnings if the OS gamma wasn't neutral (we don't want that in HDR!). This is extremely slow in some games (e.g. Lego City Undercover) (probably because they set a value, even if neutral) so it's behind a toggle.
+            static bool check_gamma_ramp = false;
+            ImGui::Checkbox("Check Gamma Ramp", &check_gamma_ramp);
+            if (check_gamma_ramp)
             {
                {
                   bool neutral_gamma = true;
@@ -12029,7 +12032,7 @@ namespace
 
                ImGui::TreePop();
             }
-#endif
+#endif // DEVELOPMENT || TEST
 
 #if DEVELOPMENT
             ImGui::SetNextItemOpen(true, ImGuiCond_Once);
@@ -13249,7 +13252,8 @@ void Init(bool async)
    // Load settings
    [[maybe_unused]] bool delete_old_shaders = false;
    {
-      const std::unique_lock lock_reshade(s_mutex_reshade);
+      if (async)
+         s_mutex_reshade.lock();
 
       bool do_shader_defines_reset = false;
 
@@ -13260,11 +13264,14 @@ void Init(bool async)
       {
          if (config_version < Globals::VERSION)
          {
-            const std::unique_lock lock_loading(s_mutex_loading);
+            if (async)
+               s_mutex_loading.lock();
             // NOTE: put behaviour to load previous versions into new ones here
             CleanShadersCache(); // Force recompile shaders, just for extra safety (theoretically changes are auto detected through the preprocessor, but we can't be certain). We don't need to change the last config serialized shader defines.
             delete_old_shaders = true;
             do_shader_defines_reset = true;
+            if (async)
+               s_mutex_loading.unlock();
          }
          else if (config_version > Globals::VERSION)
          {
@@ -13302,9 +13309,12 @@ void Init(bool async)
       // If we read an invalid value from the config, reset it
       if (reshade::get_config_value(runtime, NAME, "ScenePeakWhite", cb_luma_global_settings.ScenePeakWhite) && cb_luma_global_settings.ScenePeakWhite <= 0.f)
       {
-         const std::shared_lock lock(s_mutex_device); // This is not completely safe as the write to "default_user_peak_white" isn't protected by this mutex but it's fine, it shouldn't have been written yet when we get here
+         if (async)
+            s_mutex_device.lock_shared(); // This is not completely safe as the write to "default_user_peak_white" isn't protected by this mutex but it's fine, it shouldn't have been written yet when we get here
          cb_luma_global_settings.ScenePeakWhite = global_devices_data.empty() ? default_peak_white : global_devices_data[0]->default_user_peak_white;
          hdr_display_mode_pending_auto_peak_white_calibration = global_devices_data.empty(); // Re-adjust it later when we can
+         if (async)
+            s_mutex_device.unlock_shared();
       }
       reshade::get_config_value(runtime, NAME, "ScenePaperWhite", cb_luma_global_settings.ScenePaperWhite);
       reshade::get_config_value(runtime, NAME, "UIPaperWhite", cb_luma_global_settings.UIPaperWhite);
@@ -13320,7 +13330,8 @@ void Init(bool async)
          cb_luma_global_settings.ScenePeakWhite = cb_luma_global_settings.ScenePaperWhite;
       }
 
-      const std::unique_lock lock_shader_defines(s_mutex_shader_defines); // Note: do we need the mutex here the whole time?
+      if (async)
+         s_mutex_shader_defines.lock(); // Note: do we need the mutex here the whole time?
       ShaderDefineData::Load(shader_defines_data, NAME_ADVANCED_SETTINGS, runtime);
       if (do_shader_defines_reset)
       {
@@ -13333,6 +13344,12 @@ void Init(bool async)
       OnDisplayModeChanged();
 
       game->OnShaderDefinesChanged();
+
+      if (async)
+      {
+         s_mutex_shader_defines.unlock();
+         s_mutex_reshade.unlock();
+      }
    }
 
    shaders_path = GetShadersRootPath(); // Needs to be done after "custom_shaders_path" was set
@@ -13366,7 +13383,8 @@ void Init(bool async)
    // No need to create the directory here if it didn't already exist
    if (std::filesystem::is_directory(shaders_dump_path))
    {
-      const std::lock_guard<std::recursive_mutex> lock_dumping(s_mutex_dumping);
+      if (async)
+         s_mutex_dumping.lock();
       for (const auto& entry : std::filesystem::directory_iterator(shaders_dump_path))
       {
          if (!entry.is_regular_file()) continue;
@@ -13434,18 +13452,23 @@ void Init(bool async)
             }
          }
       }
+      if (async)
+         s_mutex_dumping.unlock();
    }
 #endif // ALLOW_SHADERS_DUMPING
 
    {
       // Assume that the shader defines loaded from config match the ones the current pre-compiled shaders have (or, simply use the defaults otherwise)
-      const std::unique_lock lock_shader_defines(s_mutex_shader_defines);
+      if (async)
+         s_mutex_shader_defines.lock();
       ShaderDefineData::OnCompilation(shader_defines_data);
       shader_defines_data_index.clear();
       for (uint32_t i = 0; i < shader_defines_data.size(); i++)
       {
          shader_defines_data_index[string_view_crc32(std::string_view(shader_defines_data[i].compiled_data.GetName()))] = i;
       }
+      if (async)
+         s_mutex_shader_defines.unlock();
    }
 
    // Pre-load all shaders to minimize the wait before replacing them after they are found in game ("auto_load"),
@@ -13509,10 +13532,13 @@ void Uninit()
 }
 
 #ifndef RESHADE_EXTERNS
-// This is called immediately after the main function ("DllMain") gets "DLL_PROCESS_ATTACH" if this dll/addon is loaded directly by ReShade
+// This is called immediately after the main function ("DllMain") gets "DLL_PROCESS_ATTACH" if this dll/addon is loaded directly by ReShade, unless the "LoadFromDllMain" config is enabled in ReShade
 extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE reshade_module)
 {
-   Init(true);
+   bool inline_dll_load = false;
+   reshade::get_config_value(nullptr, "ADDON", "LoadFromDllMain", inline_dll_load);
+   bool async = !inline_dll_load;
+   Init(async);
    return true;
 }
 extern "C" __declspec(dllexport) void AddonUninit(HMODULE addon_module, HMODULE reshade_module)

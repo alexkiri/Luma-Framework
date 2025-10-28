@@ -439,7 +439,7 @@ void main(
 #endif
     // This is supposedly the game's original HDR implementation, in case it skipped the tonemapper or something, however it seems like it was never used.
     // The same identical code is also in "Dying Light: The Beast", so it was either written by a shared developer, or can be found somewhere online (I couldn't find a rerence).
-    // It seems to look good, however it doesn't support negative input values.
+    // It seems to look good, however it doesn't support negative input values. Edit: no it looks terrible. There's much better ways of doing the same.
     // Update: it's from https://www.glowybits.com/blog/2016/12/21/ifl_iss_hdr_1/ (Infamous PS4 HDR)
     if (applyLUTByMaxChannel) {
       float3 color = tonemappedColor;

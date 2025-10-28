@@ -89,7 +89,6 @@ void main(
   r0.x = p_default_Material_0CB112A4337965283_DepthBufferTexture_texture.Sample(p_default_Material_0CB112A4337965283_DepthBufferTexture_sampler_s, InstanceParams[0].xy).x;
   r0.x = r0.x * DepthToW.z + DepthToW.w;
   r0.x = (r0.x >= InstanceParams[0].z);
-  r0.x = r0.x ? 1.000000 : 0;
   o0.w = MaterialOpacity * r0.x;
   r0.xyz = p_default_Material_0CB11C64337848596_Texture_texture.Sample(p_default_Material_0CB11C64337848596_Texture_sampler_s, uv).xyz;
   o0.xyz = v1.xyz * r0.xyz;

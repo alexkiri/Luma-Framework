@@ -169,7 +169,6 @@ public:
          {
             ASSERT_ONCE(false);
 
-            std::memcpy(new_code.get(), code, size);
             std::memcpy(new_code.get() + size, appended_patch.data(), appended_patch.size());
 
             size += appended_patch.size();

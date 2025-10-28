@@ -7,7 +7,8 @@
 
 //TODOFT: try basic extrapolation mode where we simply compress 0.5 to INF input to 0.5 to 1, do LUT and then decompress range again
 
-// Make sure to define these to your value, or set it to 0, so it retrieves the size from the LUT (in some functions)
+// Make sure to define these to your value, or set it to 0, so it retrieves the size from the LUT (in some functions).
+// The default is based on the common value for some old games but can be changed without consequences.
 #ifndef LUT_SIZE
 #define LUT_SIZE 16u
 #endif
@@ -47,12 +48,12 @@ uint4
 #else
 uint3
 #endif
-ConditionalConvert3DTo2DLUTCoordinates(uint3 Coordinates3D, uint lutSize = LUT_SIZE)
+ConditionalConvert3DTo2DLUTCoordinates(uint3 Coordinates3D, uint3 lutSize = LUT_SIZE)
 {
 #if LUT_3D
   return uint4(Coordinates3D, 0);
 #else
-  return uint3(Coordinates3D.x + (Coordinates3D.z * lutSize), Coordinates3D.y, 0);
+  return uint3(Coordinates3D.x + (Coordinates3D.z * lutSize.y), Coordinates3D.y, 0); // Horizontal unwrapping
 #endif
 }
 
@@ -507,8 +508,8 @@ float3 AdjustLUTCoordinatesForLinearLUT(const float3 clampedLUTCoordinatesGammaS
 #endif
 }
 
-// Color grading/charts tex lookup. Called "TexColorChart2D()" in Vanilla code.
-float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, uint lutSize = LUT_SIZE, bool tetrahedralInterpolation = false, bool debugLutInputLinear = false, bool debugLutOutputLinear = false, uint debugLutTransferFunctionIn = DEFAULT_LUT_EXTRAPOLATION_TRANSFER_FUNCTION)
+// Color grading/charts tex lookup. Called "TexColorChart2D()" in vanilla CryEngine code.
+float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, uint3 lutSize = LUT_SIZE, bool tetrahedralInterpolation = false, bool debugLutInputLinear = false, bool debugLutOutputLinear = false, uint debugLutTransferFunctionIn = DEFAULT_LUT_EXTRAPOLATION_TRANSFER_FUNCTION)
 {
 #if FORCE_NEUTRAL_COLOR_GRADING_LUT_TYPE > 0
   // Do not saturate() "color" on purpose
@@ -519,44 +520,44 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 color, 
   return debugLutOutputLinear ? ColorGradingLUTTransferFunctionOut(color, debugLutTransferFunctionIn) : ColorGradingLUTTransferFunctionIn(color, debugLutTransferFunctionIn);
 #endif // FORCE_NEUTRAL_COLOR_GRADING_LUT_TYPE > 0
 
-	const uint chartDimUint = lutSize;
-	const float chartDim	= (float)chartDimUint;
-	const float chartDimSqr	= chartDim * chartDim;
-	const float chartMax	= chartDim - 1.0;
-	const uint chartMaxUint = chartDimUint - 1u;
+	const uint3 chartDimUint = lutSize;
+	const float3 chartDim	= (float3)chartDimUint;
+	const float3 chartDimSqr	= chartDim * chartDim;
+	const float3 chartMax	= chartDim - 1.0;
+	const uint3 chartMaxUint = chartDimUint - 1u;
   
   if (!tetrahedralInterpolation)
   {
 #if LUT_3D
-    const float scale = chartMax / chartDim;
-    const float bias = 0.5 / chartDim;
+    const float3 scale = chartMax / chartDim;
+    const float3 bias = 0.5 / chartDim;
     
     float3 lookup = saturate(color) * scale + bias;
     
     return lut.Sample(samplerState, lookup).rgb;
 #else // !LUT_3D
-    const float3 scale = float3(chartMax, chartMax, chartMax) / chartDim;
+    const float3 scale = chartMax / chartDim;
     const float3 bias = float3(0.5, 0.5, 0.0) / chartDim;
 
     float3 lookup = saturate(color) * scale + bias;
     
     // convert input color into 2d color chart lookup address
-    float slice = lookup.z * chartDim;	
+    float slice = lookup.z * chartDim.y;
     float sliceFrac = frac(slice);	
     float sliceIdx = slice - sliceFrac;
     
-    lookup.x = (lookup.x + sliceIdx) / chartDim;
+    lookup.x = (lookup.x + sliceIdx) / chartDim.y;
     
     // lookup adjacent slices
     float3 col0 = lut.Sample(samplerState, lookup.xy).rgb;
-    lookup.x += 1.0 / chartDim;
+    lookup.x += 1.0 / chartDim.y; // Horizontal unwrapping
     float3 col1 = lut.Sample(samplerState, lookup.xy).rgb;
 
     // linearly blend between slices
     return lerp(col0, col1, sliceFrac); // LUMA FT: changed to be a lerp (easier to read)
 #endif // LUT_3D
   }
-  else // LUMA FT: added tetrahedral LUT interpolation (from Lilium) (note that this ignores the texture sampler)
+  else // LUMA FT: added tetrahedral LUT interpolation (from Lilium) (note that this ignores the texture sampler) // TODO: fix, it doesn't work in 3D LUTs
   {
     // We need to clip the input coordinates as LUT texture samples below are not clamped.
     const float3 coords = saturate(color) * chartMax; // Pixel coords 
@@ -682,7 +683,11 @@ struct LUTExtrapolationData
 struct LUTExtrapolationSettings
 {
   // Set to 0 to find it automatically
+#if LUT_3D
+  uint3 lutSize;
+#else // We currently expect unwrapped LUTs to have the same size on every axis in their original 3D form
   uint lutSize;
+#endif
   // Is the input color we pass in linear or encoded with a transfer function?
   // If false, the color is expectred to the in the "transferFunctionIn" space.
   bool inputLinear;
@@ -762,6 +767,7 @@ struct LUTExtrapolationSettings
   // It can be used to restore some of the vanilla hues or chrominance on bright (or not bright) colors (they would likely have desaturated on highlights).
   // This adds one sample per pixel.
   float vanillaLUTRestorationAmount;
+  uint vanillaLUTRestorationType;
   // How much we blend back towards the "clipped" LUT color.
   // This is different from the vanilla color, as it's sourced from the new (e.g. HDR) input color, but clipped the the LUT input coordinates range (0-1).
   // It can be used to hide some of the weird hues generated from too aggressive extrapolation (e.g. for overly bright input colors, or for the lower "extrapolationQuality" modes).
@@ -788,6 +794,7 @@ LUTExtrapolationSettings DefaultLUTExtrapolationSettings()
   settings.samplingQuality = 1;
   settings.neutralLUTRestorationAmount = 0;
   settings.vanillaLUTRestorationAmount = 0;
+  settings.vanillaLUTRestorationType = 0;
   settings.enableExtrapolation = true;
   settings.extrapolationQuality = 1;
   settings.backwardsAmount = 0.5;
@@ -828,7 +835,7 @@ float3 SampleLUT(LUT_TEXTURE_TYPE lut, SamplerState samplerState, float3 encoded
 float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerState, LUTExtrapolationData data /*= DefaultLUTExtrapolationData()*/, LUTExtrapolationSettings settings /*= DefaultLUTExtrapolationSettings()*/)
 {
 	float3 lutMax3D;
-	if (settings.lutSize == 0)
+	if (any(settings.lutSize == 0))
 	{
 		// LUT size in texels
 		float lutWidth;
@@ -840,7 +847,7 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 #else
 		lut.GetDimensions(lutWidth, lutHeight);
 		lutWidth = sqrt(lutWidth); // 2D LUTs usually extend horizontally
-		const float3 lutSize3D = float3(lutWidth, lutWidth, lutHeight);
+		const float3 lutSize3D = float3(lutWidth, lutWidth, lutHeight); // Unwrapped size, usually all the same for 2D LUTs
 #endif
 		settings.lutSize = lutHeight;
 		lutMax3D = lutSize3D - 1.0;
@@ -1482,13 +1489,17 @@ float3 SampleLUTWithExtrapolation(LUT_TEXTURE_TYPE lut, SamplerState samplerStat
 			outputSample = ColorGradingLUTTransferFunctionOut(outputSample, settings.transferFunctionIn, true);
       lutOutputLinear = true;
     }
-#if 1 // Advanced hue restoration
-    outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount * 0.25, settings.vanillaLUTRestorationAmount, 0.0); // Restore chrominance instead of hue, it should better preserve highlights desaturation //TODOFT5: try it!!! And just expose them as separate params, for now we defaulted to a decent looking value. 0.25 for BS2 and 0 for Mafia III
-    //outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount, 0.0, 0.0);
-#else // Restoration by luminance
-		float3 extrapolatedVanillaSample = RestoreLuminance(vanillaSample, outputSample);
-		outputSample = lerp(outputSample, extrapolatedVanillaSample, settings.vanillaLUTRestorationAmount);
-#endif
+    if (settings.vanillaLUTRestorationType == 0) // Advanced hue restoration
+    {
+      outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount * 0.25, settings.vanillaLUTRestorationAmount, 0.0); // Restore chrominance instead of hue, it should better preserve highlights desaturation //TODOFT5: try it!!! And just expose them as separate params, for now we defaulted to a decent looking value. 0.25 for BS2 and 0 for Mafia III
+      //outputSample = RestoreHueAndChrominance(outputSample, vanillaSample, settings.vanillaLUTRestorationAmount, 0.0, 0.0);
+    }
+    else
+    {
+      // Restoration by luminance
+		  float3 extrapolatedVanillaSample = RestoreLuminance(vanillaSample, outputSample);
+		  outputSample = lerp(outputSample, extrapolatedVanillaSample, settings.vanillaLUTRestorationAmount);
+    }
 	}
 
   // If the input and output transfer functions are different, this will perform a transfer function correction (e.g. the typical SDR gamma mismatch: game encoded with gamma sRGB and was decode with gamma 2.2).

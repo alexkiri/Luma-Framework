@@ -201,7 +201,7 @@ void main(
   r4.xyzw = s_specular_cubemap.SampleLevel(s_specular_cubemap_s, r2.yzw, r1.x).xyzw;
   r1.x = r4.w * 16 + 1;
   r1.x = log2(abs(r1.x));
-  r1.x = 2.20000005 * r1.x;
+  r1.x = 2.2 * r1.x;
   r1.x = exp2(r1.x);
   r2.yzw = r4.xyz * r1.xxx;
   r0.yzw = r2.yzw * r1.yzw + r0.yzw;
@@ -214,8 +214,7 @@ void main(
   r2.yz = r1.xy / v4.ww;
   r1.xy = -v4.xy + r1.xy;
   r3.xyzw = s_sceneDepth.Sample(s_sceneDepth_s, r2.yz).xyzw;
-  r1.w = cmp(r3.x >= 0.00999999978);
-  r1.w = r1.w ? 1.000000 : 0;
+  r1.w = cmp(r3.x >= 0.01);
   r1.xy = r1.ww * r1.xy + v4.xy;
   r1.xy = r1.xy / v4.ww;
   r3.xyzw = s_distortion.Sample(s_distortion_s, r1.xy).xyzw;

@@ -29,9 +29,9 @@ class Game
 public:
    virtual ~Game() = default; // Avoids warnings. Using the destructor is not suggested if not to clear up persistently allocated memory.
 
-   // The mod dll loaded (before init)
+   // The mod dll loaded (before init). Avoid locking mutexes in here.
    virtual void OnLoad(std::filesystem::path& file_path, bool failed = false) {}
-   // The mod initialized
+   // The mod initialized. Avoid locking mutexes in here.
    virtual void OnInit(bool async) {}
    virtual void OnInitDevice(ID3D11Device* native_device, DeviceData& device_data) {}
    virtual void OnInitSwapchain(reshade::api::swapchain* swapchain) {}

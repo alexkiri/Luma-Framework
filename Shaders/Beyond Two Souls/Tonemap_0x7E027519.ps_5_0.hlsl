@@ -71,7 +71,6 @@ void main(
   r5.w = cb0[3].x + -cb0[3].y;
   r2.w = r2.w / r5.w;
   r2.z = cmp(cb0[3].y < r2.z);
-  r2.z = r2.z ? 1.000000 : 0;
   r1.w = r2.z * r2.w + r1.w;
   r1.w = saturate(cb0[3].z + r1.w);
   r2.z = cb0[2].w * r1.w;
