@@ -912,6 +912,7 @@ bool CopyBuffer(com_ptr<ID3D11Buffer> cb, ID3D11DeviceContext* native_device_con
    }
 
    D3D11_MAPPED_SUBRESOURCE mapped = {};
+   // Map in DX11 here can seemengly be done on deferred contexts too, it will stall the CPU until the GPU has the latest values (no need to flush the command list)
    HRESULT hr = native_device_context->Map(cb.get(), 0, D3D11_MAP_READ, 0, &mapped);
    if (FAILED(hr))
    {

@@ -372,8 +372,8 @@ namespace DarktableUcs
   {
     float3 XYZ = CieXYZ::RGBTo::XZY(rgb);
     s_xyY xyY = CieXYZ::XYZTo::xyY(XYZ);
-    float3 JCH = xyYTo::LUV(xyY);
-    return JCH;
+    float3 UCSLUV = xyYTo::LUV(xyY);
+    return UCSLUV;
   }
 
   // scRGB/BT.709
