@@ -91,7 +91,7 @@ public:
 
             if (opcode_type == D3D10_SB_OPCODE_DCL_OUTPUT)
             {
-               // This isn't a UI shader
+               // This isn't a UI shader, they only have 1 render target (final color), while other materials have 3 (gbuffers)
                if (found_dcl_outputs > 0)
                {
                   return nullptr;
@@ -191,11 +191,11 @@ public:
       return new_code;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
-      return false; // Don't cancel the original draw call
+      return DrawOrDispatchOverrideType::None; // Don't cancel the original draw call
    }
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {

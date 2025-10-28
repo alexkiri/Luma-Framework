@@ -548,7 +548,7 @@ public:
 		}
 	}
 
-	bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+	DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
 	{
 		auto& game_device_data = GetGameDeviceData(device_data);
 		// TODO: this seems like an unnecessary check that would only cause problems.
@@ -559,12 +559,12 @@ public:
 		}
 
 		if (!game_device_data.has_drawn_title) {
-			return false;
+         return DrawOrDispatchOverrideType::None;
 		}
 
 		// Nothing more to do after tonemapping
 		if (device_data.has_drawn_main_post_processing) {
-			return false;
+         return DrawOrDispatchOverrideType::None;
 		}
 
 		const bool is_taa = original_shader_hashes.Contains(shader_hashes_TAA);
@@ -575,7 +575,7 @@ public:
 
 		// Nothing to do if TAA isn't enabled
 		if (!game_device_data.has_drawn_taa) {
-			return false;
+         return DrawOrDispatchOverrideType::None;
 		}
 
 		bool is_tonemapping = !is_taa && original_shader_hashes.Contains(shader_hashes_Tonemap);
@@ -591,7 +591,7 @@ public:
 		{
 			if (device_data.native_pixel_shaders[CompileTimeStringHash("Decode MVs")].get() == nullptr) {
 				device_data.force_reset_sr = true;
-				return false;
+            return DrawOrDispatchOverrideType::None;
 			}
 			// 1 depth
 			// 2 current color source
@@ -652,7 +652,7 @@ public:
 				if (dlss_input_resolution[0] > game_device_data.upscaled_render_resolution.x || dlss_input_resolution[1] > game_device_data.upscaled_render_resolution.y)
 				{
 					device_data.force_reset_sr = true;
-					return false;
+               return DrawOrDispatchOverrideType::None;
 				}
 
 				SR::SettingsData settings_data;
@@ -868,7 +868,7 @@ public:
 							device_data.sr_output_color = nullptr;
 						}
 
-						return true;
+						return DrawOrDispatchOverrideType::Replaced;
 					}
 					else
 					{
@@ -903,7 +903,7 @@ public:
 
 #endif // ENABLE_SR
 
-		return false; // Don't cancel the original draw call
+		return DrawOrDispatchOverrideType::None; // Don't cancel the original draw call
 	}
 
 	void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

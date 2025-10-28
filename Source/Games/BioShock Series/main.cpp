@@ -394,7 +394,7 @@ public:
       device_data.cb_luma_global_settings_dirty = true;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -445,7 +445,7 @@ public:
             native_device_context->PSSetShaderResources(1, 1, &scene_texture_srv_const);
          }
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // Bloom
@@ -455,7 +455,7 @@ public:
          ID3D11SamplerState* const sampler_state_linear = device_data.sampler_state_linear.get();
          native_device_context->PSSetSamplers(0, 1, &sampler_state_linear);
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // Tonemapper
@@ -471,7 +471,7 @@ public:
       }
       // TODO: make sure all shaders that run after FXAA are UI? Cuz tonemapping is there
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

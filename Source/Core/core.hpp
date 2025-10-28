@@ -343,7 +343,7 @@ namespace
       // Allows to temporarily ignore indirectly upgraded textures
       // In publishing mode, there's no need to ever forcefully ignore the indirectly upgraded textures,
       // given that the settings can't change live, hence they are not created if they are not enabled in the first place.
-      PUBLISHING_CONSTEXPR bool ignore_indirect_upgraded_textures = false;
+      PUBLISHING_CONSTEXPR bool ignore_indirect_upgraded_textures = false; // TODO: test why when this is turned off live in Lego City Undercover, the output breaks
 #if DEVELOPMENT && 0 // WIP
       // From 0.5 to 2.0, resolution multiplier. Ideally exactly 0.5 or 2.0 (beside 1.0).
       // It should work until any shader does ".Load()" on a texture, or gets their dimensions from shaders.
@@ -4645,6 +4645,7 @@ namespace
             UINT back_buffer_index = 0;
             com_ptr<IDXGISwapChain3> native_swapchain3;
             // The cast pointer is actually the same, we are just making sure the type is right (it should always be).
+            // This would always be 1 in DX11, even if two buffers were requested.
             if (SUCCEEDED(native_swapchain->QueryInterface(&native_swapchain3)))
             {
                back_buffer_index = native_swapchain3->GetCurrentBackBufferIndex();
@@ -5242,6 +5243,7 @@ namespace
 
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
 
+      DrawOrDispatchOverrideType draw_or_dispatch_override_type = DrawOrDispatchOverrideType::None;
       if (!original_shader_hashes.Empty())
       {
          if (texture_format_upgrades_type == TextureFormatUpgradesType::AllowedEnabled) // Creation here still needs to go through independently of "ignore_indirect_upgraded_textures"
@@ -5363,8 +5365,10 @@ namespace
          //TODOFT: optimize these shader searches by simply marking "CachedPipeline" with a tag on what they are (and whether they have a particular role) (also we can restrict the search to pixel shaders or compute shaders?) upfront. And move these into their own functions. Update: we optimized this enough.
 
          if (test_index == 9) return false;
-         if (game->OnDrawOrDispatch(native_device, native_device_context, cmd_list_data, device_data, stages, original_shader_hashes, is_custom_pass, updated_cbuffers, original_draw_dispatch_func))
+         draw_or_dispatch_override_type = game->OnDrawOrDispatch(native_device, native_device_context, cmd_list_data, device_data, stages, original_shader_hashes, is_custom_pass, updated_cbuffers, original_draw_dispatch_func);
+         if (draw_or_dispatch_override_type != DrawOrDispatchOverrideType::None)
          {
+            // The pass was cancelled, there's no point in doing anything more
             return true;
          }
       }

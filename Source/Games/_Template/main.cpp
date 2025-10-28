@@ -80,7 +80,7 @@ public:
       device_data.game = new TemplateGameDeviceData;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -95,7 +95,7 @@ public:
          device_data.has_drawn_main_post_processing = true;
       }
 
-      return false; // Don't cancel the original draw call
+      return DrawOrDispatchOverrideType::None; // Don't cancel the original draw call
    }
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {

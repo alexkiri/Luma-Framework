@@ -23,6 +23,10 @@ struct GameDeviceDataHeavyRain final : public GameDeviceData
    com_ptr<ID3D11Resource> scene_color_resource;
    com_ptr<ID3D11RenderTargetView> scene_color_rtv;
    SanitizeNaNsData sanitize_nans_data;
+
+#if DEVELOPMENT || TEST
+   bool drew_scene = false;
+#endif
 };
 
 class HeavyRain final : public Game
@@ -226,9 +230,18 @@ public:
       return new_code;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
+
+#if DEVELOPMENT || TEST
+      com_ptr<ID3D11DeviceContext> immediate_context;
+      native_device->GetImmediateContext(&immediate_context);
+      if (immediate_context.get() != native_device_context)
+      {
+         game_device_data.drew_scene = true;
+      }
+#endif
 
       // Clear up and smooth over NaNs, given that the game has a habit of outputting a few of them in rendering.
       // This requires specific AA methods enabled, but everybody should have them.
@@ -332,11 +345,15 @@ public:
          }
       }
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
    {
+#if DEVELOPMENT || TEST
+      auto& game_device_data = GetGameDeviceData(device_data);
+      ASSERT_ONCE(!game_device_data.drew_scene || cb_luma_global_settings.GameSettings.DrewTonemap); // TODO: make sure we caught all tonemapper permutations, check the dumps for patterns otherwise
+#endif
       cb_luma_global_settings.GameSettings.DrewTonemap = false;
       cb_luma_global_settings.GameSettings.InvRenderRes.x = 1.f / device_data.render_resolution.x;
       cb_luma_global_settings.GameSettings.InvRenderRes.y = 1.f / device_data.render_resolution.y;

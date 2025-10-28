@@ -3,6 +3,13 @@
 // Forward declarations
 struct GameDeviceData;
 
+enum class DrawOrDispatchOverrideType
+{
+   None,
+   Skip,
+   Replaced,
+};
+
 enum class ShaderReplaceDrawType
 {
    None,

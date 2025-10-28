@@ -85,7 +85,7 @@ float3 ApplyLUT(float3 color, float3 vanillaColor, Texture3D<float4> _texture, S
   {
 #if LUT_SAMPLING_ERROR_EMULATION_MODE > 0 // Fix bad math in lut sampling that crushed blacks, we emulate it now
     float3 previousColor = color;
-    float adjustmentScale = 0.333;
+    float adjustmentScale = 0.333; // TODO: refine this (theoretically it should be per channel too, given the game's LUT has 3 different sizes)
     float adjustmentRange = 1.0 / 3.0;
 #if LUT_SAMPLING_ERROR_EMULATION_MODE != 2 // Per channel (it looks nicer)
     color *= lerp(adjustmentScale, 1.0, saturate(linear_to_gamma(previousColor, GCT_POSITIVE) / adjustmentRange));

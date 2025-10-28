@@ -390,8 +390,8 @@ public:
       device_data.has_drawn_sr = false;
       game_device_data.found_per_view_globals = false;
    }
-
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -701,7 +701,7 @@ public:
                      device_data.sr_output_color = nullptr;
                   }
 
-                  return true; // "Cancel" the previously set draw call, DLSS has taken care of it
+                  return DrawOrDispatchOverrideType::Replaced; // "Cancel" the previously set draw call, DLSS has taken care of it
                }
                // DLSS Failed, suppress it for this frame and fall back on SMAA/TAA, hoping that anything before would have been rendered correctly for it already (otherwise it will start being correct in the next frame, given we suppress it (until manually toggled again, given that it'd likely keep failing))
                else if (!delay_dlss)
@@ -715,7 +715,7 @@ public:
                else // "delay_dlss"
                {
                   game_device_data.sr_deferred_command_list = native_device_context;
-                  return true;
+                  return DrawOrDispatchOverrideType::Skip;
                }
             }
             if (dlss_output_supports_uav)
@@ -725,7 +725,7 @@ public:
          }
       }
    #endif // ENABLE_SR
-      return false; // Return true to cancel this draw call
+      return DrawOrDispatchOverrideType::None; // Return true to cancel this draw call
    }
 
    static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)

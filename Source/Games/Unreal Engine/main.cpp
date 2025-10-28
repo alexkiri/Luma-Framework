@@ -349,13 +349,13 @@ public:
    }
 #endif // ENABLE_SR
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       GameDeviceDataUnrealEngine& game_device_data = GetGameDeviceData(device_data);
       bool                        is_taa           = original_shader_hashes.Contains(shader_hashes_TAA);
       bool                        is_taa_candidate = !is_taa && original_shader_hashes.Contains(shader_hashes_TAA_Candidates);
       if (!is_taa && !is_taa_candidate)
-         return false;
+         return DrawOrDispatchOverrideType::None;
 
       bool is_compute_shader = stages == reshade::api::shader_stage::all_compute;
       uint64_t shader_hash   = is_compute_shader ? original_shader_hashes.compute_shaders[0] : original_shader_hashes.pixel_shaders[0];
@@ -467,17 +467,16 @@ public:
          {
             native_device_context->CopyResource(output_color.get(), device_data.sr_output_color.get());
          }
-         return true;
+         return DrawOrDispatchOverrideType::Skip;
       }
 
       if (is_taa && device_data.sr_type != SR::Type::None && !device_data.sr_suppressed)
       {
-
          if ((is_compute_shader && device_data.native_compute_shaders[CompileTimeStringHash("Decode MVs CS")].get() == nullptr) ||
              (!is_compute_shader && device_data.native_pixel_shaders[CompileTimeStringHash("Decode MVs PS")].get() == nullptr))
          {
             device_data.force_reset_sr = true;
-            return false;
+            return DrawOrDispatchOverrideType::None;
          }
          com_ptr<ID3D11ShaderResourceView> shader_resources[16];
 
@@ -497,6 +496,7 @@ public:
          {
             // The first time we run TAA, we can get the global cbuffer size now
             // we can then use this to detect the cbuffer in the CPU during OnMapBufferRegion and OnUnmapBufferRegion hooks
+            // Buffers are seemengly pooled and cycled in UE so we can't just match them by pointers
             com_ptr<ID3D11Buffer> global_cbuffer;
             if (is_compute_shader)
                native_device_context->CSGetConstantBuffers(taa_shader_info.global_buffer_register_index, 1, &global_cbuffer);
@@ -507,14 +507,15 @@ public:
             global_cbuffer->GetDesc(&global_cbuffer_desc);
             global_cb_info.size = global_cbuffer_desc.ByteWidth;
 
-            return false; // Skip this draw call, we will run DLSS next frame after we detected the global cbuffer on the CPU
+            // Skip this draw call, we will run DLSS next frame after we detected the global cbuffer on the CPU (if necessary, we could extract the data from the cbuffer already in DX11, though that's slow and for now we just wait 1 frame)
+            return DrawOrDispatchOverrideType::None;
          }
          const bool dlss_inputs_valid = shader_resources[taa_shader_info.source_texture_register].get() != nullptr && shader_resources[taa_shader_info.depth_texture_register].get() != nullptr && shader_resources[taa_shader_info.velocity_texture_register].get() != nullptr && (render_target_views[0].get() != nullptr || unordered_access_views[0].get() != nullptr);
          ASSERT_ONCE(dlss_inputs_valid);
          if (dlss_inputs_valid)
          {
             if (game_device_data.found_per_view_globals.load() == false)
-               return false;
+               return DrawOrDispatchOverrideType::None;
             auto* sr_instance_data = device_data.GetSRInstanceData();
             ASSERT_ONCE(sr_instance_data);
 
@@ -531,14 +532,14 @@ public:
             output_color->GetDesc(&taa_output_texture_desc);
 
             if (taa_output_texture_desc.Width != device_data.render_resolution.x || taa_output_texture_desc.Height != device_data.render_resolution.y)
-               return false;
+               return DrawOrDispatchOverrideType::None;
 
             D3D11_VIEWPORT viewport;
             uint32_t       num_viewports = 1;
             native_device_context->RSGetViewports(&num_viewports, &viewport);
             // game_device_data.viewport_rect         = {viewport.TopLeftX, viewport.TopLeftY, viewport.Width, viewport.Height};
             // game_device_data.render_resolution     = {(float)taa_output_texture_desc.Width, (float)taa_output_texture_desc.Height, 1.0f / (float)taa_output_texture_desc.Width, 1.0f / (float)taa_output_texture_desc.Height};
-            device_data.sr_render_resolution_scale = 1.0f; // DLLA only
+            device_data.sr_render_resolution_scale = 1.0f; // DLAA only
 
             SR::SettingsData settings_data;
             settings_data.output_width              = game_device_data.render_resolution.x;
@@ -640,6 +641,14 @@ public:
                      }
                   }
                }
+
+               // We don't actually replace the shaders with the classic luma shader swapping feature, so we need to set the CBs manually
+               if (!updated_cbuffers)
+               {
+                  SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
+                  SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData);
+                  updated_cbuffers = true;
+               }
                DecodeMotionVectors(is_compute_shader, native_device_context, device_data, taa_shader_info);
 #if DEVELOPMENT
                const std::shared_lock lock_trace(s_mutex_trace);
@@ -663,7 +672,7 @@ public:
                {
                   // copy the generated motion vectors to the output for debugging
                   native_device_context->CopyResource(output_color.get(), game_device_data.sr_motion_vectors.get());
-                  return true;
+                  return DrawOrDispatchOverrideType::Skip;
                }
 #endif
 
@@ -718,7 +727,7 @@ public:
                      device_data.sr_output_color = nullptr;
                   }
 
-                  return true;
+                  return DrawOrDispatchOverrideType::Replaced;
                }
                else
                {
@@ -736,7 +745,7 @@ public:
          }
       }
 #endif
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
