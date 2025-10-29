@@ -450,7 +450,7 @@ public:
             settings_data.hdr                       = true; // Unreal Engine does DLSS before tonemapping, in HDR linear space
             settings_data.inverted_depth            = true;
             settings_data.mvs_jittered              = false;
-            settings_data.auto_exposure             = false; // Unreal Engine does TAA before tonemapping
+            settings_data.auto_exposure             = true; // Unreal Engine does TAA before tonemapping
             settings_data.use_experimental_features = sr_user_type == SR::UserType::DLSS_TRANSFORMER;
             sr_implementations[device_data.sr_type]->UpdateSettings(sr_instance_data, native_device_context, settings_data);
 
