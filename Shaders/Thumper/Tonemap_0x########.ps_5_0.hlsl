@@ -313,7 +313,8 @@ void main(
 #elif DISABLE_DISTORTION_TYPE == 2 // Stretch the pillarboxed and letterboxed image to cover the whole screen
 
 #if 1 // Looks good. Ideally we'd just find the original rendering area size but this works too
-  ndc *= abs(gCubicDistortion + gDistortion); // Approximate distortion reverse formula
+  if ((gCubicDistortion + gDistortion) != 0.0)
+    ndc *= abs(gCubicDistortion + gDistortion); // Approximate distortion reverse formula
 #else // Doesn't look right, probably the math is borked
   ndc /= ReverseDistortion(1.0, 10); // Statically compiled
 #endif
