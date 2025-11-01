@@ -21,6 +21,7 @@ namespace FidelityFX
    struct FSRInstanceData : public SR::InstanceData
    {
       FfxFsr3Context context = {};
+      bool has_context = false;
       void* scratch_buffer = nullptr;
       int phase_count = default_phase_count;
    };
@@ -193,6 +194,8 @@ namespace FidelityFX
          context_desc.flags |= FFX_FSR3_ENABLE_MOTION_VECTORS_JITTER_CANCELLATION;
       }
 
+      context_desc.backBufferFormat = FfxSurfaceFormat::FFX_SURFACE_FORMAT_R16G16B16A16_FLOAT; // Just guessed for now, for Frame Gen only. Luma classic format hardcoded.
+
 #if DEVELOPMENT
       if (true) // For now we always do this in dev mode
       {
@@ -215,10 +218,12 @@ namespace FidelityFX
 #endif
 
       // Destroy any possible previously created context
-      if (custom_data->context.data)
+      if (custom_data->has_context)
       {
-         auto err_code = ffxFsr3ContextDestroy(&custom_data->context); // TODO: check for errors
-         custom_data->context = {};
+         auto err_code = ffxFsr3ContextDestroy(&custom_data->context);
+         ASSERT_ONCE(err_code == FFX_OK); // TODO: print err_code
+         custom_data->context = {}; // Probably not very useful
+         custom_data->has_context = false;
 
          free(custom_data->scratch_buffer);
       }
@@ -233,6 +238,7 @@ namespace FidelityFX
       }
 
       custom_data->scratch_buffer = scratch_buffer;
+      custom_data->has_context = true;
 
 #if 0 // TODO
       ffxFsr3GetJitterPhaseCount phase_query{};
@@ -298,7 +304,7 @@ namespace FidelityFX
       dispatch_upscale.motionVectorScale.y = draw_data.render_height;
       dispatch_upscale.preExposure = draw_data.pre_exposure == 0.f ? 1.f : draw_data.pre_exposure;
 
-      // TODO: handle these
+      // TODO: handle these. Also, do we need to swap near and far for inverted depth?
       dispatch_upscale.cameraFovAngleVertical = draw_data.vert_fov;
       dispatch_upscale.cameraFar = draw_data.near_plane;
       dispatch_upscale.cameraNear = draw_data.far_plane;

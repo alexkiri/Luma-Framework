@@ -1,7 +1,7 @@
 #define GAME_UNREAL_ENGINE 1
 #define ENABLE_ORIGINAL_SHADERS_MEMORY_EDITS 1
 #define ENABLE_NGX 1
-#define ENABLE_FIDELITY_SK 0
+#define ENABLE_FIDELITY_SK 1
 #define DISABLE_DISPLAY_COMPOSITION 1
 #define HIDE_DISPLAY_MODE 1
 
@@ -583,6 +583,9 @@ public:
                draw_data.reset          = reset_sr;
                draw_data.render_width   = game_device_data.render_resolution.x;
                draw_data.render_height  = game_device_data.render_resolution.y;
+               draw_data.near_plane     = 0.001f; // TODO: made up values
+               draw_data.far_plane      = 10000.f;
+               draw_data.vert_fov       = 60.f;
 
                bool dlss_succeeded = sr_implementations[device_data.sr_type]->Draw(sr_instance_data, native_device_context, draw_data);
                if (dlss_succeeded)
