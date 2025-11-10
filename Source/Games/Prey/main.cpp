@@ -319,7 +319,7 @@ public:
       HDR_textures_upgrade_confirmed_format = HDR_textures_upgrade_requested_format;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
       const bool had_drawn_main_post_processing = device_data.has_drawn_main_post_processing;
@@ -440,7 +440,7 @@ public:
             ASSERT_ONCE(game_device_data.ssr_command_list == nullptr);
             game_device_data.ssr_command_list = native_device_context; // To make sure we only fix mip map draw calls from the same command list (more can run at the same time in different threads)
 
-            return true;
+            return DrawOrDispatchOverrideType::Replaced;
          }
          else if (game_device_data.ssr_texture.get() || game_device_data.ssr_diffuse_texture.get())
          {
@@ -453,7 +453,7 @@ public:
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data);
          updated_cbuffers = true;
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
       if (game_device_data.has_drawn_ssr && !game_device_data.has_drawn_ssr_blend && original_shader_hashes.Contains(shader_hash_DeferredShadingSSReflectionComp, reshade::api::shader_stage::pixel))
       {
@@ -465,7 +465,7 @@ public:
             native_device_context->PSSetShaderResources(5, 2, &shader_resource_views_const[0]); //TODOFT: unbind these later? Not particularly needed
          }
          updated_cbuffers = true; // No need to update them actually, they are used by this shader
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // Pre AA primary post process (HDR to SDR/HDR tonemapping, color grading, sun shafts etc)
@@ -741,7 +741,7 @@ public:
             rtvs[1] = rtv1;
             native_device_context->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, rtvs_const, dsv.get());
 
-            return true;
+            return DrawOrDispatchOverrideType::Replaced;
          }
          else if (game_device_data.gtao_edges_texture.get())
          {
@@ -1028,7 +1028,7 @@ public:
       // This is particularly useful because on every boot the game rejects the TAA user config setting (seemengly due to "r_AntialiasingMode" being clamped to 3 (SMAA 2TX)), so we'd waste performance if we didn't skip the passes (we still do).
       if (game_device_data.has_drawn_composed_gbuffers && !device_data.has_drawn_main_post_processing && original_shader_hashes.Contains(shader_hashes_SMAA_EdgeDetection) && device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
       {
-         return true;
+         return DrawOrDispatchOverrideType::Skip;
       }
 
       // Vanilla upscaling
@@ -1396,6 +1396,11 @@ public:
                   dlss_pre_exposure = sr_custom_pre_exposure;
 #endif
 
+               if (!sr_instance_data->automatically_restores_pipeline_state)
+               {
+                  // TODO: cache the state and restore it below (FSR)
+               }
+
                // There doesn't seem to be a need to restore the DX state to whatever we had before (e.g. render targets, cbuffers, samplers, UAVs, texture shader resources, viewport, scissor rect, ...), CryEngine always sets everything it needs again for every pass.
                // DLSS internally keeps its own frames history, we don't need to do that ourselves (by feeding in an output buffer that was the previous frame's output, though we do have that if needed, it should be in ps_shader_resources[1]).
                SR::SuperResolutionImpl::DrawData draw_data;
@@ -1407,10 +1412,15 @@ public:
                draw_data.pre_exposure = dlss_pre_exposure;
                draw_data.jitter_x = projection_jitters.x * static_cast<float>(render_width_dlss) * -0.5f;
                draw_data.jitter_y = projection_jitters.y * static_cast<float>(render_height_dlss) * -0.5f;
-               // TODO: add near and far depth to all SR implementations!
                draw_data.reset = reset_dlss;
                draw_data.render_width = render_width_dlss;
                draw_data.render_height = render_height_dlss;
+               draw_data.near_plane = cb_per_view_global.CV_NearFarClipDist.x; // TODO: make sure the scale is in meters (seems to be?)
+               draw_data.far_plane = cb_per_view_global.CV_NearFarClipDist.y;
+               draw_data.vert_fov = atan(1.f / projection_matrix.m11) * 2.0;
+               draw_data.frame_index = cb_luma_global_settings.FrameIndex;
+               draw_data.time_delta = cb_per_view_global.CV_AnimGenParams.z - cb_per_view_global_previous.CV_AnimGenParams.z;
+
                if (sr_implementations[device_data.sr_type]->Draw(sr_instance_data, native_device_context, draw_data))
                {
                   device_data.has_drawn_sr = true;
@@ -1448,7 +1458,7 @@ public:
                      device_data.sr_output_color = nullptr;
                   }
 
-                  return true; // "Cancel" the previously set draw call, DLSS has taken care of it
+                  return DrawOrDispatchOverrideType::Replaced; // "Cancel" the previously set draw call, DLSS has taken care of it
                }
                // SR Failed, suppress it for this frame and fall back on SMAA/TAA, hoping that anything before would have been rendered correctly for it already (otherwise it will start being correct in the next frame, given we suppress it (until manually toggled again, given that it'd likely keep failing))
                else
@@ -1468,7 +1478,7 @@ public:
       }
 #endif // ENABLE_SR
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
@@ -1882,9 +1892,7 @@ public:
             device_data.force_reset_sr = true;
          }
 
-#if DEVELOPMENT
          if (!custom_texture_mip_lod_bias_offset)
-#endif
          {
             std::shared_lock shared_lock_samplers(s_mutex_samplers);
 

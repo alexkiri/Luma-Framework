@@ -20,7 +20,7 @@ namespace
 struct GameDeviceDataThumper final : public GameDeviceData
 {
    CustomPixelShaderPassData correct_subtractive_blends_data;
-   uint correct_subtractive_blends_frame_count = 0;
+   uint correct_subtractive_blends_frame_count = 0; // Debug only
 };
 
 class Thumper final : public Game
@@ -44,8 +44,10 @@ public:
 
       std::vector<ShaderDefineData> game_shader_defines_data = {
          {"ENABLE_VIGNETTE", '1', true, false, "Allows disabling the game's vignette effect", 1},
-         {"DISABLE_DISTORTION_TYPE", '0', true, false, "The game applies a strong distortion filter, disable it if you like\n0 - Enabled\n1 - Disabled\n2 - Disabled + Stretched", 1},
-         {"VANILLA_LOOK", '0', true, false, "If you prefer to have a look closer to the vanilla one, enable this (the HDR won't be as impactful)", 1},
+         {"DISABLE_DISTORTION_TYPE", '0', true, false, "The game applies a strong distortion filter, disable it if you like\n0 - Enabled\n1 - Disabled\n2 - Disabled + Stretched", 2},
+         {"HDR_LOOK_TYPE", '1', true, false, "Makes the look more HDR, but less accurate to the source\n0-2, from most to least vanilla like", 2},
+         {"VANILLA_LOOK_TYPE", '0', true, false, "If you prefer to have a look closer to the vanilla one, enable this (the HDR won't be as impactful)\n0-3, from least to most vanilla like", 3},
+         {"BLACK_AND_WHITE", '0', true, false, "", 1},
       };
       shader_defines_data.append_range(game_shader_defines_data);
 
@@ -169,7 +171,6 @@ public:
          {
             ASSERT_ONCE(false);
 
-            std::memcpy(new_code.get(), code, size);
             std::memcpy(new_code.get() + size, appended_patch.data(), appended_patch.size());
 
             size += appended_patch.size();
@@ -201,7 +202,7 @@ public:
       return new_code;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -216,7 +217,7 @@ public:
          native_device_context->PSGetConstantBuffers(luma_data_cbuffer_index, 1, &constant_buffers);
          native_device_context->PSSetConstantBuffers(4, 1, &constant_buffers); // Hardcoded in shader
 #endif
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       if ((stages & reshade::api::shader_stage::pixel) == reshade::api::shader_stage::pixel)
@@ -259,13 +260,18 @@ public:
                   ASSERT_ONCE(hs == nullptr && ds == nullptr && gs == nullptr);
 #endif
 
-                  ASSERT_ONCE(game_device_data.correct_subtractive_blends_frame_count == 0); // If we have more than one per frame, we should make a map of "correct_subtractive_blends_data" by source resource, and then clear it at the end of the frame if it wasn't used. Update: it's fine, there's two but they are both drawing to the same RT.
+                  // If we have more than one per frame, we should make a map of "correct_subtractive_blends_data" by source resource, and then clear it at the end of the frame if it wasn't used. Update: it's fine, there's two but they are both drawing to the same RT.
+                  if (game_device_data.correct_subtractive_blends_frame_count != 0)
+                  {
+                     ASSERT_ONCE(rtv.get() == game_device_data.correct_subtractive_blends_data.original_rv);
+                  }
 
                   D3D11_RENDER_TARGET_VIEW_DESC rtv_desc;
                   rtv->GetDesc(&rtv_desc);
                   const bool ms = rtv_desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2DMS;
                   ASSERT_ONCE(rtv_desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2DMS || rtv_desc.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2D);
 
+                  // Clip all negative values, like vanilla (I tried to clamp to the closest valid luminance instead, but it created weird colors)
                   DrawCustomPixelShaderPass(native_device, native_device_context, rtv.get(), device_data, ms ? Math::CompileTimeStringHash("Copy RGB Max 0 A Sat MS") : Math::CompileTimeStringHash("Copy RGB Max 0 A Sat"), game_device_data.correct_subtractive_blends_data);
                   game_device_data.correct_subtractive_blends_frame_count++;
 
@@ -287,12 +293,12 @@ public:
 #endif
                }
 
-               return true; // We replaced the draw so cancel it
+               return DrawOrDispatchOverrideType::Replaced;
             }
          }
       }
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

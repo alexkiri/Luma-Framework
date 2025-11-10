@@ -398,7 +398,7 @@ public:
       return swapchain_format_upgrade_type > TextureFormatUpgradesType::None && swapchain_upgrade_type == SwapchainUpgradeType::scRGB;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -432,7 +432,7 @@ public:
                }
             }
          }
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // Note: this might happen twice in a frame! But it'd be the same resource.
@@ -448,18 +448,18 @@ public:
             game_device_data.depth = nullptr;
             srv->GetResource(&game_device_data.depth);
          }
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
 #if 0 // TODO: optimize... maybe we could store a flag on whether we are in a menu? We need to run the following checks anyway for AutoHDR etc
       if (!game_device_data.motion_vectors)
       {
-         return false; // Nothing else to do
+         return DrawOrDispatchOverrideType::None; // Nothing else to do
       }
       // This runs fairly late in rendering so most passes have now passed!
       if (!game_device_data.depth)
       {
-         return false; // Nothing else to do
+         return DrawOrDispatchOverrideType::None; // Nothing else to do
       }
 #endif
 
@@ -673,7 +673,7 @@ public:
                      device_data.sr_output_color = nullptr;
                   }
 
-                  return true;
+                  return DrawOrDispatchOverrideType::Replaced;
                }
                else
                {
@@ -685,7 +685,7 @@ public:
                device_data.sr_output_color = nullptr;
             }
          }
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 #endif // ENABLE_SR
 
@@ -711,7 +711,7 @@ public:
                if (sr.get() && rt.get())
                {
                   native_device_context->CopyResource(rt.get(), sr.get());
-                  return true;
+                  return DrawOrDispatchOverrideType::Replaced;
                }
             }
          }
@@ -728,7 +728,7 @@ public:
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
          updated_cbuffers = true;
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 #endif
 
@@ -761,7 +761,7 @@ public:
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
          updated_cbuffers = true;
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       if (original_shader_hashes.Contains(shader_hashes_Tonemap))
@@ -809,7 +809,7 @@ public:
                            native_device_context->PSSetShader(native_ps, nullptr, 0);
                            break;
                         }
-                        return false;
+                        return DrawOrDispatchOverrideType::None;
                      }
 
                      ASSERT_ONCE(false); // We shouldn't really get here, the shader wasn't found?
@@ -924,7 +924,7 @@ public:
             ASSERT_ONCE(lut_conversion_succeeded);
          }
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // This seemengly always draws for the scene, even when there's no scene, or the game is paused, in a menu, video playback etc etc
@@ -999,7 +999,7 @@ public:
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2);
          updated_cbuffers = true;
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       if (original_shader_hashes.Contains(shader_hashes_PostAAPostProcess))
@@ -1012,7 +1012,7 @@ public:
       // NOTE: this will affect the pause menu and possible some fullscreen videos playback too.
       if (game_device_data.has_drawn_tonemap && device_data.has_drawn_main_post_processing && (hide_gameplay_ui || enable_camera_mode))
       {
-         return true;
+         return DrawOrDispatchOverrideType::Skip;
       }
 
       // Unless the user disabled UI through mods, the first fullscreen UI draw adds some unnecessary vignette at the edges of the screen
@@ -1035,13 +1035,13 @@ public:
                if (!game_device_data.has_drawn_ui_pre_vignette)
                {
                   game_device_data.has_drawn_ui_pre_vignette = true;
-                  return false;
+                  return DrawOrDispatchOverrideType::None;
                }
                else
                {
                   // Note: we could verify with the viewport size, bound SRVs and blend state, but it just seems unlikely to trigger false positives
                   game_device_data.has_drawn_ui_vignette = true;
-                  return true; // Skip vignette
+                  return DrawOrDispatchOverrideType::Skip; // Skip vignette
                }
             }
          }
@@ -1126,7 +1126,7 @@ public:
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
          SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
          updated_cbuffers = true;
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // Fix up the 3D UI viewport if it has a mismatching aspect ratio.
@@ -1154,10 +1154,10 @@ public:
             }
          }
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
@@ -1235,6 +1235,7 @@ public:
       cb_luma_global_settings.GameSettings.CameraJitters.y *= -2.f / device_data.render_resolution.y;
       device_data.cb_luma_global_settings_dirty = true;
 
+      if (!custom_texture_mip_lod_bias_offset)
       {
          std::shared_lock shared_lock_samplers(s_mutex_samplers);
          if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && !no_jitters)

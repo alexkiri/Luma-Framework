@@ -200,7 +200,7 @@ public:
       return new_code;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -229,7 +229,7 @@ public:
          {
             game_device_data.is_drawing_transparency = false;
             game_device_data.has_drawn_transparency = true;
-            return false;
+            return DrawOrDispatchOverrideType::None;
          }
          else if (test_index != 17)
          {
@@ -249,7 +249,7 @@ public:
                }
                else
                {
-                  return false;
+                  return DrawOrDispatchOverrideType::None;
                }
 
                // Game rendering is single threaded so we don't need a mutex
@@ -333,7 +333,7 @@ public:
          }
       }
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

@@ -270,7 +270,7 @@ public:
       }
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       // TODO: make a subclass for these games?
       if (game_id == GAME_HOLLOW_KNIGHT_SILKSONG)
@@ -286,7 +286,7 @@ public:
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, custom_data_2, custom_data_3, custom_data_4);
             updated_cbuffers = true;
-            return false;
+            return DrawOrDispatchOverrideType::None;
          }
 
          if (original_shader_hashes.Contains(shader_hashes_UI_VideoDecode))
@@ -298,7 +298,7 @@ public:
                game_device_data.video_texture = nullptr;
                rtv->GetResource(&game_device_data.video_texture); // Note: we need to keep this in memory as the decoding shader only runs every x frames, hopefully it's not re-used for other purposes later but I doubt, it's of a specific size
             }
-            return false;
+            return DrawOrDispatchOverrideType::None;
          }
 
          if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_UI_Sprite))
@@ -315,7 +315,7 @@ public:
                   game_device_data.video_playing = true;
                }
             }
-            return false;
+            return DrawOrDispatchOverrideType::None;
          }
 
          if (is_custom_pass && original_shader_hashes.Contains(shader_hashes_Tonemap))
@@ -328,11 +328,11 @@ public:
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaSettings);
             SetLumaConstantBuffers(native_device_context, cmd_list_data, device_data, stages, LumaConstantBufferType::LumaData, custom_data_1, 0, custom_data_3, custom_data_4);
             updated_cbuffers = true;
-            return false;
+            return DrawOrDispatchOverrideType::None;
          }
       }
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

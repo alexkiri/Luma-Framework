@@ -45,7 +45,7 @@ public:
       luma_data_cbuffer_index = 12; // #w## Update this (find the right value) ###
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
 	   auto& game_device_data = GetGameDeviceData(device_data);
 
@@ -252,7 +252,7 @@ public:
                            "Skipping the TAA draw call ..."
                        );
 
-                       return true;
+                       return DrawOrDispatchOverrideType::Replaced;
                    }
                    else
                    {
@@ -274,7 +274,7 @@ public:
 		   
 
 	   }
-	   return false; // Don't cancel the original draw call
+      return DrawOrDispatchOverrideType::None; // Don't cancel the original draw call
 
    }
 

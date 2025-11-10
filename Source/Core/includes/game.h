@@ -29,9 +29,9 @@ class Game
 public:
    virtual ~Game() = default; // Avoids warnings. Using the destructor is not suggested if not to clear up persistently allocated memory.
 
-   // The mod dll loaded (before init)
+   // The mod dll loaded (before init). Avoid locking mutexes in here.
    virtual void OnLoad(std::filesystem::path& file_path, bool failed = false) {}
-   // The mod initialized
+   // The mod initialized. Avoid locking mutexes in here.
    virtual void OnInit(bool async) {}
    virtual void OnInitDevice(ID3D11Device* native_device, DeviceData& device_data) {}
    virtual void OnInitSwapchain(reshade::api::swapchain* swapchain) {}
@@ -58,7 +58,7 @@ public:
    // Requires "ENABLE_POST_DRAW_CALLBACK" to be enabled, given it has a performance impact.
    // Return true to cancel the original call.
    // Use "original_draw_dispatch_func" to call the original draw/dispatch within your function (you have to cancel it manually if you do so, as that's not tracked). This is useful if you want to add any post draw/dispatch behaviour. "ENABLE_POST_DRAW_CALLBACK" is required for the it to work. Note that some advanced debugging behaviours might conflict if you replace the draw call.
-   virtual bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func = nullptr) { return false; }
+   virtual DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func = nullptr) { return DrawOrDispatchOverrideType::None; }
    // This is called every frame just before sending out the final image to the display (the swapchain).
    // You can reliable reset any per frame setting here.
    virtual void OnPresent(ID3D11Device* native_device, DeviceData& device_data) {}

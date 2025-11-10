@@ -67,12 +67,24 @@ void main(
   r0.z = texture2.Sample(texture2_ss_s, uv.xy).x;
   r0.x = texture0.Sample(texture0_ss_s, uv.xy).x;
   r0.w = 1;
-  r1.y = dot(float4(1.16412354,-0.813476563,-0.391448975,0.529705048), r0.xyzw); // BT.601?
+#if 1 // Luma: fix videos being decoded as BT.601 (full range), instead of BT.709 (full range) // TODO: test some more but it seems obvious
+  r1.xyz = YUVtoRGB(r0.x, r0.y, r0.z, 0);
+#else
+  r1.y = dot(float4(1.16412354,-0.813476563,-0.391448975,0.529705048), r0.xyzw);
   r1.x = dot(float3(1.16412354,1.59579468,-0.87065506), r0.xyw);
   r1.z = dot(float3(1.16412354,2.01782227,-1.08166885), r0.xzw);
+#endif
   r0.xyz = v1.xyz * r1.xyz;
   r0.xyz = g_MiscGroupPS.fs_exposure.xxx * r0.xyz;
   r1.xyz = r0.xyz * r0.xyz;
   o0.xyz = (0 < g_MiscGroupPS.fs_exposure.w) ? r0.xyz : r1.xyz;
   o0.w = v1.w;
+
+  // Luma: add a light AutoHDR pass on videos
+  if (LumaSettings.DisplayMode == 1)
+  {
+    o0.rgb = gamma_to_linear(o0.rgb, GCT_MIRROR);
+    o0.rgb = PumboAutoHDR(o0.rgb, 250.0, LumaSettings.GamePaperWhiteNits);
+    o0.rgb = linear_to_gamma(o0.rgb, GCT_MIRROR);
+  }
 }

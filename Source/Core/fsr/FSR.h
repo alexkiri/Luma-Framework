@@ -2,11 +2,11 @@
 
 #include "../includes/super_resolution.h"
 
-#if defined(_WIN64) && __has_include("../FidelityFX/FidelityFX/host/ffx_fsr3.h")
+#if defined(_WIN64) && __has_include("FidelityFX/host/ffx_fsr3.h")
 #ifndef ENABLE_FIDELITY_SK
 #define ENABLE_FIDELITY_SK 1
 #endif // ENABLE_FIDELITY_SK
-#else
+#elifdef ENABLE_FIDELITY_SK
 #undef ENABLE_FIDELITY_SK
 #define ENABLE_FIDELITY_SK 0
 #endif
@@ -28,6 +28,8 @@ namespace FidelityFX
 		virtual bool UpdateSettings(SR::InstanceData* data, ID3D11DeviceContext* command_list, const SR::SettingsData& settings_data) override;
 
 		virtual bool Draw(const SR::InstanceData* data, ID3D11DeviceContext* command_list, const DrawData& draw_data) override;
+
+      virtual int GetJitterPhases(const SR::InstanceData* data) const;
 	};
 }
 

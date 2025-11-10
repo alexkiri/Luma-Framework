@@ -366,13 +366,29 @@ float3 linear_to_sRGB_gamma(float3 Color, int ClampType = GCT_DEFAULT)
 }
 
 // Optimized gamma<->linear functions (don't use unless really necessary, they are not accurate)
+float sqr_mirrored(float x)
+{
+	return sqr(x) * sign(x);
+}
+float sqrt_mirrored(float x)
+{
+	return sqrt(abs(x)) * sign(x);
+}
+float4 sqr_mirrored(float4 x)
+{
+	return sqr(x) * sign(x);
+}
+float4 sqrt_mirrored(float4 x)
+{
+	return sqrt(abs(x)) * sign(x);
+}
 float3 sqr_mirrored(float3 x)
 {
-	return sqr(x) * sign(x); // LUMA FT: added mirroring to support negative colors
+	return sqr(x) * sign(x);
 }
 float3 sqrt_mirrored(float3 x)
 {
-	return sqrt(abs(x)) * sign(x); // LUMA FT: added mirroring to support negative colors
+	return sqrt(abs(x)) * sign(x);
 }
 
 static const float PQ_constant_M1 =  0.1593017578125f;
@@ -382,7 +398,8 @@ static const float PQ_constant_C2 = 18.8515625f;
 static const float PQ_constant_C3 = 18.6875f;
 
 // PQ (Perceptual Quantizer - ST.2084) encode/decode used for HDR10 BT.2100.
-float3 Linear_to_PQ(float3 LinearColor, int clampType = GCT_DEFAULT)
+// Input is expected to be pre-normalized in 0-1 range, supposedly, but not necessarily in the HDR10 range ("HDR10_MaxWhiteNits").
+float3 Linear_to_PQ(float3 LinearColor, int clampType = GCT_DEFAULT, float Exponent = 1.0)
 {
 	float3 LinearColorSign = sign(LinearColor);
 	if (clampType == GCT_POSITIVE)
@@ -394,13 +411,13 @@ float3 Linear_to_PQ(float3 LinearColor, int clampType = GCT_DEFAULT)
 	float3 colorPow = pow(LinearColor, PQ_constant_M1);
 	float3 numerator = PQ_constant_C1 + PQ_constant_C2 * colorPow;
 	float3 denominator = 1.f + PQ_constant_C3 * colorPow;
-	float3 pq = pow(numerator / denominator, PQ_constant_M2);
+	float3 pq = pow(numerator / denominator, PQ_constant_M2 * Exponent);
 	if (clampType == GCT_MIRROR)
 		return pq * LinearColorSign;
 	return pq;
 }
 
-float3 PQ_to_Linear(float3 ST2084Color, int clampType = GCT_DEFAULT)
+float3 PQ_to_Linear(float3 ST2084Color, int clampType = GCT_DEFAULT, float Exponent = 1.0)
 {
 	float3 ST2084ColorSign = sign(ST2084Color);
 	if (clampType == GCT_POSITIVE)
@@ -409,7 +426,7 @@ float3 PQ_to_Linear(float3 ST2084Color, int clampType = GCT_DEFAULT)
 		ST2084Color = saturate(ST2084Color);
 	else if (clampType == GCT_MIRROR)
 		ST2084Color = abs(ST2084Color);
-	float3 colorPow = pow(ST2084Color, 1.f / PQ_constant_M2);
+	float3 colorPow = pow(ST2084Color, 1.f / (PQ_constant_M2 * Exponent));
 	float3 numerator = max(colorPow - PQ_constant_C1, 0.f);
 	float3 denominator = PQ_constant_C2 - (PQ_constant_C3 * colorPow);
 	float3 linearColor = pow(numerator / denominator, 1.f / PQ_constant_M1);

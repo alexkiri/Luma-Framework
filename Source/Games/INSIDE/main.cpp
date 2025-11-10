@@ -532,7 +532,7 @@ public:
    // pretty much) -Render additive lights -Draw motion vectors for dynamic objects (rest is
    // calculated from the camera I think) -TAA -Bloom and emissive color -Tonemap -Swapchain output
    // (possibly draws black bars)
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = *static_cast<GameDeviceDataINSIDE*>(device_data.game);
 
@@ -751,7 +751,7 @@ public:
          game_device_data.is_drawing_materials = false;
          device_data.has_drawn_main_post_processing = true;
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
       // Update the game's render resolution and texture upgrade aspect ratio filter based on the final swapchain shader, which converts from the render resolution to the output one
@@ -776,10 +776,10 @@ public:
             }
          }
 
-         return false;
+         return DrawOrDispatchOverrideType::None;
       }
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

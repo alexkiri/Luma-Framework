@@ -75,6 +75,7 @@ float3 ApplyLUT(float3 color, Texture3D<float4> _texture, SamplerState _sampler)
     // This is a weird case, because the image is encoded with 2.2, then LUTs interpret that as sRGB and covert it to linear, the swapchain is UNORM_SRGB (linear), and then the display would have linearized with 2.2 again,
     // hence applying LUTs would have cancelled the gamma mismatch from using a sRGB swapchain. However LUTs aren't always applied so sometimes there's a gamma mismatch, and other times there isn't...
     // The best solution is probably to linearize at the end with 2.2 anyway, that's how the game would have looked in SDR, at all times (whether it was good or not).
+    extrapolationSettings.lutSize = 0;
     extrapolationSettings.inputLinear = true;
     extrapolationSettings.lutInputLinear = false;
     extrapolationSettings.lutOutputLinear = true;

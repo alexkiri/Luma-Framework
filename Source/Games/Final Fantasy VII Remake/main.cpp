@@ -548,7 +548,7 @@ public:
 		}
 	}
 
-	bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+	DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
 	{
 		auto& game_device_data = GetGameDeviceData(device_data);
 		// TODO: this seems like an unnecessary check that would only cause problems.
@@ -559,12 +559,12 @@ public:
 		}
 
 		if (!game_device_data.has_drawn_title) {
-			return false;
+         return DrawOrDispatchOverrideType::None;
 		}
 
 		// Nothing more to do after tonemapping
 		if (device_data.has_drawn_main_post_processing) {
-			return false;
+         return DrawOrDispatchOverrideType::None;
 		}
 
 		const bool is_taa = original_shader_hashes.Contains(shader_hashes_TAA);
@@ -575,7 +575,7 @@ public:
 
 		// Nothing to do if TAA isn't enabled
 		if (!game_device_data.has_drawn_taa) {
-			return false;
+         return DrawOrDispatchOverrideType::None;
 		}
 
 		bool is_tonemapping = !is_taa && original_shader_hashes.Contains(shader_hashes_Tonemap);
@@ -591,7 +591,7 @@ public:
 		{
 			if (device_data.native_pixel_shaders[CompileTimeStringHash("Decode MVs")].get() == nullptr) {
 				device_data.force_reset_sr = true;
-				return false;
+            return DrawOrDispatchOverrideType::None;
 			}
 			// 1 depth
 			// 2 current color source
@@ -652,7 +652,7 @@ public:
 				if (dlss_input_resolution[0] > game_device_data.upscaled_render_resolution.x || dlss_input_resolution[1] > game_device_data.upscaled_render_resolution.y)
 				{
 					device_data.force_reset_sr = true;
-					return false;
+               return DrawOrDispatchOverrideType::None;
 				}
 
 				SR::SettingsData settings_data;
@@ -868,7 +868,7 @@ public:
 							device_data.sr_output_color = nullptr;
 						}
 
-						return true;
+						return DrawOrDispatchOverrideType::Replaced;
 					}
 					else
 					{
@@ -903,7 +903,7 @@ public:
 
 #endif // ENABLE_SR
 
-		return false; // Don't cancel the original draw call
+		return DrawOrDispatchOverrideType::None; // Don't cancel the original draw call
 	}
 
 	void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override
@@ -1020,52 +1020,50 @@ public:
 	}
 
 	static void UpdateLODBias(reshade::api::device *device)
-	{
-         DeviceData &device_data = *device->get_private_data<DeviceData>();
-		 auto& game_device_data = GetGameDeviceData(device_data);
+   {
+      DeviceData& device_data = *device->get_private_data<DeviceData>();
+      auto& game_device_data = GetGameDeviceData(device_data);
 
+      if (!custom_texture_mip_lod_bias_offset)
+      {
+         std::shared_lock shared_lock_samplers(s_mutex_samplers);
+
+         const auto prev_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
+         if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
          {
-            std::shared_lock shared_lock_samplers(s_mutex_samplers);
+            device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / game_device_data.upscaled_render_resolution.y) - 1.f; // This results in -1 at output res
+         }
+         else
+         {
+            // Reset to default (our mip offset is additive, so this is neutral)
+            device_data.texture_mip_lod_bias_offset = 0.f;
+         }
+         const auto new_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
 
-            const auto prev_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
-            if (device_data.sr_type != SR::Type::None && !device_data.sr_suppressed && device_data.taa_detected && device_data.cloned_pipeline_count != 0)
+         bool texture_mip_lod_bias_offset_changed = prev_texture_mip_lod_bias_offset != new_texture_mip_lod_bias_offset;
+         // Re-create all samplers immediately here instead of doing it at the end of the frame.
+         // This allows us to avoid possible (but very unlikely) hitches that could happen if we re-created a new sampler for a new resolution later on when samplers descriptors are set.
+         // It also allows us to use the right samplers for this frame's resolution.
+         if (texture_mip_lod_bias_offset_changed)
+         {
+            ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
+            for (auto& samplers_handle : device_data.custom_sampler_by_original_sampler)
             {
-               device_data.texture_mip_lod_bias_offset = std::log2(device_data.render_resolution.y / game_device_data.upscaled_render_resolution.y) - 1.f; // This results in -1 at output res
-            }
-            else
-            {
-               // Reset to best fallback value.
-               // This bias offset replaces the value from the game (see "samplers_upgrade_mode" 5), which was based on the "r_AntialiasingTSAAMipBias" cvar for most textures (it doesn't apply to all the ones that would benefit from it, and still applies to ones that exhibit moire patterns),
-               // but only if TAA was engaged (not SMAA or SMAA+TAA) (it might persist on SMAA after once using TAA, due to a bug).
-               // Prey defaults that to 0 but Luma's configs set it to -1.
-               device_data.texture_mip_lod_bias_offset = device_data.taa_detected ? -1.f : 0.f;
-            }
-            const auto new_texture_mip_lod_bias_offset = device_data.texture_mip_lod_bias_offset;
-
-            bool texture_mip_lod_bias_offset_changed = prev_texture_mip_lod_bias_offset != new_texture_mip_lod_bias_offset;
-            // Re-create all samplers immediately here instead of doing it at the end of the frame.
-            // This allows us to avoid possible (but very unlikely) hitches that could happen if we re-created a new sampler for a new resolution later on when samplers descriptors are set.
-            // It also allows us to use the right samplers for this frame's resolution.
-            if (texture_mip_lod_bias_offset_changed)
-            {
-               ID3D11Device* native_device = (ID3D11Device*)(device->get_native());
-               for (auto& samplers_handle : device_data.custom_sampler_by_original_sampler)
+               if (samplers_handle.second.contains(new_texture_mip_lod_bias_offset))
+                  continue; // Skip "resolutions" that already got their custom samplers created
+               ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(samplers_handle.first);
+               shared_lock_samplers.unlock(); // This is fine!
                {
-                  if (samplers_handle.second.contains(new_texture_mip_lod_bias_offset)) continue; // Skip "resolutions" that already got their custom samplers created
-                  ID3D11SamplerState* native_sampler = reinterpret_cast<ID3D11SamplerState*>(samplers_handle.first);
-                  shared_lock_samplers.unlock(); // This is fine!
-                  {
-                     D3D11_SAMPLER_DESC native_desc;
-                     native_sampler->GetDesc(&native_desc);
-                     com_ptr<ID3D11SamplerState> custom_sampler = CreateCustomSampler(device_data, native_device, native_desc);
-                     const std::unique_lock unique_lock_samplers(s_mutex_samplers);
-                     samplers_handle.second[new_texture_mip_lod_bias_offset] = custom_sampler;
-                  }
-                  shared_lock_samplers.lock();
+                  D3D11_SAMPLER_DESC native_desc;
+                  native_sampler->GetDesc(&native_desc);
+                  com_ptr<ID3D11SamplerState> custom_sampler = CreateCustomSampler(device_data, native_device, native_desc);
+                  const std::unique_lock unique_lock_samplers(s_mutex_samplers);
+                  samplers_handle.second[new_texture_mip_lod_bias_offset] = custom_sampler;
                }
+               shared_lock_samplers.lock();
             }
          }
-
+      }
 	}
 
 	static void OnMapBufferRegion(reshade::api::device* device, reshade::api::resource resource, uint64_t offset, uint64_t size, reshade::api::map_access access, void** data)

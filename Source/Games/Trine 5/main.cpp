@@ -192,7 +192,7 @@ public:
       device_data.game = new GameDeviceDataTrine5;
    }
 
-   bool OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
+   DrawOrDispatchOverrideType OnDrawOrDispatch(ID3D11Device* native_device, ID3D11DeviceContext* native_device_context, CommandListData& cmd_list_data, DeviceData& device_data, reshade::api::shader_stage stages, const ShaderHashesList<OneShaderPerPipeline>& original_shader_hashes, bool is_custom_pass, bool& updated_cbuffers, std::function<void()>* original_draw_dispatch_func) override
    {
       auto& game_device_data = GetGameDeviceData(device_data);
       auto game_device_data_prev = game_device_data;
@@ -279,7 +279,7 @@ public:
 #if DEVELOPMENT
          if (game_device_data.skip_sharpen)
          {
-            return true;
+            return DrawOrDispatchOverrideType::Skip;
          }
 #endif
          if (game_device_data.upgraded_post_process_srv.get())
@@ -319,7 +319,7 @@ public:
 #if SKIP_SHARPEN_TYPE >= 1
                native_device_context->CopyResource(target_resource.get(), game_device_data.upgraded_post_process_texture.get() ? game_device_data.upgraded_post_process_texture.get() : source_resource.get());
 #endif
-               return true;
+               return DrawOrDispatchOverrideType::Skip;
             }
             else
             {
@@ -342,7 +342,7 @@ public:
 		original_shader_hashes2 = original_shader_hashes;
 #endif
 
-      return false;
+      return DrawOrDispatchOverrideType::None;
    }
 
    void OnPresent(ID3D11Device* native_device, DeviceData& device_data) override

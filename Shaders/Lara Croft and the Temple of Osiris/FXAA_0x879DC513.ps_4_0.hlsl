@@ -61,7 +61,7 @@ void main(
   r1.xyz = r1.xyz + r3.xyz;
   r2.xyz = r1.xyz * float3(0.25,0.25,0.25) + r2.xyz;
   r1.xyz = float3(0.5,0.5,0.5) * r1.xyz;
-  r1.w = dot(r2.xyz, float3(0.298999995,0.587000012,0.114));
+  r1.w = GetLuminance(r2.xyz);
   r2.w = min(r0.x, r0.w);
   r0.x = max(r0.x, r0.w);
   r0.w = min(r0.y, r0.z);
@@ -71,7 +71,7 @@ void main(
   r3.xy = (int2)v0.xy;
   r3.zw = float2(0,0);
   r3.xyzw = colorBuffer.Load(r3.xyz).xyzw;
-  r0.z = dot(r3.xyz, float3(0.298999995,0.587000012,0.114));
+  r0.z = GetLuminance(r3.xyz);
   o0.w = r3.w;
   r0.y = min(r0.z, r0.y);
   r0.x = max(r0.z, r0.x);

@@ -135,10 +135,10 @@ float3 ApplyLUT(float3 color, float3 sdrColor, Texture3D<float4> _texture, Sampl
   extrapolationData.vanillaInputColor = sdrColor / vanillaCompressionRatio; // Nicely compress back to 1 to fit the LUT
   
   LUTExtrapolationSettings extrapolationSettings = DefaultLUTExtrapolationSettings();
+  extrapolationSettings.lutSize = 0; // 32... it probably doesn't ever change but let it be automatically determined
 #if DEVELOPMENT && 0 // Seems like there's no bad hue shifts in the game (we now have "LumaSettings.GameSettings.OriginalTonemapperColorIntensity" anyway)
   extrapolationSettings.enableExtrapolation = DVS1 <= 0.0;
 #endif
-  //extrapolationSettings.lutSize = 32; // It probably doesn't ever change but let it be automatically determined
   extrapolationSettings.inputLinear = true;
   extrapolationSettings.lutInputLinear = false;
   extrapolationSettings.lutOutputLinear = false;
