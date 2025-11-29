@@ -139,14 +139,11 @@ constexpr bool OneShaderPerPipeline = true;
 #define SKIP_UNSUPPORTED_DEVICE_API(api, ...)                              \
    do {                                                                    \
       if (!IsSupportedGraphicsAPI(api)) {                                  \
-         if constexpr (sizeof(__VA_ARGS__) > 0)                            \
-            return __VA_ARGS__;                                            \
-         else                                                              \
-            return;                                                        \
+         return __VA_OPT__(__VA_ARGS__);                                   \
       }                                                                    \
    } while (0)
 #else
-#define SKIP_UNSUPPORTED_DEVICE_API(api, ...) ((void)0)
+#define SKIP_UNSUPPORTED_DEVICE_API(api, ...) do { (void)0; } while (0)
 #endif
 
 // Depends on "DEVELOPMENT"
@@ -531,6 +528,13 @@ namespace
       { CompileTimeStringHash("Unclip LUT 2D"), { "Luma_UnclipLUT2D", reshade::api::pipeline_subobject_type::compute_shader } },
       { CompileTimeStringHash("Unclip LUT 1D"), { "Luma_UnclipLUT1D", reshade::api::pipeline_subobject_type::compute_shader } },
 #endif
+
+      { CompileTimeStringHash("SMAA Edge Detection VS"), { "Luma_SMAA_impl", reshade::api::pipeline_subobject_type::vertex_shader, nullptr, "smaa_edge_detection_vs" } },
+      { CompileTimeStringHash("SMAA Edge Detection PS"), { "Luma_SMAA_impl", reshade::api::pipeline_subobject_type::pixel_shader, nullptr, "smaa_edge_detection_ps" } },
+      { CompileTimeStringHash("SMAA Blending Weight Calculation VS"), { "Luma_SMAA_impl", reshade::api::pipeline_subobject_type::vertex_shader, nullptr, "smaa_blending_weight_calculation_vs" } },
+      { CompileTimeStringHash("SMAA Blending Weight Calculation PS"), { "Luma_SMAA_impl", reshade::api::pipeline_subobject_type::pixel_shader, nullptr, "smaa_blending_weight_calculation_ps" } },
+      { CompileTimeStringHash("SMAA Neighborhood Blending VS"), { "Luma_SMAA_impl", reshade::api::pipeline_subobject_type::vertex_shader, nullptr, "smaa_neighborhood_blending_vs" } },
+      { CompileTimeStringHash("SMAA Neighborhood Blending PS"), { "Luma_SMAA_impl", reshade::api::pipeline_subobject_type::pixel_shader, nullptr, "smaa_neighborhood_blending_ps" } },
    };
 
    // TODO: make the data in these a unique ptr for easier handling, and the shader binary data contained inside of "CachedShader" too.
@@ -581,7 +585,7 @@ namespace
 #if DEVELOPMENT
        {"TEST_2X_ZOOM", '0', true, false, "Allows you to zoom in into the film image center to better analyze it", 1},
 #endif
-       {"TEST_SDR_HDR_SPLIT_VIEW_MODE", '0', true, false, "Allows you to clamp to SDR on a portion of the screen, to run quick comparisons between SDR and HDR\n(note that the tonemapper might still run in HDR mode and thus clip further than it would have had in SDR)", 1},
+       {"TEST_SDR_HDR_SPLIT_VIEW_MODE", '0', true, false, "Allows you to clamp to SDR on a portion of the screen, to run quick comparisons between SDR and HDR\n(note that the tonemapper might still run in HDR mode and thus clip further than it would have had in SDR)", 4},
        {"TEST_SDR_HDR_SPLIT_VIEW_MODE_NATIVE_IMPL", '0', true, DEVELOPMENT ? false : true, "Tells whether \"TEST_SDR_HDR_SPLIT_VIEW_MODE\" is natively implemented in the game's tonemapper, outputting some SDR and some HDR, or if it's not and we are simply clipping to SDR at the very end", 1},
    };
 
@@ -2482,7 +2486,7 @@ namespace
 
    bool OnCreateSwapchain(reshade::api::device_api api, reshade::api::swapchain_desc& desc, void* hwnd)
    {
-      SKIP_UNSUPPORTED_DEVICE_API(device->get_api(), false);
+      SKIP_UNSUPPORTED_DEVICE_API(api, false);
 
       // There's only one swapchain so it's fine if this is global ("OnInitSwapchain()" will always be called later anyway)
       bool changed = false;
@@ -2901,7 +2905,7 @@ namespace
 
    bool OnSetFullscreenState(reshade::api::swapchain* swapchain, bool fullscreen, void* hmonitor)
    {
-      SKIP_UNSUPPORTED_DEVICE_API(swapchain->get_device()->get_api(), false);
+      SKIP_UNSUPPORTED_DEVICE_API(swapchain->get_device()->get_api(), false); // Not exactly needed here...
 
       // Center the window in case it stayed where it was
       if (prevent_fullscreen_state && (fullscreen || force_borderless)) // TODO: test with Mafia 3 and BS2 if actually needed
@@ -7494,7 +7498,7 @@ namespace
 
    bool OnUpdateBufferRegion(reshade::api::device* device, const void* data, reshade::api::resource resource, uint64_t offset, uint64_t size)
    {
-      SKIP_UNSUPPORTED_DEVICE_API(cmd_list->get_device()->get_api(), false);
+      SKIP_UNSUPPORTED_DEVICE_API(device->get_api(), false);
       return OnUpdateBufferRegionCommand_Common(device, nullptr, data, resource, offset, size);
    }
 #endif // DEVELOPMENT
@@ -8486,7 +8490,7 @@ namespace
 
    bool OnReShadeSetEffectsState(reshade::api::effect_runtime* runtime, bool enabled)
    {
-      SKIP_UNSUPPORTED_DEVICE_API(runtime->get_device()->get_api());
+      SKIP_UNSUPPORTED_DEVICE_API(runtime->get_device()->get_api(), false);
 
 #if DEVELOPMENT || TEST
       if (reshade_effects_toggle_to_display_mode_toggle)
@@ -11820,7 +11824,7 @@ namespace
                display_mode_max++; // Add "SDR in HDR for HDR" mode
 #endif
             }
-#if !HIDE_DISPLAY_MODE && !DISABLE_DISPLAY_COMPOSITION
+#if !HIDE_DISPLAY_MODE
             ImGui::BeginDisabled(!hdr_supported_display);
             if (ImGui::SliderInt("Display Mode", reinterpret_cast<int*>(&display_mode), 0, display_mode_max, display_mode_preset_strings[(size_t)display_mode], ImGuiSliderFlags_NoInput))
             {
@@ -11854,7 +11858,7 @@ namespace
 #endif // !HIDE_DISPLAY_MODE || DISABLE_DISPLAY_COMPOSITION
             const bool mod_active = IsModActive(device_data);
             const bool has_separate_ui_paper_white = GetShaderDefineCompiledNumericalValue(UI_DRAW_TYPE_HASH) >= 1;
-#if !DISABLE_DISPLAY_COMPOSITION
+#if !HIDE_BRIGHTNESS_SETTINGS
             if (display_mode == DisplayModeType::HDR)
             {
                ImGui::BeginDisabled(!mod_active);
